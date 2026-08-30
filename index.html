@@ -5,7 +5,6 @@
   <title>East Asia 1-Month Trip Planner & Live Navigator</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   
-  <!-- Leaflet CSS & Routing Machine CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
   
@@ -99,7 +98,7 @@
     /* Search Bar Overlay */
     .search-container {
       background: white;
-      padding: 6px 12px;
+      padding: 8px 12px;
       display: flex;
       gap: 6px;
       border-bottom: 1px solid var(--border);
@@ -107,7 +106,7 @@
     }
     .search-input {
       flex: 1;
-      padding: 7px 12px;
+      padding: 8px 14px;
       border: 1px solid var(--border);
       border-radius: 20px;
       font-size: 0.88rem;
@@ -117,7 +116,7 @@
       background: var(--primary);
       color: white;
       border: none;
-      padding: 7px 14px;
+      padding: 8px 16px;
       border-radius: 20px;
       font-size: 0.82rem;
       font-weight: bold;
@@ -133,7 +132,7 @@
     }
     #map { height: 100%; width: 100%; }
 
-    /* FIXED COMPASS HEADING CONE (Pointing Forward) */
+    /* Compass Heading Cone */
     .user-heading-container {
       position: relative;
       width: 40px;
@@ -371,7 +370,6 @@
       font-size: 0.85rem;
     }
     
-    /* Hide Leaflet Routing Machine raw box to keep map clean */
     .leaflet-routing-container {
       background: rgba(255, 255, 255, 0.95);
       padding: 8px 12px;
@@ -384,7 +382,6 @@
 </head>
 <body>
 
-  <!-- Top Time HUD with Real-time Seconds -->
   <header>
     <div class="time-hud">
       <div class="time-badge">🗽 NYC: <span id="time-nyc">--:--:--</span></div>
@@ -392,24 +389,20 @@
     </div>
     <div class="header-controls">
       <select id="daySelector" onchange="renderDay(this.value)">
-        <!-- Populated by JS -->
-      </select>
+        </select>
       <button class="gps-btn" id="gpsBtn" onclick="toggleGPS()">🧭 Compass & GPS</button>
     </div>
   </header>
 
-  <!-- Live Search Bar for Food, Drinks & Spots -->
   <div class="search-container">
-    <input type="text" id="searchInput" class="search-input" placeholder="🔍 Search nearby (e.g. ramen, boba, coffee, 7-Eleven)..." onkeypress="if(event.key==='Enter') searchNearby()">
+    <input type="text" id="searchInput" class="search-input" placeholder="🔍 Search (e.g. coffee, starbucks, ramen, boba, 7-eleven)..." onkeypress="if(event.key==='Enter') searchNearby()">
     <button class="search-btn" onclick="searchNearby()">Find</button>
   </div>
 
-  <!-- Interactive Map Viewport -->
   <div id="map-container">
     <div id="map"></div>
   </div>
 
-  <!-- Tab Navigation -->
   <div class="tab-bar">
     <button class="tab-btn active" onclick="switchTab('itinerary')">📅 Itinerary & Transit</button>
     <button class="tab-btn" onclick="switchTab('currency')">💱 Currency</button>
@@ -417,14 +410,11 @@
     <button class="tab-btn" onclick="switchTab('budget')">💰 Budget</button>
   </div>
 
-  <!-- TAB 1: Itinerary & Step-by-Step Directions -->
   <div class="tab-content active" id="tab-itinerary">
     <div class="card" id="day-summary">
-      <!-- Populated dynamically -->
-    </div>
+      </div>
   </div>
 
-  <!-- TAB 2: Multi-Currency Calculator -->
   <div class="tab-content" id="tab-currency">
     <div class="card">
       <h2>💱 Instant Converter</h2>
@@ -464,17 +454,14 @@
     </div>
   </div>
 
-  <!-- TAB 3: Pocket Phrasebook with Audio -->
   <div class="tab-content" id="tab-phrases">
     <div class="card">
       <h2 id="phrases-header">🗣️ Daily Survival Phrases</h2>
       <div class="phrase-list" id="phrases-container">
-        <!-- Injected based on current country -->
-      </div>
+        </div>
     </div>
   </div>
 
-  <!-- TAB 4: Trip Budget & Expense Logger -->
   <div class="tab-content" id="tab-budget">
     <div class="card">
       <h2>💰 Budget Tracker ($4,000 / Person Cap)</h2>
@@ -494,12 +481,10 @@
       </div>
 
       <div id="expense-list">
-        <!-- Logged expenses -->
-      </div>
+        </div>
     </div>
   </div>
 
-  <!-- Leaflet JS & Routing Plugin -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
   
@@ -1088,13 +1073,12 @@
       renderPhrases(day.country);
     }
 
-    // In-App Leaflet Routing Navigation
+    // In-App Leaflet Routing Navigation (No Alert Popups)
     function routeToDestination(destLat, destLng, destName) {
       if (routingControl) {
         map.removeControl(routingControl);
       }
 
-      // Origin defaults to User Live GPS if active, otherwise hotel
       let origin = currentUserLatLng;
       if (!origin) {
         const currentDayKey = document.getElementById('daySelector').value || 'd2';
@@ -1116,52 +1100,107 @@
       }).addTo(map);
 
       map.flyTo([destLat, destLng], 15);
-      alert(`🧭 Navigating to: ${destName}\nTurn-by-turn routing rendered on the map!`);
     }
 
-    // Live Spatial Search (Overpass / OpenStreetMap API)
+    // Upgraded Smart Spatial Search (Overpass Turbo POI Engine)
     async function searchNearby() {
-      const query = document.getElementById('searchInput').value.trim();
+      const query = document.getElementById('searchInput').value.trim().toLowerCase();
       if (!query) return;
 
       const center = map.getCenter();
       searchLayer.clearLayers();
 
-      const osmUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&viewbox=${center.lng - 0.04},${center.lat + 0.04},${center.lng + 0.04},${center.lat - 0.04}&bounded=1&limit=10`;
+      const btn = document.querySelector('.search-btn');
+      btn.innerText = '...';
+
+      let overpassFilter = '';
+      let markerEmoji = '📍';
+
+      if (query.includes('coffee') || query.includes('cafe') || query.includes('starbucks') || query.includes('luckin')) {
+        overpassFilter = 'node["amenity"="cafe"](around:2500,' + center.lat + ',' + center.lng + ');';
+        markerEmoji = '☕';
+      } else if (query.includes('ramen') || query.includes('noodle') || query.includes('food') || query.includes('restaurant') || query.includes('dinner')) {
+        overpassFilter = 'node["amenity"="restaurant"](around:2500,' + center.lat + ',' + center.lng + ');';
+        markerEmoji = '🍜';
+      } else if (query.includes('boba') || query.includes('tea')) {
+        overpassFilter = 'node["shop"="tea"](around:2500,' + center.lat + ',' + center.lng + ');node["amenity"="cafe"](around:2500,' + center.lat + ',' + center.lng + ');';
+        markerEmoji = '🧋';
+      } else if (query.includes('7-eleven') || query.includes('mart') || query.includes('convenience') || query.includes('lawson') || query.includes('familymart')) {
+        overpassFilter = 'node["shop"="convenience"](around:2500,' + center.lat + ',' + center.lng + ');';
+        markerEmoji = '🏪';
+      } else if (query.includes('bar') || query.includes('pub') || query.includes('beer') || query.includes('izakaya')) {
+        overpassFilter = 'node["amenity"="bar"](around:2500,' + center.lat + ',' + center.lng + ');node["amenity"="pub"](around:2500,' + center.lat + ',' + center.lng + ');';
+        markerEmoji = '🍺';
+      } else {
+        overpassFilter = 'node["name"~"' + query + '",i](around:3500,' + center.lat + ',' + center.lng + ');';
+        markerEmoji = '📍';
+      }
+
+      const overpassQuery = '[out:json][timeout:15];(' + overpassFilter + ');out body 25;';
+      const url = 'https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(overpassQuery);
 
       try {
-        const res = await fetch(osmUrl);
+        const res = await fetch(url);
         const data = await res.json();
+        btn.innerText = 'Find';
 
-        if (data.length === 0) {
-          alert(`No "${query}" spots found in this immediate map area. Try panning or zooming out.`);
+        if (!data.elements || data.elements.length === 0) {
+          // Fallback to nominatim if overpass returns nothing
+          const osmUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&viewbox=${center.lng - 0.05},${center.lat + 0.05},${center.lng + 0.05},${center.lat - 0.05}&bounded=1&limit=15`;
+          const fallbackRes = await fetch(osmUrl);
+          const fallbackData = await fallbackRes.json();
+
+          if (fallbackData.length === 0) {
+            alert(`No spots found for "${query}" right here. Try zooming out or moving the map.`);
+            return;
+          }
+
+          fallbackData.forEach((item) => {
+            const lat = parseFloat(item.lat);
+            const lon = parseFloat(item.lon);
+            const searchIcon = L.divIcon({
+              className: 'search-marker-dot',
+              html: `<div style="background:#e65100; color:white; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:0.85rem; border:2px solid white; box-shadow:0 0 6px rgba(0,0,0,0.5);">${markerEmoji}</div>`,
+              iconSize: [24, 24],
+              iconAnchor: [12, 12]
+            });
+
+            L.marker([lat, lon], { icon: searchIcon }).addTo(searchLayer)
+              .bindPopup(`
+                <b>${item.display_name.split(',')[0]}</b><br>
+                <div style="font-size:0.8rem; color:#666;">${item.display_name.split(',').slice(1,3).join(',')}</div>
+                <div style="margin-top:6px;">
+                  <button class="btn-action nav-inapp" onclick="routeToDestination(${lat}, ${lon}, '${item.display_name.split(',')[0]}')">🧭 Route Here</button>
+                </div>
+              `).openPopup();
+          });
+          map.setView([parseFloat(fallbackData[0].lat), parseFloat(fallbackData[0].lon)], 14);
           return;
         }
 
-        data.forEach((item, idx) => {
-          const lat = parseFloat(item.lat);
-          const lon = parseFloat(item.lon);
-
+        data.elements.forEach((el) => {
+          const name = el.tags.name || el.tags['name:en'] || query.toUpperCase();
+          const cuisine = el.tags.cuisine ? ` (${el.tags.cuisine})` : '';
           const searchIcon = L.divIcon({
             className: 'search-marker-dot',
-            html: `<div style="background:#e65100; color:white; border-radius:50%; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:0.75rem; font-weight:bold; border:2px solid white; box-shadow:0 0 6px rgba(0,0,0,0.5);">🍜</div>`,
-            iconSize: [22, 22],
-            iconAnchor: [11, 11]
+            html: `<div style="background:#e65100; color:white; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:0.85rem; border:2px solid white; box-shadow:0 0 6px rgba(0,0,0,0.5);">${markerEmoji}</div>`,
+            iconSize: [24, 24],
+            iconAnchor: [12, 12]
           });
 
-          L.marker([lat, lon], { icon: searchIcon }).addTo(searchLayer)
+          L.marker([el.lat, el.lon], { icon: searchIcon }).addTo(searchLayer)
             .bindPopup(`
-              <b>${item.display_name.split(',')[0]}</b><br>
-              <div style="font-size:0.8rem; color:#666;">${item.display_name}</div>
+              <b>${name}</b>${cuisine}<br>
               <div style="margin-top:6px;">
-                <button class="btn-action nav-inapp" onclick="routeToDestination(${lat}, ${lon}, '${item.display_name.split(',')[0]}')">🧭 Route Here</button>
+                <button class="btn-action nav-inapp" onclick="routeToDestination(${el.lat}, ${el.lon}, '${name}')">🧭 Route Here</button>
               </div>
-            `).openPopup();
+            `);
         });
 
-        map.setView([parseFloat(data[0].lat), parseFloat(data[0].lon)], 14);
+        map.setView([data.elements[0].lat, data.elements[0].lon], 14);
       } catch (err) {
-        alert("Search failed. Check your internet connection.");
+        btn.innerText = 'Find';
+        alert("Search timed out. Please try again in a few seconds.");
       }
     }
 
