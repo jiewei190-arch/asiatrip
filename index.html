@@ -2,33 +2,61 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>East Asia 1-Month Trip Planner & Live GPS Navigator</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>East Asia 1-Month Trip Planner & Live Navigator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  
   <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  
   <style>
+    :root {
+      --primary: #1a73e8;
+      --primary-dark: #0d47a1;
+      --accent-green: #34a853;
+      --accent-orange: #e65100;
+      --bg: #f8f9fa;
+      --card-bg: #ffffff;
+      --text: #202124;
+      --text-muted: #5f6368;
+      --border: #dadce0;
+    }
+    
+    * { box-sizing: border-box; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       margin: 0;
       padding: 0;
-      background: #f4f6f9;
-      color: #333;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-tap-highlight-color: transparent;
     }
+
+    /* Top HUD */
     header {
-      background: #1a73e8;
+      background: #1e293b;
       color: white;
-      padding: 12px 16px;
+      padding: 10px 16px;
       display: flex;
       flex-wrap: wrap;
       justify-content: space-between;
       align-items: center;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-      gap: 10px;
+      gap: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+      position: sticky;
+      top: 0;
+      z-index: 1000;
     }
-    h1 {
-      margin: 0;
-      font-size: 1.1rem;
+
+    .time-hud {
+      display: flex;
+      gap: 12px;
+      font-size: 0.8rem;
+      background: rgba(255,255,255,0.1);
+      padding: 4px 10px;
+      border-radius: 20px;
     }
+    .time-badge b { color: #60a5fa; }
+
     .header-controls {
       display: flex;
       gap: 8px;
@@ -37,162 +65,385 @@
       justify-content: space-between;
     }
     @media (min-width: 600px) {
-      .header-controls {
-        width: auto;
-      }
+      .header-controls { width: auto; }
     }
+
     select {
-      padding: 8px 10px;
+      padding: 8px 12px;
       font-size: 0.9rem;
-      border-radius: 6px;
-      border: 1px solid #ccc;
+      border-radius: 8px;
+      border: 1px solid var(--border);
       background: white;
       font-weight: 600;
       cursor: pointer;
       flex: 1;
-      max-width: 280px;
+      max-width: 320px;
     }
+
     .gps-btn {
-      background: #34a853;
+      background: var(--accent-green);
       color: white;
       border: none;
       padding: 8px 14px;
-      font-size: 0.9rem;
+      font-size: 0.85rem;
       font-weight: bold;
-      border-radius: 6px;
+      border-radius: 8px;
       cursor: pointer;
       display: flex;
       align-items: center;
       gap: 4px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
     }
-    .gps-btn:active {
-      background: #2d8e47;
-    }
+    .gps-btn.active { background: #d93025; }
+
+    /* Map Viewport */
     #map-container {
       position: relative;
-      height: 48vh;
+      height: 44vh;
       width: 100%;
-      border-bottom: 2px solid #ddd;
+      border-bottom: 2px solid var(--border);
     }
-    #map {
-      height: 100%;
-      width: 100%;
+    #map { height: 100%; width: 100%; }
+
+    /* Custom Compass / Heading Marker */
+    .user-heading-container {
+      position: relative;
+      width: 40px;
+      height: 40px;
     }
-    .details-panel {
+    .user-cone {
+      position: absolute;
+      top: -20px;
+      left: -20px;
+      width: 80px;
+      height: 80px;
+      background: radial-gradient(circle at 50% 100%, rgba(26, 115, 232, 0.45) 0%, rgba(26, 115, 232, 0) 70%);
+      clip-path: polygon(50% 100%, 15% 0%, 85% 0%);
+      transform-origin: 50% 100%;
+      pointer-events: none;
+      transition: transform 0.1s ease-out;
+    }
+    .user-dot {
+      position: absolute;
+      top: 13px;
+      left: 13px;
+      width: 14px;
+      height: 14px;
+      background: #1a73e8;
+      border: 3px solid white;
+      border-radius: 50%;
+      box-shadow: 0 0 8px rgba(0,0,0,0.5);
+    }
+
+    /* Tabbed Sections */
+    .tab-bar {
+      display: flex;
+      background: white;
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 50px;
+      z-index: 999;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 10px 4px;
+      border: none;
+      background: transparent;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      text-align: center;
+    }
+    .tab-btn.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+      background: #f1f5f9;
+    }
+
+    .tab-content {
+      display: none;
       padding: 16px;
       max-width: 900px;
       margin: 0 auto;
     }
+    .tab-content.active { display: block; }
+
+    /* Cards */
     .card {
-      background: white;
-      border-radius: 10px;
+      background: var(--card-bg);
+      border-radius: 12px;
       padding: 16px;
-      margin-bottom: 14px;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      margin-bottom: 16px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+      border: 1px solid #eef0f2;
     }
     .card h2 {
       margin-top: 0;
-      font-size: 1.2rem;
-      color: #1a73e8;
+      font-size: 1.15rem;
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
+
     .step-item {
       display: flex;
       margin-bottom: 14px;
       align-items: flex-start;
-      border-bottom: 1px solid #f0f0f0;
+      border-bottom: 1px solid #f1f3f4;
       padding-bottom: 12px;
     }
-    .step-item:last-child {
-      border-bottom: none;
-      padding-bottom: 0;
-    }
+    .step-item:last-child { border-bottom: none; }
     .step-badge {
-      background: #1a73e8;
+      background: var(--primary);
       color: white;
       border-radius: 50%;
-      width: 26px;
-      height: 26px;
+      width: 24px;
+      height: 24px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       font-weight: bold;
       margin-right: 12px;
       flex-shrink: 0;
     }
-    .step-badge.hotel {
-      background: #e65100;
+    .step-badge.hotel { background: var(--accent-orange); }
+
+    .step-content { flex: 1; }
+    .step-time { font-size: 0.8rem; color: var(--text-muted); font-weight: bold; }
+    .step-title { font-size: 0.95rem; font-weight: bold; margin: 2px 0; }
+    .step-desc { font-size: 0.88rem; color: #444; }
+
+    .action-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 6px;
     }
-    .step-content {
-      flex: 1;
-    }
-    .step-time {
-      font-size: 0.82rem;
-      color: #666;
-      font-weight: bold;
-    }
-    .step-title {
-      font-size: 0.98rem;
-      font-weight: bold;
-      margin: 2px 0;
-    }
-    .gmaps-link {
+    .btn-action {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      margin-top: 6px;
-      padding: 4px 10px;
+      padding: 5px 10px;
       background: #f1f3f4;
-      color: #1a73e8;
+      color: var(--primary-dark);
       text-decoration: none;
-      font-size: 0.82rem;
+      font-size: 0.78rem;
       font-weight: 600;
-      border-radius: 4px;
-      border: 1px solid #dadce0;
+      border-radius: 6px;
+      border: 1px solid var(--border);
     }
-    .gmaps-link:hover {
-      background: #e8f0fe;
+    .btn-action.ticket {
+      background: #e6f4ea;
+      color: #137333;
+      border-color: #ceead6;
     }
-    .step-transit {
-      background: #eef4ff;
-      border-left: 3px solid #1a73e8;
-      padding: 8px 12px;
-      font-size: 0.88rem;
-      border-radius: 0 4px 4px 0;
+
+    /* Live Transit Info Box */
+    .transit-live-box {
+      background: #eff6ff;
+      border-left: 4px solid var(--primary);
+      padding: 12px;
+      border-radius: 0 8px 8px 0;
       margin-top: 10px;
-      color: #0d47a1;
-      line-height: 1.4;
+      font-size: 0.88rem;
     }
-    .user-location-dot {
-      background-color: #007aff;
-      border: 3px solid white;
+    .live-frequency {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: bold;
+      color: var(--primary-dark);
+      margin-bottom: 4px;
+    }
+
+    /* Currency Widget */
+    .currency-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .currency-card {
+      background: #f8fafc;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      text-align: center;
+    }
+    .currency-card .label { font-size: 0.75rem; color: var(--text-muted); font-weight: bold; }
+    .currency-card .val { font-size: 1.25rem; font-weight: bold; color: var(--primary); margin: 4px 0; }
+    .preset-btns { display: flex; gap: 6px; margin-top: 12px; }
+    .preset-btn {
+      flex: 1;
+      padding: 6px;
+      border: 1px solid var(--border);
+      background: white;
+      border-radius: 6px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    /* Phrases Widget */
+    .phrase-list { display: flex; flex-direction: column; gap: 8px; }
+    .phrase-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #f8fafc;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .phrase-native { font-size: 1.05rem; font-weight: bold; }
+    .phrase-rom { font-size: 0.8rem; color: var(--text-muted); }
+    .phrase-eng { font-size: 0.85rem; font-weight: 500; }
+    .speak-btn {
+      background: var(--primary);
+      color: white;
+      border: none;
       border-radius: 50%;
-      width: 14px;
-      height: 14px;
-      box-shadow: 0 0 10px rgba(0,122,255,0.8);
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    /* Budget Logger */
+    .budget-bar-wrap {
+      background: #e2e8f0;
+      height: 12px;
+      border-radius: 6px;
+      overflow: hidden;
+      margin: 10px 0;
+    }
+    .budget-bar-fill {
+      height: 100%;
+      background: var(--accent-green);
+      width: 0%;
+      transition: width 0.3s;
+    }
+    .expense-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #f1f3f4;
+      font-size: 0.85rem;
     }
   </style>
 </head>
 <body>
 
+  <!-- Top Time HUD -->
   <header>
-    <h1>🗺️ Asia Tour Navigator</h1>
+    <div class="time-hud">
+      <div class="time-badge">🗽 NYC: <span id="time-nyc">--:--</span></div>
+      <div class="time-badge">🌏 Local: <b id="time-local">--:--</b></div>
+    </div>
     <div class="header-controls">
       <select id="daySelector" onchange="renderDay(this.value)">
-        <!-- Populated dynamically by JS -->
+        <!-- Populated by JS -->
       </select>
-      <button class="gps-btn" onclick="toggleGPS()">📍 Find Me</button>
+      <button class="gps-btn" id="gpsBtn" onclick="toggleGPS()">🧭 Compass & GPS</button>
     </div>
   </header>
 
+  <!-- Interactive Map Viewport -->
   <div id="map-container">
     <div id="map"></div>
   </div>
 
-  <div class="details-panel">
+  <!-- Tab Navigation -->
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('itinerary')">📅 Itinerary & Transit</button>
+    <button class="tab-btn" onclick="switchTab('currency')">💱 Currency</button>
+    <button class="tab-btn" onclick="switchTab('phrases')">🗣️ Phrases</button>
+    <button class="tab-btn" onclick="switchTab('budget')">💰 Budget</button>
+  </div>
+
+  <!-- TAB 1: Itinerary & Step-by-Step Directions -->
+  <div class="tab-content active" id="tab-itinerary">
     <div class="card" id="day-summary">
-      <!-- Populated dynamically by JS -->
+      <!-- Populated dynamically -->
+    </div>
+  </div>
+
+  <!-- TAB 2: Multi-Currency Calculator -->
+  <div class="tab-content" id="tab-currency">
+    <div class="card">
+      <h2>💱 Instant Converter</h2>
+      <label style="font-size:0.85rem; font-weight:bold;">Enter Amount (USD $):</label>
+      <input type="number" id="usdInput" value="20" style="width:100%; padding:10px; font-size:1.1rem; border:1px solid var(--border); border-radius:6px; margin:6px 0;" oninput="updateCurrency(this.value)">
+      
+      <div class="preset-btns">
+        <button class="preset-btn" onclick="setUSD(5)">$5</button>
+        <button class="preset-btn" onclick="setUSD(10)">$10</button>
+        <button class="preset-btn" onclick="setUSD(20)">$20</button>
+        <button class="preset-btn" onclick="setUSD(50)">$50</button>
+        <button class="preset-btn" onclick="setUSD(100)">$100</button>
+      </div>
+
+      <div class="currency-grid">
+        <div class="currency-card">
+          <div class="label">🇰🇷 KOREAN WON</div>
+          <div class="val" id="val-krw">₩27,000</div>
+          <div style="font-size:0.75rem; color:#666;">Rate: ~$1 = ₩1,350</div>
+        </div>
+        <div class="currency-card">
+          <div class="label">🇯🇵 JAPANESE YEN</div>
+          <div class="val" id="val-jpy">¥3,000</div>
+          <div style="font-size:0.75rem; color:#666;">Rate: ~$1 = ¥150</div>
+        </div>
+        <div class="currency-card">
+          <div class="label">🇨🇳 CHINESE YUAN</div>
+          <div class="val" id="val-cny">¥144</div>
+          <div style="font-size:0.75rem; color:#666;">Rate: ~$1 = ¥7.20</div>
+        </div>
+        <div class="currency-card">
+          <div class="label">🇺🇸 USD EQUIVALENT</div>
+          <div class="val" id="val-usd">$20.00</div>
+          <div style="font-size:0.75rem; color:#666;">Base Currency</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 3: Pocket Phrasebook with Audio -->
+  <div class="tab-content" id="tab-phrases">
+    <div class="card">
+      <h2 id="phrases-header">🗣️ Daily Survival Phrases</h2>
+      <div class="phrase-list" id="phrases-container">
+        <!-- Injected based on current country -->
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB 4: Trip Budget & Expense Logger -->
+  <div class="tab-content" id="tab-budget">
+    <div class="card">
+      <h2>💰 Budget Tracker ($4,000 / Person Cap)</h2>
+      <div style="display:flex; justify-content:space-between; font-size:0.9rem; font-weight:bold;">
+        <span>Spent: $<span id="total-spent">0</span></span>
+        <span>Target: $4,000</span>
+      </div>
+      <div class="budget-bar-wrap">
+        <div class="budget-bar-fill" id="budget-fill"></div>
+      </div>
+
+      <h3 style="font-size:1rem; margin-top:16px;">+ Log Expense</h3>
+      <div style="display:flex; gap:6px; margin-bottom:10px;">
+        <input type="text" id="exp-name" placeholder="Item (e.g. K-BBQ dinner)" style="flex:2; padding:8px; border:1px solid var(--border); border-radius:6px;">
+        <input type="number" id="exp-amount" placeholder="USD $" style="flex:1; padding:8px; border:1px solid var(--border); border-radius:6px;">
+        <button onclick="addExpense()" style="background:var(--primary); color:white; border:none; padding:8px 14px; border-radius:6px; font-weight:bold;">Add</button>
+      </div>
+
+      <div id="expense-list">
+        <!-- Logged expenses -->
+      </div>
     </div>
   </div>
 
@@ -207,116 +458,171 @@
     const itinerary = {
       "d1": {
         title: "Day 1 (Sat, Apr 3): NYC ➔ Transpacific Flight",
+        country: "korea",
+        timezone: "Asia/Seoul",
         region: "In Flight (New York to Seoul)",
+        transitFreq: "Long-haul flight (approx 15h 30m).",
+        ticketUrl: "https://www.google.com/travel/flights",
+        ticketName: "Check Flight Status",
         stops: [
-          { name: "New York Airport (JFK/LGA/EWR)", time: "Evening Departure", coords: [40.6413, -73.7781], desc: "Board flight to Seoul (ICN). Rest up for the journey." }
+          { name: "New York Airport (JFK/EWR)", time: "Evening", coords: [40.6413, -73.7781], desc: "Depart for Seoul (ICN)." }
         ],
-        transit: "Transpacific flight crossing the International Date Line (+1 day)."
+        transit: "Transpacific flight crossing International Date Line (+1 day)."
       },
       "d2": {
         title: "Day 2 (Sun, Apr 4): Incheon Arrival ➔ Myeongdong Check-in",
+        country: "korea",
+        timezone: "Asia/Seoul",
         region: "Seoul, South Korea",
+        transitFreq: "AREX Express trains run every 35-40 mins (05:15 to 22:48). Seoul Subway Line 4 runs every 3-5 mins.",
+        ticketUrl: "https://www.airport.kr/ap_cnt/en/tpt/arex/arex.do",
+        ticketName: "AREX Express Ticket Portal",
         stops: [
-          { name: "Incheon Int'l Airport (ICN)", time: "7:15 PM - 8:30 PM", coords: [37.4602, 126.4407], desc: "Land, clear customs, pick up T-Money card." },
-          { name: "Seoul Station", time: "8:30 PM - 9:15 PM", coords: [37.5559, 126.9723], desc: "Express train hub connection." },
-          { name: "🏨 Myeongdong Hotel", time: "9:30 PM", coords: SEOUL_HOTEL, desc: "Check in to hotel & unpack." },
-          { name: "Myeongdong Night Food Alleys", time: "9:45 PM - 11:00 PM", coords: [37.5615, 126.9858], desc: "Lobster skewers, tornado potatoes, and egg bread." }
+          { name: "Incheon Int'l Airport (ICN)", time: "7:15 PM", coords: [37.4602, 126.4407], desc: "Land, clear customs, pick up T-Money transit card." },
+          { name: "Seoul Station", time: "8:30 PM", coords: [37.5559, 126.9723], desc: "Direct 43-min AREX express connection." },
+          { name: "🏨 Myeongdong Hotel", time: "9:30 PM", coords: SEOUL_HOTEL, desc: "Check in & unpack." },
+          { name: "Myeongdong Night Food Alleys", time: "9:45 PM - 11:00 PM", coords: [37.5615, 126.9858], desc: "Street food feast: lobster tails, hotteok, tornado potato." }
         ],
-        transit: "Take AREX Express train from ICN to Seoul Station (43 mins). Transfer to Line 4 to Myeongdong Station (Exit 6/8)."
+        transit: "Take AREX Express train from ICN to Seoul Station (43m). Transfer to Subway Line 4 for 2 stops to Myeongdong Station (Exit 6/8)."
       },
       "d3": {
-        title: "Day 3 (Mon, Apr 5): Palaces, Hanok Village & Insadong",
+        title: "Day 3 (Mon, Apr 5): Gyeongbokgung Palace & Bukchon Village",
+        country: "korea",
+        timezone: "Asia/Seoul",
         region: "Seoul, South Korea",
+        transitFreq: "Seoul Subway Line 3 runs every 3 to 6 mins all day.",
+        ticketUrl: "https://royal.khs.go.kr/ROYAL/contents/menuInfo-gbg.do?grpCode=gbg",
+        ticketName: "Palace Admission Info (Free with Hanbok)",
         stops: [
-          { name: "🏨 Myeongdong Hotel", time: "10:00 AM", coords: SEOUL_HOTEL, desc: "Start from hotel." },
-          { name: "Gyeongbokgung Palace", time: "10:30 AM - 1:00 PM", coords: [37.5796, 126.9770], desc: "Main royal palace & guard changing ceremony." },
-          { name: "Bukchon Hanok Village", time: "1:30 PM - 3:30 PM", coords: [37.5826, 126.9836], desc: "Preserved historic Korean tile-roof village." },
-          { name: "Insadong Culture Street", time: "4:00 PM - 7:00 PM", coords: [37.5743, 126.9877], desc: "Teahouses, calligraphy craft shops & mandu dumplings." }
+          { name: "🏨 Myeongdong Hotel", time: "10:00 AM", coords: SEOUL_HOTEL, desc: "Morning start." },
+          { name: "Gyeongbokgung Palace", time: "10:30 AM - 1:00 PM", coords: [37.5796, 126.9770], desc: "Royal Palace & 10:00 AM Guard changing ceremony." },
+          { name: "Bukchon Hanok Village", time: "1:30 PM - 3:30 PM", coords: [37.5826, 126.9836], desc: "Preserved historic tile-roof alleyways." },
+          { name: "Insadong Cultural Street", time: "4:00 PM - 7:00 PM", coords: [37.5743, 126.9877], desc: "Teahouses, pottery & handmade mandu dumplings." }
         ],
-        transit: "Walk to Chungmuro Station, take Line 3 to Gyeongbokgung Station (Exit 5). Walk 12m east to Bukchon, then 10m south to Insadong."
+        transit: "Walk to Chungmuro Station, take Line 3 (Orange) to Gyeongbokgung Station (Exit 5). Walk east into Bukchon, south to Insadong."
       },
       "d4": {
         title: "Day 4 (Tue, Apr 6): Hongdae Indie Scene & Yeonnam-dong",
+        country: "korea",
+        timezone: "Asia/Seoul",
         region: "Seoul, South Korea",
+        transitFreq: "Subway Line 2 (Green circle line) runs every 2 to 4 mins.",
+        ticketUrl: "http://www.seoulmetro.co.kr/en/",
+        ticketName: "Seoul Metro Guide",
         stops: [
-          { name: "🏨 Myeongdong Hotel", time: "11:00 AM", coords: SEOUL_HOTEL, desc: "Start from hotel." },
-          { name: "Yeonnam-dong Forest Park", time: "11:30 AM - 2:30 PM", coords: [37.5621, 126.9248], desc: "Converted railway park, boutique cafes & bakeries." },
-          { name: "Hongdae Shopping Street", time: "2:30 PM - 6:30 PM", coords: [37.5563, 126.9229], desc: "K-fashion boutiques, photobooths & dance buskers." },
-          { name: "Hongdae Chimaek Alleys", time: "6:30 PM - 9:00 PM", coords: [37.5538, 126.9216], desc: "Crispy Korean Fried Chicken & draft beer dinner." }
+          { name: "🏨 Myeongdong Hotel", time: "11:00 AM", coords: SEOUL_HOTEL, desc: "Morning start." },
+          { name: "Yeonnam-dong Forest Park", time: "11:30 AM - 2:30 PM", coords: [37.5621, 126.9248], desc: "Aesthetic bakeries, coffee spots & walking trail." },
+          { name: "Hongdae Shopping Street", time: "2:30 PM - 6:30 PM", coords: [37.5563, 126.9229], desc: "Boutiques, photo booths, street dance buskers." },
+          { name: "Hongdae Chimaek (Fried Chicken)", time: "6:30 PM - 9:00 PM", coords: [37.5538, 126.9216], desc: "Crispy fried chicken & draft beer feast." }
         ],
-        transit: "Take Line 2 from Euljiro 1-ga directly to Hongik Univ. Station (Exit 3 for Yeonnam, Exit 9 for Hongdae)."
+        transit: "Take Subway Line 2 from Euljiro 1-ga directly to Hongik Univ Station (Exit 3 for Yeonnam, Exit 9 for Hongdae)."
       },
       "d5": {
         title: "Day 5 (Wed, Apr 7): Seongsu-dong & Seoul Forest",
+        country: "korea",
+        timezone: "Asia/Seoul",
         region: "Seoul, South Korea",
+        transitFreq: "Subway Line 2 runs continuously every 3 mins.",
+        ticketUrl: "http://www.seoulmetro.co.kr/en/",
+        ticketName: "Seoul Metro Fare Info",
         stops: [
-          { name: "🏨 Myeongdong Hotel", time: "11:00 AM", coords: SEOUL_HOTEL, desc: "Start from hotel." },
+          { name: "🏨 Myeongdong Hotel", time: "11:00 AM", coords: SEOUL_HOTEL, desc: "Morning start." },
           { name: "Seongsu Cafe Alleys", time: "11:30 AM - 3:30 PM", coords: [37.5445, 127.0560], desc: "Industrial warehouse cafes (Daelim Changgo, Onion)." },
-          { name: "Seoul Forest Park", time: "3:30 PM - 5:30 PM", coords: [37.5444, 127.0374], desc: "Lush city park walk & deer corral." },
-          { name: "Somunnan Seongsu Gamjatang", time: "6:00 PM - 8:00 PM", coords: [37.5430, 127.0545], desc: "Famous savory pork backbone stew dinner." }
+          { name: "Seoul Forest Park", time: "3:30 PM - 5:30 PM", coords: [37.5444, 127.0374], desc: "Sprawling nature park & deer sanctuary." },
+          { name: "Somunnan Seongsu Gamjatang", time: "6:00 PM - 8:00 PM", coords: [37.5430, 127.0545], desc: "Savory pork backbone stew dinner." }
         ],
-        transit: "Take Line 2 from Euljiro 1-ga to Seongsu Station (Exit 3/4). Walk 10m west to Seoul Forest."
+        transit: "Take Line 2 from Euljiro 1-ga to Seongsu Station (Exit 3/4). Walk 10m to Seoul Forest."
       },
       "d6": {
         title: "Day 6 (Thu, Apr 8): Gangnam & Starfield COEX Library",
+        country: "korea",
+        timezone: "Asia/Seoul",
         region: "Seoul, South Korea",
+        transitFreq: "Line 2 runs every 3 mins directly into COEX Mall basement.",
+        ticketUrl: "https://www.coexmall.com",
+        ticketName: "COEX Mall Directory",
         stops: [
-          { name: "🏨 Myeongdong Hotel", time: "11:00 AM", coords: SEOUL_HOTEL, desc: "Start from hotel." },
-          { name: "Starfield COEX Library", time: "11:45 AM - 2:30 PM", coords: [37.5118, 127.0592], desc: "Massive open-air multi-story library." },
-          { name: "Bongeunsa Buddhist Temple", time: "2:45 PM - 4:30 PM", coords: [37.5144, 127.0573], desc: "Ancient tranquil temple surrounded by modern skyline." },
-          { name: "Gangnam BBQ District", time: "5:30 PM - 8:30 PM", coords: [37.4980, 127.0276], desc: "Grilled pork belly (Samgyeopsal) & soju dinner." }
+          { name: "🏨 Myeongdong Hotel", time: "11:00 AM", coords: SEOUL_HOTEL, desc: "Morning start." },
+          { name: "Starfield COEX Library", time: "11:45 AM - 2:30 PM", coords: [37.5118, 127.0592], desc: "Massive open-air library & modern shopping mall." },
+          { name: "Bongeunsa Temple", time: "2:45 PM - 4:30 PM", coords: [37.5144, 127.0573], desc: "Tranquil ancient Buddhist temple." },
+          { name: "Gangnam BBQ Alley", time: "5:30 PM - 8:30 PM", coords: [37.4980, 127.0276], desc: "Pork belly BBQ (Samgyeopsal) & soju." }
         ],
-        transit: "Take Line 2 from Euljiro 1-ga to Samseong Station (Exit 5/6 connects directly into COEX)."
+        transit: "Take Line 2 from Euljiro 1-ga to Samseong Station (Exit 5/6)."
       },
       "d7": {
         title: "Day 7 (Fri, Apr 9): Gwangjang Market & N Seoul Tower",
+        country: "korea",
+        timezone: "Asia/Seoul",
         region: "Seoul, South Korea",
+        transitFreq: "Yellow Namsan Shuttle Bus 01A departs every 8-12 mins.",
+        ticketUrl: "https://www.nseoultower.co.kr/eng/",
+        ticketName: "N Seoul Tower Observatory Tickets",
         stops: [
-          { name: "🏨 Myeongdong Hotel", time: "11:00 AM", coords: SEOUL_HOTEL, desc: "Start from hotel." },
-          { name: "Gwangjang Traditional Market", time: "11:30 AM - 2:30 PM", coords: [37.5701, 127.0016], desc: "Crispy mung bean pancakes (Bindaetteok) & knife noodles." },
-          { name: "Namsan N Seoul Tower", time: "4:00 PM - 7:30 PM", coords: [37.5512, 126.9882], desc: "Sunset views over the entire Seoul skyline." }
+          { name: "🏨 Myeongdong Hotel", time: "11:00 AM", coords: SEOUL_HOTEL, desc: "Morning start." },
+          { name: "Gwangjang Traditional Market", time: "11:30 AM - 2:30 PM", coords: [37.5701, 127.0016], desc: "Mung bean pancakes (Bindaetteok) & knife noodles." },
+          { name: "Namsan N Seoul Tower", time: "4:00 PM - 7:30 PM", coords: [37.5512, 126.9882], desc: "Sunset views over entire Seoul." }
         ],
-        transit: "Take Line 1 to Jongno 5-ga Station (Exit 8). Then take Yellow Namsan Shuttle Bus 01A up to N Seoul Tower."
+        transit: "Line 1 to Jongno 5-ga Station (Exit 8). Take Yellow Namsan Shuttle Bus 01A up the mountain."
       },
       "d8": {
-        title: "Day 8 (Sat, Apr 10): Han River Cycling & The Hyundai",
+        title: "Day 8 (Sat, Apr 10): Han River Park & The Hyundai",
+        country: "korea",
+        timezone: "Asia/Seoul",
         region: "Seoul, South Korea",
+        transitFreq: "Line 5 runs every 4-6 mins to Yeouinaru riverside station.",
+        ticketUrl: "https://hangang.seoul.go.kr",
+        ticketName: "Hangang Parks Guide",
         stops: [
-          { name: "🏨 Myeongdong Hotel", time: "11:30 AM", coords: SEOUL_HOTEL, desc: "Start from hotel." },
-          { name: "Yeouido Hangang River Park", time: "12:00 PM - 4:00 PM", coords: [37.5284, 126.9342], desc: "Bike rental & riverside foil-pack instant ramen." },
-          { name: "The Hyundai Seoul Mall", time: "4:30 PM - 7:30 PM", coords: [37.5259, 126.9284], desc: "Futuristic indoor garden department store & gourmet eats." }
+          { name: "🏨 Myeongdong Hotel", time: "11:30 AM", coords: SEOUL_HOTEL, desc: "Morning start." },
+          { name: "Yeouido Hangang River Park", time: "12:00 PM - 4:00 PM", coords: [37.5284, 126.9342], desc: "Bicycle rental & automated convenience store instant ramen." },
+          { name: "The Hyundai Seoul", time: "4:30 PM - 7:30 PM", coords: [37.5259, 126.9284], desc: "Futuristic indoor garden department store." }
         ],
-        transit: "Take Subway Line 5 to Yeouinaru Station (Exit 2) right at the riverbank."
+        transit: "Subway Line 5 directly to Yeouinaru Station (Exit 2)."
       },
       "d9": {
         title: "Day 9 (Sun, Apr 11): Seoul ➔ Tokyo Flight & Shinjuku Night",
+        country: "japan",
+        timezone: "Asia/Tokyo",
         region: "Tokyo, Japan",
+        transitFreq: "Keisei Skyliner runs every 20 mins (41m to Ueno). JR Narita Express runs every 30 mins.",
+        ticketUrl: "https://www.keisei.co.jp/keisei/tetudou/skyliner/e-ticket/en/",
+        ticketName: "Keisei Skyliner e-Ticket Booking",
         stops: [
           { name: "🏨 Myeongdong Hotel", time: "9:00 AM", coords: SEOUL_HOTEL, desc: "Check out of Seoul hotel." },
           { name: "Incheon Airport (ICN)", time: "10:30 AM", coords: [37.4602, 126.4407], desc: "Fly to Tokyo Narita." },
-          { name: "Narita Airport (NRT)", time: "2:25 PM", coords: [35.7720, 140.3929], desc: "Land in Tokyo, add digital Suica card." },
+          { name: "Narita Airport (NRT)", time: "2:25 PM", coords: [35.7720, 140.3929], desc: "Land in Tokyo, add digital Suica card in Apple/Google Wallet." },
           { name: "🏨 Tokyo Hotel (Jimbocho)", time: "4:30 PM", coords: TOKYO_HOTEL, desc: "Check in to Tokyo hotel." },
-          { name: "Shinjuku Kabukicho & Ramen", time: "6:30 PM - 10:00 PM", coords: [35.6938, 139.7013], desc: "Godzilla head, neon lights, and counter ramen." }
+          { name: "Shinjuku Kabukicho & Ramen", time: "6:30 PM - 10:00 PM", coords: [35.6938, 139.7013], desc: "Godzilla head, neon alleys & piping hot ramen." }
         ],
         transit: "AREX train to ICN -> Flight to NRT -> Keisei Skyliner / Narita Express to central Tokyo."
       },
       "d10": {
         title: "Day 10 (Mon, Apr 12): Shibuya Crossing & Harajuku",
+        country: "japan",
+        timezone: "Asia/Tokyo",
         region: "Tokyo, Japan",
+        transitFreq: "JR Yamanote loop line trains arrive every 2 to 3 mins.",
+        ticketUrl: "https://www.shibuya-scramble-square.com/sky/",
+        ticketName: "Shibuya Sky Sunset Tickets",
         stops: [
-          { name: "🏨 Tokyo Hotel", time: "9:30 AM", coords: TOKYO_HOTEL, desc: "Start from hotel." },
-          { name: "Meiji Jingu Shrine", time: "10:00 AM - 12:00 PM", coords: [35.6764, 139.6993], desc: "Tranquil cedar forest and massive wooden Torii gate." },
-          { name: "Takeshita Street (Harajuku)", time: "12:00 PM - 2:00 PM", coords: [35.6715, 139.7032], desc: "Crepes, fashion shops, and walk down Cat Street." },
-          { name: "Shibuya Crossing & Sky", time: "2:30 PM - 6:30 PM", coords: [35.6595, 139.7005], desc: "Scramble crossing, Hachiko statue, and conveyor sushi." }
+          { name: "🏨 Tokyo Hotel", time: "9:30 AM", coords: TOKYO_HOTEL, desc: "Morning start." },
+          { name: "Meiji Jingu Shrine", time: "10:00 AM - 12:00 PM", coords: [35.6764, 139.6993], desc: "Cedar forest & massive wooden Torii gate." },
+          { name: "Takeshita Street (Harajuku)", time: "12:00 PM - 2:00 PM", coords: [35.6715, 139.7032], desc: "Crepes, quirky shops & Cat Street stroll." },
+          { name: "Shibuya Crossing & Sky", time: "2:30 PM - 6:30 PM", coords: [35.6595, 139.7005], desc: "World famous scramble crossing & revolving sushi." }
         ],
-        transit: "Metro to Harajuku Station. Walk down Cat Street south directly into Shibuya."
+        transit: "Take JR Yamanote line to Harajuku Station. Walk south through Cat Street into Shibuya."
       },
       "d11": {
-        title: "Day 11 (Tue, Apr 13): Historic Senso-ji & Akihabara",
+        title: "Day 11 (Tue, Apr 13): Senso-ji Temple & Akihabara",
+        country: "japan",
+        timezone: "Asia/Tokyo",
         region: "Tokyo, Japan",
+        transitFreq: "Tsukuba Express runs every 6 mins between Asakusa and Akihabara (5 min ride).",
+        ticketUrl: "https://www.senso-ji.jp/english/",
+        ticketName: "Senso-ji Official Guide",
         stops: [
-          { name: "🏨 Tokyo Hotel", time: "9:30 AM", coords: TOKYO_HOTEL, desc: "Start from hotel." },
-          { name: "Senso-ji Temple (Asakusa)", time: "10:00 AM - 1:00 PM", coords: [35.7148, 139.7967], desc: "Kaminarimon lantern, melonpan & tempura bowls." },
+          { name: "🏨 Tokyo Hotel", time: "9:30 AM", coords: TOKYO_HOTEL, desc: "Morning start." },
+          { name: "Senso-ji Temple (Asakusa)", time: "10:00 AM - 1:00 PM", coords: [35.7148, 139.7967], desc: "Giant Kaminarimon red lantern & melonpan." },
           { name: "Akihabara Electric Town", time: "1:30 PM - 6:00 PM", coords: [35.6983, 139.7731], desc: "Retro gaming, multi-floor arcades & electronics." },
           { name: "Gyukatsu Motomura Dinner", time: "6:30 PM - 8:30 PM", coords: [35.6995, 139.7712], desc: "Sizzle beef cutlets on tabletop hot stones." }
         ],
@@ -324,96 +630,141 @@
       },
       "d12": {
         title: "Day 12 (Wed, Apr 14): Toyosu Seafood & teamLab Planets",
+        country: "japan",
+        timezone: "Asia/Tokyo",
         region: "Tokyo, Japan",
+        transitFreq: "Yurikamome automated monorail runs every 4 mins.",
+        ticketUrl: "https://planets.teamlab.art/tokyo/",
+        ticketName: "teamLab Planets Official Tickets",
         stops: [
-          { name: "🏨 Tokyo Hotel", time: "10:00 AM", coords: TOKYO_HOTEL, desc: "Start from hotel." },
-          { name: "Toyosu Outer Market", time: "10:45 AM - 1:00 PM", coords: [35.6450, 139.7850], desc: "Fresh sashimi seafood bowls (Chirashi)." },
+          { name: "🏨 Tokyo Hotel", time: "10:00 AM", coords: TOKYO_HOTEL, desc: "Morning start." },
+          { name: "Toyosu Outer Market", time: "10:45 AM - 1:00 PM", coords: [35.6450, 139.7850], desc: "Ultra-fresh seafood bowls (Chirashi)." },
           { name: "teamLab Planets", time: "1:30 PM - 4:00 PM", coords: [35.6517, 139.7897], desc: "Walk-through digital water art museum." },
-          { name: "Odaiba Seaside Park", time: "4:30 PM - 7:30 PM", coords: [35.6298, 139.7753], desc: "Giant Unicorn Gundam statue and rainbow bridge sunset." }
+          { name: "Odaiba Seaside Park", time: "4:30 PM - 7:30 PM", coords: [35.6298, 139.7753], desc: "Giant Unicorn Gundam statue & rainbow bridge sunset." }
         ],
         transit: "Yurakucho Line + Yurikamome Monorail to Shijo-mae, Shin-Toyosu, and Daiba stations."
       },
       "d13": {
         title: "Day 13 (Thu, Apr 15): Shinjuku Gyoen & Omoide Yokocho",
+        country: "japan",
+        timezone: "Asia/Tokyo",
         region: "Tokyo, Japan",
+        transitFreq: "Toei Shinjuku subway line runs every 3-5 mins.",
+        ticketUrl: "https://www.env.go.jp/garden/shinjukugyoen/english/",
+        ticketName: "Shinjuku Gyoen Garden Entry",
         stops: [
-          { name: "🏨 Tokyo Hotel", time: "10:00 AM", coords: TOKYO_HOTEL, desc: "Start from hotel." },
-          { name: "Shinjuku Gyoen National Garden", time: "10:30 AM - 1:30 PM", coords: [35.6852, 139.7101], desc: "Peaceful landscape garden & traditional teahouse." },
-          { name: "Tokyo Metropolitan Gov. Bldg", time: "2:30 PM - 4:30 PM", coords: [35.6896, 139.6921], desc: "Free 45th-floor panoramic observatory deck." },
+          { name: "🏨 Tokyo Hotel", time: "10:00 AM", coords: TOKYO_HOTEL, desc: "Morning start." },
+          { name: "Shinjuku Gyoen National Garden", time: "10:30 AM - 1:30 PM", coords: [35.6852, 139.7101], desc: "Tranquil traditional Japanese landscape garden." },
+          { name: "Tokyo Metropolitan Gov. Bldg", time: "2:30 PM - 4:30 PM", coords: [35.6896, 139.6921], desc: "Free 45th-floor observatory over Tokyo skyline." },
           { name: "Omoide Yokocho (Memory Lane)", time: "5:30 PM - 8:30 PM", coords: [35.6931, 139.6997], desc: "Charcoal grilled yakitori skewers & highballs." }
         ],
         transit: "Toei Shinjuku line to Shinjuku-sanchome / Shinjuku Station."
       },
       "d14": {
         title: "Day 14 (Fri, Apr 16): Vintage Shimokitazawa & Kichijoji",
+        country: "japan",
+        timezone: "Asia/Tokyo",
         region: "Tokyo, Japan",
+        transitFreq: "Odakyu & Keio Inokashira Lines run every 4-6 mins.",
+        ticketUrl: "https://www.keio.co.jp/english/",
+        ticketName: "Keio Railway Line Guide",
         stops: [
-          { name: "🏨 Tokyo Hotel", time: "10:30 AM", coords: TOKYO_HOTEL, desc: "Start from hotel." },
-          { name: "Shimokitazawa Thrift District", time: "11:00 AM - 3:00 PM", coords: [35.6616, 139.6667], desc: "Vintage clothing, vinyl records & craft coffee." },
-          { name: "Inokashira Park (Kichijoji)", time: "3:30 PM - 6:30 PM", coords: [35.7001, 139.5761], desc: "Lakeside walk and Harmonica Yokocho food alley." }
+          { name: "🏨 Tokyo Hotel", time: "10:30 AM", coords: TOKYO_HOTEL, desc: "Morning start." },
+          { name: "Shimokitazawa Thrift District", time: "11:00 AM - 3:00 PM", coords: [35.6616, 139.6667], desc: "Tokyo's best vintage clothing & indie cafes." },
+          { name: "Inokashira Park (Kichijoji)", time: "3:30 PM - 6:30 PM", coords: [35.7001, 139.5761], desc: "Scenic lake walk & Harmonica Yokocho food lane." }
         ],
         transit: "Odakyu Line to Shimokitazawa Station, then Keio Inokashira Line to Kichijoji Station."
       },
       "d15": {
         title: "Day 15 (Sat, Apr 17): Ueno Market ➔ Fly to Shanghai",
+        country: "china",
+        timezone: "Asia/Shanghai",
         region: "Shanghai, China",
+        transitFreq: "Keisei Skyliner departs every 20 mins to NRT. Shanghai Metro Line 2 runs every 3 mins.",
+        ticketUrl: "https://www.trip.com/flights/",
+        ticketName: "Tokyo ➔ Shanghai Flight Portal",
         stops: [
           { name: "🏨 Tokyo Hotel", time: "10:00 AM", coords: TOKYO_HOTEL, desc: "Check out of Tokyo hotel." },
-          { name: "Ameyoko Shopping Street (Ueno)", time: "10:30 AM - 1:30 PM", coords: [35.7107, 139.7744], desc: "Open-air market street for matcha snacks & shoes." },
-          { name: "Narita Airport (NRT)", time: "3:30 PM", coords: [35.7720, 140.3929], desc: "Board direct 3.5h flight to Shanghai (PVG)." },
-          { name: "🏨 Shanghai Hotel (Nanjing Rd)", time: "8:30 PM", coords: SHANGHAI_HOTEL, desc: "Check in & grab late-night pan-fried pork buns." }
+          { name: "Ameyoko Shopping Street", time: "10:30 AM - 1:30 PM", coords: [35.7107, 139.7744], desc: "Discount Japanese snacks, matcha kits & shoes." },
+          { name: "Narita Airport (NRT)", time: "3:30 PM", coords: [35.7720, 140.3929], desc: "Board 3.5h direct flight to Shanghai PVG." },
+          { name: "🏨 Shanghai Hotel (Nanjing Rd)", time: "8:30 PM", coords: SHANGHAI_HOTEL, desc: "Check in & grab late-night pan-fried buns." }
         ],
-        transit: "Keisei Skyliner from Ueno to NRT (41 mins) -> Flight to PVG -> Maglev/Metro Line 2 into downtown Shanghai."
+        transit: "Keisei Skyliner from Ueno to NRT (41m) -> Flight to PVG -> Maglev/Metro Line 2 to downtown Shanghai."
       },
       "d16": {
-        title: "Day 16 (Sun, Apr 18): Yu Garden & The Bund Illuminated",
+        title: "Day 16 (Sun, Apr 18): Yu Garden & The Bund Lights",
+        country: "china",
+        timezone: "Asia/Shanghai",
         region: "Shanghai, China",
+        transitFreq: "Shanghai Metro Line 10 runs every 3 mins (Pay directly via Alipay Transport QR code).",
+        ticketUrl: "https://www.trip.com/travel-guide/attraction/shanghai/yu-garden-75685/",
+        ticketName: "Yu Garden Fast-Track Entry",
         stops: [
-          { name: "🏨 Shanghai Hotel", time: "10:30 AM", coords: SHANGHAI_HOTEL, desc: "Start from hotel." },
+          { name: "🏨 Shanghai Hotel", time: "10:30 AM", coords: SHANGHAI_HOTEL, desc: "Morning start." },
           { name: "Yu Garden & Yuyuan Bazaar", time: "11:00 AM - 2:00 PM", coords: [31.2272, 121.4921], desc: "Ming-dynasty garden & steaming soup dumplings (Xiaolongbao)." },
-          { name: "Nanjing Road Pedestrian Mall", time: "2:30 PM - 5:30 PM", coords: [31.2384, 121.4780], desc: "Bustling neon walking street towards the river." },
-          { name: "The Bund Waterfront Promenade", time: "6:00 PM - 8:30 PM", coords: [31.2397, 121.4903], desc: "Illuminated 1920s architecture & Pudong skyline." }
+          { name: "Nanjing Road Pedestrian Mall", time: "2:30 PM - 5:30 PM", coords: [31.2384, 121.4780], desc: "Iconic shopping boulevard leading to the river." },
+          { name: "The Bund Waterfront Promenade", time: "6:00 PM - 8:30 PM", coords: [31.2397, 121.4903], desc: "Illuminated 1920s colonial stone buildings & Pudong skyline." }
         ],
         transit: "Metro Line 10 to Yuyuan Station (Exit 1). Walk along East Nanjing Road east towards The Bund."
       },
       "d17": {
         title: "Day 17 (Mon, Apr 19): French Concession & Wukang Mansion",
+        country: "china",
+        timezone: "Asia/Shanghai",
         region: "Shanghai, China",
+        transitFreq: "Metro Line 10 runs every 3-4 mins to Shanghai Library Station.",
+        ticketUrl: "http://service.shmetro.com/en/",
+        ticketName: "Shanghai Metro Official Map",
         stops: [
-          { name: "🏨 Shanghai Hotel", time: "10:30 AM", coords: SHANGHAI_HOTEL, desc: "Start from hotel." },
-          { name: "Wukang Mansion", time: "11:00 AM - 1:30 PM", coords: [31.2062, 121.4398], desc: "Iconic wedge building & plane-tree shaded boulevards." },
+          { name: "🏨 Shanghai Hotel", time: "10:30 AM", coords: SHANGHAI_HOTEL, desc: "Morning start." },
+          { name: "Wukang Mansion", time: "11:00 AM - 1:30 PM", coords: [31.2062, 121.4398], desc: "Historic wedge architecture & plane-tree shaded boulevards." },
           { name: "Anfu Road Boutiques", time: "1:30 PM - 4:00 PM", coords: [31.2144, 121.4463], desc: "Designer pop-up shops & artisan bakeries." },
-          { name: "Fuxing Park", time: "4:30 PM - 6:30 PM", coords: [31.2185, 121.4674], desc: "French-style park with locals playing chess & Tai Chi." }
+          { name: "Fuxing Park", time: "4:30 PM - 6:30 PM", coords: [31.2185, 121.4674], desc: "European-style park with locals playing chess & dancing." }
         ],
         transit: "Metro Line 10 to Shanghai Library Station (Exit 3). Walk along Wukang Road to Anfu Road."
       },
       "d18": {
         title: "Day 18 (Tue, Apr 20): Shanghai Tower & Haidilao Hot Pot",
+        country: "china",
+        timezone: "Asia/Shanghai",
         region: "Shanghai, China",
+        transitFreq: "Metro Line 2 crosses under the Huangpu River in 4 mins.",
+        ticketUrl: "https://www.trip.com/travel-guide/attraction/shanghai/shanghai-tower-10558908/",
+        ticketName: "Shanghai Tower 118th-Fl Ticket",
         stops: [
-          { name: "🏨 Shanghai Hotel", time: "11:00 AM", coords: SHANGHAI_HOTEL, desc: "Start from hotel." },
+          { name: "🏨 Shanghai Hotel", time: "11:00 AM", coords: SHANGHAI_HOTEL, desc: "Morning start." },
           { name: "Shanghai Tower (118th Floor)", time: "11:30 AM - 2:30 PM", coords: [31.2335, 121.5056], desc: "World's fastest elevator & 2,073-ft observation deck." },
           { name: "Pudong Riverside Promenade", time: "3:00 PM - 5:30 PM", coords: [31.2405, 121.4975], desc: "Riverside walk looking back across at The Bund." },
-          { name: "Haidilao Hot Pot Dinner", time: "6:00 PM - 8:30 PM", coords: [31.2350, 121.4850], desc: "Famous noodle show, DIY sauce bar, and spicy broth." }
+          { name: "Haidilao Hot Pot Dinner", time: "6:00 PM - 8:30 PM", coords: [31.2350, 121.4850], desc: "Famous noodle dancing show, DIY sauce bar & spicy broth." }
         ],
         transit: "Metro Line 2 under the river from East Nanjing Rd to Lujiazui Station (Exit 4)."
       },
       "d19": {
         title: "Day 19 (Wed, Apr 21): Day Trip to Suzhou (Gardens & Canals)",
+        country: "china",
+        timezone: "Asia/Shanghai",
         region: "Suzhou, China",
+        transitFreq: "High-speed G-Trains depart Shanghai Hongqiao to Suzhou every 10 mins (25m ride / ~$6).",
+        ticketUrl: "https://www.trip.com/trains/china/",
+        ticketName: "12306 / Trip.com China Bullet Train Booking",
         stops: [
           { name: "🏨 Shanghai Hotel", time: "8:00 AM", coords: SHANGHAI_HOTEL, desc: "Depart hotel for railway." },
-          { name: "Shanghai Hongqiao Station", time: "8:45 AM", coords: [31.1959, 121.3197], desc: "Board high-speed bullet train." },
+          { name: "Shanghai Hongqiao Railway", time: "8:45 AM", coords: [31.1959, 121.3197], desc: "Board high-speed bullet train." },
           { name: "Humble Administrator's Garden", time: "9:45 AM - 1:00 PM", coords: [31.3255, 120.6277], desc: "UNESCO World Heritage Classical Chinese garden." },
           { name: "Shantang Ancient Canal Street", time: "1:30 PM - 4:30 PM", coords: [31.3168, 120.5982], desc: "1,200-year-old stone canal houses & boat ride." }
         ],
-        transit: "High-speed bullet train from Shanghai Hongqiao to Suzhou Station (25 mins, ~$6)."
+        transit: "High-speed bullet train from Shanghai Hongqiao to Suzhou Station (25 mins). Connect via Suzhou Metro Line 2/4."
       },
       "d20": {
         title: "Day 20 (Thu, Apr 22): Tianzifang Alleys & Dim Sum",
+        country: "china",
+        timezone: "Asia/Shanghai",
         region: "Shanghai, China",
+        transitFreq: "Metro Line 9 runs every 3 mins to Dapuqiao Station.",
+        ticketUrl: "http://service.shmetro.com/en/",
+        ticketName: "Shanghai Metro Guide",
         stops: [
-          { name: "🏨 Shanghai Hotel", time: "11:00 AM", coords: SHANGHAI_HOTEL, desc: "Start from hotel." },
+          { name: "🏨 Shanghai Hotel", time: "11:00 AM", coords: SHANGHAI_HOTEL, desc: "Morning start." },
           { name: "Tianzifang Shikumen Alleys", time: "11:30 AM - 3:00 PM", coords: [31.2084, 121.4688], desc: "Labyrinth alleys with tea boutiques & handmade crafts." },
           { name: "Xintiandi Courtyards", time: "3:30 PM - 6:00 PM", coords: [31.2223, 121.4746], desc: "Outdoor European-Chinese terrace cafes & plazas." },
           { name: "Cantonese Dim Sum Feast", time: "6:30 PM - 8:30 PM", coords: [31.2250, 121.4750], desc: "Steamed shrimp dumplings, BBQ pork buns & egg tarts." }
@@ -421,34 +772,49 @@
         transit: "Metro Line 9 to Dapuqiao Station (Exit 1). Walk 12m north into Xintiandi."
       },
       "d21": {
-        title: "Day 21 (Fri, Apr 23): High-Speed Train ➔ Hangzhou (West Lake)",
+        title: "Day 21 (Fri, Apr 23): Bullet Train ➔ Hangzhou (West Lake)",
+        country: "china",
+        timezone: "Asia/Shanghai",
         region: "Hangzhou, China",
+        transitFreq: "High-speed bullet trains run every 15 mins (45m ride / ~$10).",
+        ticketUrl: "https://www.trip.com/trains/china/",
+        ticketName: "Shanghai ➔ Hangzhou Train Tickets",
         stops: [
-          { name: "🏨 Shanghai Hotel", time: "8:00 AM", coords: SHANGHAI_HOTEL, desc: "Depart Shanghai for Hangzhou." },
-          { name: "Hangzhou East Railway Station", time: "9:30 AM", coords: [30.2905, 120.2131], desc: "Arrive via bullet train." },
+          { name: "🏨 Shanghai Hotel", time: "8:00 AM", coords: SHANGHAI_HOTEL, desc: "Depart for Hangzhou." },
+          { name: "Hangzhou East Railway", time: "9:30 AM", coords: [30.2905, 120.2131], desc: "Arrive via bullet train." },
           { name: "🏨 Hangzhou West Lake Hotel", time: "10:30 AM", coords: HANGZHOU_HOTEL, desc: "Drop off bags." },
           { name: "West Lake (Xi Hu) Cycling", time: "11:00 AM - 3:30 PM", coords: [30.2425, 120.1485], desc: "Bike perimeter, Broken Bridge & Su Causeway." },
           { name: "Longjing Green Tea Village", time: "4:00 PM - 6:30 PM", coords: [30.2105, 120.1080], desc: "Tea plantation hills and fresh roasted Dragon Well tea." }
         ],
-        transit: "Bullet train from Shanghai Hongqiao to Hangzhou East (45 mins, ~$10). DiDi taxi to West Lake."
+        transit: "Bullet train from Shanghai Hongqiao to Hangzhou East (45m). DiDi taxi to West Lake."
       },
       "d22": {
         title: "Day 22 (Sat, Apr 24): Lingyin Temple ➔ Return to Shanghai",
+        country: "china",
+        timezone: "Asia/Shanghai",
         region: "Hangzhou / Shanghai, China",
+        transitFreq: "Bullet trains back to Shanghai run continuously until 22:30.",
+        ticketUrl: "https://www.trip.com/trains/china/",
+        ticketName: "Hangzhou ➔ Shanghai Train Tickets",
         stops: [
-          { name: "🏨 Hangzhou Hotel", time: "9:00 AM", coords: HANGZHOU_HOTEL, desc: "Check out of Hangzhou hotel." },
+          { name: "🏨 Hangzhou Hotel", time: "9:00 AM", coords: HANGZHOU_HOTEL, desc: "Check out." },
           { name: "Lingyin Bamboo Temple", time: "9:30 AM - 12:30 PM", coords: [30.2411, 120.0967], desc: "Ancient Buddhist temple set in lush bamboo forest." },
           { name: "Hangzhou East Station", time: "1:30 PM", coords: [30.2905, 120.2131], desc: "Bullet train back to Shanghai." },
           { name: "🏨 Shanghai Hotel", time: "3:30 PM", coords: SHANGHAI_HOTEL, desc: "Check back in to Shanghai hotel." },
           { name: "Spicy Hot Pot / Skewer Dinner", time: "6:30 PM - 9:00 PM", coords: [31.2384, 121.4829], desc: "Mala Xiangguo or street skewers." }
         ],
-        transit: "DiDi taxi to Lingyin Temple -> Bullet train back to Shanghai Hongqiao (45 mins) -> Metro Line 2 to hotel."
+        transit: "DiDi taxi to Lingyin Temple -> Bullet train back to Shanghai Hongqiao (45m) -> Metro Line 2 to hotel."
       },
       "d23": {
         title: "Day 23 (Sun, Apr 25): Zhujiajiao Ancient Water Town",
+        country: "china",
+        timezone: "Asia/Shanghai",
         region: "Zhujiajiao, China",
+        transitFreq: "Metro Line 17 runs every 5 mins directly to Zhujiajiao Station.",
+        ticketUrl: "http://service.shmetro.com/en/",
+        ticketName: "Shanghai Metro App / Alipay Transit",
         stops: [
-          { name: "🏨 Shanghai Hotel", time: "10:00 AM", coords: SHANGHAI_HOTEL, desc: "Start from hotel." },
+          { name: "🏨 Shanghai Hotel", time: "10:00 AM", coords: SHANGHAI_HOTEL, desc: "Morning start." },
           { name: "Zhujiajiao Water Town", time: "11:00 AM - 3:30 PM", coords: [31.1118, 121.0505], desc: "5-arch Fangsheng Bridge, canal gondola ride & street snacks." },
           { name: "🏨 Shanghai Hotel (Return)", time: "5:00 PM", coords: SHANGHAI_HOTEL, desc: "Return to hotel and refresh." }
         ],
@@ -456,9 +822,14 @@
       },
       "d24": {
         title: "Day 24 (Mon, Apr 26): Jing'an Temple & M50 Art District",
+        country: "china",
+        timezone: "Asia/Shanghai",
         region: "Shanghai, China",
+        transitFreq: "Metro Line 2 / Line 13 run every 3 mins.",
+        ticketUrl: "http://service.shmetro.com/en/",
+        ticketName: "Shanghai Metro Guide",
         stops: [
-          { name: "🏨 Shanghai Hotel", time: "10:30 AM", coords: SHANGHAI_HOTEL, desc: "Start from hotel." },
+          { name: "🏨 Shanghai Hotel", time: "10:30 AM", coords: SHANGHAI_HOTEL, desc: "Morning start." },
           { name: "Jing'an Temple", time: "11:00 AM - 1:00 PM", coords: [31.2230, 121.4460], desc: "Golden Buddhist temple nestled between modern skyscrapers." },
           { name: "M50 Contemporary Art District", time: "2:00 PM - 5:30 PM", coords: [31.2482, 121.4470], desc: "Converted textile mill galleries, graffiti walls & indie studios." }
         ],
@@ -466,9 +837,14 @@
       },
       "d25": {
         title: "Day 25 (Tue, Apr 27): People's Square & Underground Markets",
+        country: "china",
+        timezone: "Asia/Shanghai",
         region: "Shanghai, China",
+        transitFreq: "Metro Line 1/2/8 run continuously.",
+        ticketUrl: "http://service.shmetro.com/en/",
+        ticketName: "Shanghai Metro Guide",
         stops: [
-          { name: "🏨 Shanghai Hotel", time: "11:00 AM", coords: SHANGHAI_HOTEL, desc: "Start from hotel." },
+          { name: "🏨 Shanghai Hotel", time: "11:00 AM", coords: SHANGHAI_HOTEL, desc: "Morning start." },
           { name: "People's Square & Museum", time: "11:30 AM - 3:00 PM", coords: [31.2317, 121.4754], desc: "Urban park and subterranean bargain gift markets." },
           { name: "South Shaanxi Road Cafes", time: "3:30 PM - 6:00 PM", coords: [31.2180, 121.4590], desc: "Relax at boutique coffee lanes & pastry shops." }
         ],
@@ -476,9 +852,14 @@
       },
       "d26": {
         title: "Day 26 (Wed, Apr 28): Final Shopping & Rooftop Skyline Views",
+        country: "china",
+        timezone: "Asia/Shanghai",
         region: "Shanghai, China",
+        transitFreq: "Walkable directly along pedestrian mall.",
+        ticketUrl: "https://www.trip.com",
+        ticketName: "Bund Rooftop Lounge Directory",
         stops: [
-          { name: "🏨 Shanghai Hotel", time: "11:00 AM", coords: SHANGHAI_HOTEL, desc: "Start from hotel." },
+          { name: "🏨 Shanghai Hotel", time: "11:00 AM", coords: SHANGHAI_HOTEL, desc: "Morning start." },
           { name: "Local Supermarket & Tea Haul", time: "11:30 AM - 3:30 PM", coords: [31.2384, 121.4780], desc: "Pack up tea tins, White Rabbit candy, and gifts." },
           { name: "The Bund Rooftop Celebration", time: "6:30 PM - 9:30 PM", coords: [31.2397, 121.4903], desc: "Farewell dinner & drinks overlooking the illuminated river." }
         ],
@@ -486,7 +867,12 @@
       },
       "d27": {
         title: "Day 27 (Thu, Apr 29): Maglev Train ➔ Fly Home to NYC",
+        country: "china",
+        timezone: "Asia/Shanghai",
         region: "Shanghai to NYC",
+        transitFreq: "Shanghai Maglev runs every 15-20 mins (06:45 to 21:40). 7-min trip directly to PVG terminals.",
+        ticketUrl: "http://www.smtdc.com/en/",
+        ticketName: "Official Shanghai Maglev Portal",
         stops: [
           { name: "🏨 Shanghai Hotel", time: "11:30 AM", coords: SHANGHAI_HOTEL, desc: "Check out of Shanghai hotel." },
           { name: "Longyang Road Maglev Station", time: "12:15 PM", coords: [31.2039, 121.5577], desc: "Board 268-mph magnetic levitation train." },
@@ -496,8 +882,40 @@
       }
     };
 
+    const survivalPhrases = {
+      "korea": [
+        { eng: "Hello / Goodbye", native: "안녕하세요", rom: "An-nyeong-ha-se-yo", lang: "ko-KR" },
+        { eng: "Thank you", native: "감사합니다", rom: "Gam-sa-ham-ni-da", lang: "ko-KR" },
+        { eng: "How much is this?", native: "얼마예요?", rom: "Eol-ma-ye-yo?", lang: "ko-KR" },
+        { eng: "Can I pay with credit card?", native: "카드 계산 돼요?", rom: "Ka-deu gye-san dwae-yo?", lang: "ko-KR" },
+        { eng: "Please give me this", native: "이거 주세요", rom: "I-geo ju-se-yo", lang: "ko-KR" },
+        { eng: "Where is the subway?", native: "지하철역 어디예요?", rom: "Ji-ha-cheol-yeok eo-di-ye-yo?", lang: "ko-KR" },
+        { eng: "Water please", native: "물 좀 주세요", rom: "Mul jom ju-se-yo", lang: "ko-KR" }
+      ],
+      "japan": [
+        { eng: "Excuse me / Sorry", native: "すみません", rom: "Sumimasen", lang: "ja-JP" },
+        { eng: "Thank you very much", native: "ありがとうございます", rom: "Arigatou gozaimasu", lang: "ja-JP" },
+        { eng: "How much is this?", native: "これはいくらですか？", rom: "Kore wa ikura desu ka?", lang: "ja-JP" },
+        { eng: "Check please", native: "お会計お願いします", rom: "O-kaikei onegaishimasu", lang: "ja-JP" },
+        { eng: "Do you take Suica / IC Card?", native: "Suica使えますか？", rom: "Suika tsukaemasu ka?", lang: "ja-JP" },
+        { eng: "Where is the station?", native: "駅はどこですか？", rom: "Eki wa doko desu ka?", lang: "ja-JP" },
+        { eng: "Delicious!", native: "美味しいです！", rom: "Oishii desu!", lang: "ja-JP" }
+      ],
+      "china": [
+        { eng: "Hello", native: "你好", rom: "Nǐ hǎo", lang: "zh-CN" },
+        { eng: "Thank you", native: "谢谢", rom: "Xièxie", lang: "zh-CN" },
+        { eng: "How much is it?", native: "多少钱？", rom: "Duōshǎo qián?", lang: "zh-CN" },
+        { eng: "I'll pay with Alipay / WeChat", native: "我扫你 (支付宝/微信)", rom: "Wǒ sǎo nǐ (Zhīfùbǎo / Wēixìn)", lang: "zh-CN" },
+        { eng: "The bill please", native: "买单", rom: "Mǎidān", lang: "zh-CN" },
+        { eng: "No cilantro please", native: "不要香菜", rom: "Bù yào xiāngcài", lang: "zh-CN" },
+        { eng: "Where is the subway station?", native: "地铁站在哪里？", rom: "Dìtiězhàn zài nǎlǐ?", lang: "zh-CN" }
+      ]
+    };
+
     let map, markerLayer, lineLayer, userLocationLayer;
     let watchId = null;
+    let currentHeading = 0;
+    let currentUserLatLng = null;
 
     function initMap() {
       map = L.map('map').setView(SEOUL_HOTEL, 13);
@@ -510,6 +928,7 @@
       lineLayer = L.layerGroup().addTo(map);
       userLocationLayer = L.layerGroup().addTo(map);
 
+      // Populate Day Dropdown
       const selector = document.getElementById('daySelector');
       selector.innerHTML = '';
       for (const [key, data] of Object.entries(itinerary)) {
@@ -519,7 +938,10 @@
         selector.appendChild(opt);
       }
 
-      renderDay('d2'); // Default to Day 2
+      renderDay('d2');
+      startClock();
+      loadExpenses();
+      setupCompass();
     }
 
     function renderDay(dayKey) {
@@ -539,19 +961,35 @@
           <b>#${index + 1}: ${stop.name}</b><br>
           ⏰ ${stop.time}<br>
           ${stop.desc}<br>
-          <a href="${gmapsUrl}" target="_blank" class="gmaps-link" style="margin-top:6px; display:inline-block;">🧭 Navigate in Google Maps</a>
+          <div style="margin-top:6px;">
+            <a href="${gmapsUrl}" target="_blank" class="btn-action">🧭 Open in Google Maps</a>
+          </div>
         `);
         latlngs.push(stop.coords);
       });
 
       if (latlngs.length > 1) {
         const polyline = L.polyline(latlngs, { color: '#1a73e8', weight: 4, opacity: 0.8, dashArray: '6, 8' }).addTo(lineLayer);
-        map.fitBounds(polyline.getBounds(), { padding: [50, 50] });
+        map.fitBounds(polyline.getBounds(), { padding: [40, 40] });
       } else {
         map.setView(latlngs[0], 13);
       }
 
-      let stepsHtml = `<h2>${day.title}</h2><p style="color:#666; font-size:0.9rem; margin-bottom:15px;">📍 ${day.region}</p>`;
+      // Render Day Card
+      let stepsHtml = `
+        <h2>${day.title}</h2>
+        <p style="color:var(--text-muted); font-size:0.88rem; margin: -4px 0 12px 0;">📍 ${day.region}</p>
+        
+        <div class="transit-live-box">
+          <div class="live-frequency">🚇 Real-Time Transit & Schedules:</div>
+          <div>${day.transitFreq}</div>
+          <div style="margin-top:8px;">
+            <a href="${day.ticketUrl}" target="_blank" class="btn-action ticket">🎟️ ${day.ticketName}</a>
+          </div>
+        </div>
+        <div style="margin-top:16px;"></div>
+      `;
+
       day.stops.forEach((stop, index) => {
         const isHotel = stop.name.includes("🏨");
         const gmapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${stop.coords[0]},${stop.coords[1]}&dir_action=navigate&travelmode=transit`;
@@ -562,67 +1000,238 @@
             <div class="step-content">
               <div class="step-time">${stop.time}</div>
               <div class="step-title">${stop.name}</div>
-              <div style="font-size:0.9rem; color:#444;">${stop.desc}</div>
-              <a href="${gmapsUrl}" target="_blank" class="gmaps-link">
-                🧭 Open in Google Maps
-              </a>
+              <div class="step-desc">${stop.desc}</div>
+              <div class="action-links">
+                <a href="${gmapsUrl}" target="_blank" class="btn-action">
+                  🧭 Open in Google Maps
+                </a>
+              </div>
             </div>
           </div>
         `;
       });
 
       stepsHtml += `
-        <div class="step-transit">
-          <b>🚇 Recommended Transit:</b> ${day.transit}
+        <div class="transit-live-box" style="background:#f1f5f9; border-left-color:#64748b; color:#334155;">
+          <b>🧭 Day Transit Step:</b> ${day.transit}
         </div>
       `;
 
       document.getElementById('day-summary').innerHTML = stepsHtml;
+      renderPhrases(day.country);
     }
 
+    // Tabs
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+      event.target.classList.add('active');
+      document.getElementById('tab-' + tabId).classList.add('active');
+    }
+
+    // Dual Time Clock HUD
+    function startClock() {
+      function update() {
+        const now = new Date();
+        const nycTime = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', hour12: true }).format(now);
+        
+        const currentDayKey = document.getElementById('daySelector').value || 'd2';
+        const tz = itinerary[currentDayKey] ? itinerary[currentDayKey].timezone : 'Asia/Seoul';
+        const localTime = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: true }).format(now);
+
+        document.getElementById('time-nyc').innerText = nycTime;
+        document.getElementById('time-local').innerText = localTime;
+      }
+      setInterval(update, 1000);
+      update();
+    }
+
+    // Compass Orientation Setup
+    function setupCompass() {
+      if (window.DeviceOrientationEvent) {
+        window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+        window.addEventListener('deviceorientation', handleOrientation, true);
+      }
+    }
+
+    function handleOrientation(event) {
+      let heading = null;
+      if (event.webkitCompassHeading) {
+        heading = event.webkitCompassHeading; // iOS Safari
+      } else if (event.alpha) {
+        heading = 360 - event.alpha; // Android Chrome
+      }
+
+      if (heading !== null) {
+        currentHeading = heading;
+        const cone = document.querySelector('.user-cone');
+        if (cone) {
+          cone.style.transform = `rotate(${currentHeading}deg)`;
+        }
+      }
+    }
+
+    // Live Geolocation & Heading Tracking
     function toggleGPS() {
+      const btn = document.getElementById('gpsBtn');
+
       if (!navigator.geolocation) {
-        alert("Geolocation is not supported by your browser.");
+        alert("Geolocation not supported by your device.");
         return;
+      }
+
+      // iOS 13+ Compass Permission Request
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission().catch(console.error);
       }
 
       if (watchId !== null) {
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
         userLocationLayer.clearLayers();
-        document.querySelector('.gps-btn').innerText = "📍 Find Me";
+        btn.innerText = "🧭 Compass & GPS";
+        btn.classList.remove('active');
         return;
       }
 
-      document.querySelector('.gps-btn').innerText = "⏳ Locating...";
+      btn.innerText = "⏳ Locating...";
 
       watchId = navigator.geolocation.watchPosition(
         (pos) => {
           const lat = pos.coords.latitude;
           const lng = pos.coords.longitude;
           const accuracy = pos.coords.accuracy;
+          currentUserLatLng = [lat, lng];
 
           userLocationLayer.clearLayers();
 
-          const userIcon = L.divIcon({
-            className: 'user-location-dot',
-            iconSize: [14, 14],
-            iconAnchor: [7, 7]
+          const userHeadingIcon = L.divIcon({
+            className: 'user-heading-container',
+            html: `
+              <div class="user-cone" style="transform: rotate(${currentHeading}deg);"></div>
+              <div class="user-dot"></div>
+            `,
+            iconSize: [40, 40],
+            iconAnchor: [20, 20]
           });
 
-          L.marker([lat, lng], { icon: userIcon }).addTo(userLocationLayer).bindPopup("<b>📍 You are here</b>").openPopup();
-          L.circle([lat, lng], { radius: accuracy, color: '#007aff', opacity: 0.2, fillOpacity: 0.1 }).addTo(userLocationLayer);
+          L.marker([lat, lng], { icon: userHeadingIcon }).addTo(userLocationLayer)
+            .bindPopup("<b>📍 You are here</b><br>Accuracy: ±" + Math.round(accuracy) + "m");
 
-          document.querySelector('.gps-btn').innerText = "🔴 Tracking";
+          L.circle([lat, lng], { radius: accuracy, color: '#1a73e8', opacity: 0.15, fillOpacity: 0.05 }).addTo(userLocationLayer);
+
+          btn.innerText = "🔴 Live GPS Active";
+          btn.classList.add('active');
           map.panTo([lat, lng]);
         },
         (err) => {
-          alert("Unable to retrieve location: " + err.message + "\n(Note: GPS tracking requires an HTTPS connection on mobile).");
-          document.querySelector('.gps-btn').innerText = "📍 Find Me";
+          alert("Location error: " + err.message + "\n(Make sure site is running via HTTPS on your phone).");
+          btn.innerText = "🧭 Compass & GPS";
+          btn.classList.remove('active');
           watchId = null;
         },
-        { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 }
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
       );
+    }
+
+    // Currency Converter
+    function setUSD(val) {
+      document.getElementById('usdInput').value = val;
+      updateCurrency(val);
+    }
+    function updateCurrency(val) {
+      const num = parseFloat(val) || 0;
+      document.getElementById('val-krw').innerText = "₩" + Math.round(num * 1350).toLocaleString();
+      document.getElementById('val-jpy').innerText = "¥" + Math.round(num * 150).toLocaleString();
+      document.getElementById('val-cny').innerText = "¥" + (num * 7.2).toFixed(1);
+      document.getElementById('val-usd').innerText = "$" + num.toFixed(2);
+    }
+
+    // Phrases & Text-to-Speech
+    function renderPhrases(country) {
+      const phrases = survivalPhrases[country] || survivalPhrases['korea'];
+      const container = document.getElementById('phrases-container');
+      const header = document.getElementById('phrases-header');
+
+      const countryNames = { korea: "🇰🇷 Korea", japan: "🇯🇵 Japan", china: "🇨🇳 China" };
+      header.innerText = `🗣️ Pocket Phrases (${countryNames[country] || 'Korea'})`;
+
+      container.innerHTML = '';
+      phrases.forEach(p => {
+        const item = document.createElement('div');
+        item.className = 'phrase-item';
+        item.innerHTML = `
+          <div>
+            <div class="phrase-native">${p.native}</div>
+            <div class="phrase-rom">${p.rom}</div>
+            <div class="phrase-eng">${p.eng}</div>
+          </div>
+          <button class="speak-btn" onclick="speakPhrase('${p.native}', '${p.lang}')">🔊</button>
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    function speakPhrase(text, lang) {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.lang = lang;
+        utter.rate = 0.85;
+        window.speechSynthesis.speak(utter);
+      } else {
+        alert("Speech audio not supported on this browser.");
+      }
+    }
+
+    // Budget Tracker (localStorage)
+    function loadExpenses() {
+      const saved = JSON.parse(localStorage.getItem('asia_expenses') || '[]');
+      const list = document.getElementById('expense-list');
+      let total = 0;
+      list.innerHTML = '';
+
+      saved.forEach((item, idx) => {
+        total += item.amount;
+        const row = document.createElement('div');
+        row.className = 'expense-row';
+        row.innerHTML = `
+          <span>${item.name}</span>
+          <span><b>$${item.amount.toFixed(2)}</b> <button onclick="deleteExpense(${idx})" style="border:none; background:none; color:red; cursor:pointer;">✕</button></span>
+        `;
+        list.appendChild(row);
+      });
+
+      document.getElementById('total-spent').innerText = total.toFixed(2);
+      const pct = Math.min((total / 4000) * 100, 100);
+      document.getElementById('budget-fill').style.width = pct + '%';
+      document.getElementById('budget-fill').style.backgroundColor = pct > 90 ? '#d93025' : '#34a853';
+    }
+
+    function addExpense() {
+      const name = document.getElementById('exp-name').value.trim();
+      const amount = parseFloat(document.getElementById('exp-amount').value);
+
+      if (!name || isNaN(amount) || amount <= 0) {
+        alert("Please enter a valid expense name and amount.");
+        return;
+      }
+
+      const saved = JSON.parse(localStorage.getItem('asia_expenses') || '[]');
+      saved.push({ name, amount });
+      localStorage.setItem('asia_expenses', JSON.stringify(saved));
+
+      document.getElementById('exp-name').value = '';
+      document.getElementById('exp-amount').value = '';
+      loadExpenses();
+    }
+
+    function deleteExpense(idx) {
+      const saved = JSON.parse(localStorage.getItem('asia_expenses') || '[]');
+      saved.splice(idx, 1);
+      localStorage.setItem('asia_expenses', JSON.stringify(saved));
+      loadExpenses();
     }
 
     window.onload = initMap;
