@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>East Asia 1-Month Trip Planner & Live GPS Navigator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f4f6f9;
+      color: #333;
+    }
+    header {
+      background: #1a73e8;
+      color: white;
+      padding: 12px 16px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      gap: 10px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.1rem;
+    }
+    .header-controls {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      width: 100%;
+      justify-content: space-between;
+    }
+    @media (min-width: 600px) {
+      .header-controls {
+        width: auto;
+      }
+    }
+    select {
+      padding: 8px 10px;
+      font-size: 0.9rem;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      background: white;
+      font-weight: 600;
+      cursor: pointer;
+      flex: 1;
+      max-width: 280px;
+    }
+    .gps-btn {
+      background: #34a853;
+      color: white;
+      border: none;
+      padding: 8px 14px;
+      font-size: 0.9rem;
+      font-weight: bold;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    .gps-btn:active {
+      background: #2d8e47;
+    }
+    #map-container {
+      position: relative;
+      height: 48vh;
+      width: 100%;
+      border-bottom: 2px solid #ddd;
+    }
+    #map {
+      height: 100%;
+      width: 100%;
+    }
+    .details-panel {
+      padding: 16px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    .card {
+      background: white;
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 14px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+    .card h2 {
+      margin-top: 0;
+      font-size: 1.2rem;
+      color: #1a73e8;
+    }
+    .step-item {
+      display: flex;
+      margin-bottom: 14px;
+      align-items: flex-start;
+      border-bottom: 1px solid #f0f0f0;
+      padding-bottom: 12px;
+    }
+    .step-item:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+    .step-badge {
+      background: #1a73e8;
+      color: white;
+      border-radius: 50%;
+      width: 26px;
+      height: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+      font-weight: bold;
+      margin-right: 12px;
+      flex-shrink: 0;
+    }
+    .step-badge.hotel {
+      background: #e65100;
+    }
+    .step-content {
+      flex: 1;
+    }
+    .step-time {
+      font-size: 0.82rem;
+      color: #666;
+      font-weight: bold;
+    }
+    .step-title {
+      font-size: 0.98rem;
+      font-weight: bold;
+      margin: 2px 0;
+    }
+    .gmaps-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 6px;
+      padding: 4px 10px;
+      background: #f1f3f4;
+      color: #1a73e8;
+      text-decoration: none;
+      font-size: 0.82rem;
+      font-weight: 600;
+      border-radius: 4px;
+      border: 1px solid #dadce0;
+    }
+    .gmaps-link:hover {
+      background: #e8f0fe;
+    }
+    .step-transit {
+      background: #eef4ff;
+      border-left: 3px solid #1a73e8;
+      padding: 8px 12px;
+      font-size: 0.88rem;
+      border-radius: 0 4px 4px 0;
+      margin-top: 10px;
+      color: #0d47a1;
+      line-height: 1.4;
+    }
+    .user-location-dot {
+      background-color: #007aff;
+      border: 3px solid white;
+      border-radius: 50%;
+      width: 14px;
+      height: 14px;
+      box-shadow: 0 0 10px rgba(0,122,255,0.8);
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>🗺️ Asia Tour Navigator</h1>
+    <div class="header-controls">
+      <select id="daySelector" onchange="renderDay(this.value)">
+        <!-- Populated dynamically by JS -->
+      </select>
+      <button class="gps-btn" onclick="toggleGPS()">📍 Find Me</button>
+    </div>
+  </header>
+
+  <div id="map-container">
+    <div id="map"></div>
+  </div>
+
+  <div class="details-panel">
+    <div class="card" id="day-summary">
+      <!-- Populated dynamically by JS -->
+    </div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const SEOUL_HOTEL = [37.5636, 126.9854];
+    const TOKYO_HOTEL = [35.6961, 139.7578];
+    const SHANGHAI_HOTEL = [31.2384, 121.4829];
+    const HANGZHOU_HOTEL = [30.2520, 120.1550];
+
+    const itinerary = {
+      "d1": {
+        title: "Day 1 (Sat, Apr 3): NYC ➔ Transpacific Flight",
+        region: "In Flight (New York to Seoul)",
+        stops: [
+          { name: "New York Airport (JFK/LGA/EWR)", time: "Evening Departure", coords: [40.6413, -73.7781], desc: "Board flight to Seoul (ICN). Rest up for the journey." }
+        ],
+        transit: "Transpacific flight crossing the International Date Line (+1 day)."
+      },
+      "d2": {
+        title: "Day 2 (Sun, Apr 4): Incheon Arrival ➔ Myeongdong Check-in",
+        region: "Seoul, South Korea",
+        stops: [
+          { name: "Incheon Int'l Airport (ICN)", time: "7:15 PM - 8:30 PM", coords: [37.4602, 126.4407], desc: "Land, clear customs, pick up T-Money card." },
+          { name: "Seoul Station", time: "8:30 PM - 9:15 PM", coords: [37.5559, 126.9723], desc: "Express train hub connection." },
+          { name: "🏨 Myeongdong Hotel", time: "9:30 PM", coords: SEOUL_HOTEL, desc: "Check in to hotel & unpack." },
+          { name: "Myeongdong Night Food Alleys", time: "9:45 PM - 11:00 PM", coords: [37.5615, 126.9858], desc: "Lobster skewers, tornado potatoes, and egg bread." }
+        ],
+        transit: "Take AREX Express train from ICN to Seoul Station (43 mins). Transfer to Line 4 to Myeongdong Station (Exit 6/8)."
+      },
+      "d3": {
+        title: "Day 3 (Mon, Apr 5): Palaces, Hanok Village & Insadong",
+        region: "Seoul, South Korea",
+        stops: [
+          { name: "🏨 Myeongdong Hotel", time: "10:00 AM", coords: SEOUL_HOTEL, desc: "Start from hotel." },
+          { name: "Gyeongbokgung Palace", time: "10:30 AM - 1:00 PM", coords: [37.5796, 126.9770], desc: "Main royal palace & guard changing ceremony." },
+          { name: "Bukchon Hanok Village", time: "1:30 PM - 3:30 PM", coords: [37.5826, 126.9836], desc: "Preserved historic Korean tile-roof village." },
+          { name: "Insadong Culture Street", time: "4:00 PM - 7:00 PM", coords: [37.5743, 126.9877], desc: "Teahouses, calligraphy craft shops & mandu dumplings." }
+        ],
+        transit: "Walk to Chungmuro Station, take Line 3 to Gyeongbokgung Station (Exit 5). Walk 12m east to Bukchon, then 10m south to Insadong."
+      },
+      "d4": {
+        title: "Day 4 (Tue, Apr 6): Hongdae Indie Scene & Yeonnam-dong",
+        region: "Seoul, South Korea",
+        stops: [
+          { name: "🏨 Myeongdong Hotel", time: "11:00 AM", coords: SEOUL_HOTEL, desc: "Start from hotel." },
+          { name: "Yeonnam-dong Forest Park", time: "11:30 AM - 2:30 PM", coords: [37.5621, 126.9248], desc: "Converted railway park, boutique cafes & bakeries." },
+          { name: "Hongdae Shopping Street", time: "2:30 PM - 6:30 PM", coords: [37.5563, 126.9229], desc: "K-fashion boutiques, photobooths & dance buskers." },
+          { name: "Hongdae Chimaek Alleys", time: "6:30 PM - 9:00 PM", coords: [37.5538, 126.9216], desc: "Crispy Korean Fried Chicken & draft beer dinner." }
+        ],
+        transit: "Take Line 2 from Euljiro 1-ga directly to Hongik Univ. Station (Exit 3 for Yeonnam, Exit 9 for Hongdae)."
+      },
+      "d5": {
+        title: "Day 5 (Wed, Apr 7): Seongsu-dong & Seoul Forest",
+        region: "Seoul, South Korea",
+        stops: [
+          { name: "🏨 Myeongdong Hotel", time: "11:00 AM", coords: SEOUL_HOTEL, desc: "Start from hotel." },
+          { name: "Seongsu Cafe Alleys", time: "11:30 AM - 3:30 PM", coords: [37.5445, 127.0560], desc: "Industrial warehouse cafes (Daelim Changgo, Onion)." },
+          { name: "Seoul Forest Park", time: "3:30 PM - 5:30 PM", coords: [37.5444, 127.0374], desc: "Lush city park walk & deer corral." },
+          { name: "Somunnan Seongsu Gamjatang", time: "6:00 PM - 8:00 PM", coords: [37.5430, 127.0545], desc: "Famous savory pork backbone stew dinner." }
+        ],
+        transit: "Take Line 2 from Euljiro 1-ga to Seongsu Station (Exit 3/4). Walk 10m west to Seoul Forest."
+      },
+      "d6": {
+        title: "Day 6 (Thu, Apr 8): Gangnam & Starfield COEX Library",
+        region: "Seoul, South Korea",
+        stops: [
+          { name: "🏨 Myeongdong Hotel", time: "11:00 AM", coords: SEOUL_HOTEL, desc: "Start from hotel." },
+          { name: "Starfield COEX Library", time: "11:45 AM - 2:30 PM", coords: [37.5118, 127.0592], desc: "Massive open-air multi-story library." },
+          { name: "Bongeunsa Buddhist Temple", time: "2:45 PM - 4:30 PM", coords: [37.5144, 127.0573], desc: "Ancient tranquil temple surrounded by modern skyline." },
+          { name: "Gangnam BBQ District", time: "5:30 PM - 8:30 PM", coords: [37.4980, 127.0276], desc: "Grilled pork belly (Samgyeopsal) & soju dinner." }
+        ],
+        transit: "Take Line 2 from Euljiro 1-ga to Samseong Station (Exit 5/6 connects directly into COEX)."
+      },
+      "d7": {
+        title: "Day 7 (Fri, Apr 9): Gwangjang Market & N Seoul Tower",
+        region: "Seoul, South Korea",
+        stops: [
+          { name: "🏨 Myeongdong Hotel", time: "11:00 AM", coords: SEOUL_HOTEL, desc: "Start from hotel." },
+          { name: "Gwangjang Traditional Market", time: "11:30 AM - 2:30 PM", coords: [37.5701, 127.0016], desc: "Crispy mung bean pancakes (Bindaetteok) & knife noodles." },
+          { name: "Namsan N Seoul Tower", time: "4:00 PM - 7:30 PM", coords: [37.5512, 126.9882], desc: "Sunset views over the entire Seoul skyline." }
+        ],
+        transit: "Take Line 1 to Jongno 5-ga Station (Exit 8). Then take Yellow Namsan Shuttle Bus 01A up to N Seoul Tower."
+      },
+      "d8": {
+        title: "Day 8 (Sat, Apr 10): Han River Cycling & The Hyundai",
+        region: "Seoul, South Korea",
+        stops: [
+          { name: "🏨 Myeongdong Hotel", time: "11:30 AM", coords: SEOUL_HOTEL, desc: "Start from hotel." },
+          { name: "Yeouido Hangang River Park", time: "12:00 PM - 4:00 PM", coords: [37.5284, 126.9342], desc: "Bike rental & riverside foil-pack instant ramen." },
+          { name: "The Hyundai Seoul Mall", time: "4:30 PM - 7:30 PM", coords: [37.5259, 126.9284], desc: "Futuristic indoor garden department store & gourmet eats." }
+        ],
+        transit: "Take Subway Line 5 to Yeouinaru Station (Exit 2) right at the riverbank."
+      },
+      "d9": {
+        title: "Day 9 (Sun, Apr 11): Seoul ➔ Tokyo Flight & Shinjuku Night",
+        region: "Tokyo, Japan",
+        stops: [
+          { name: "🏨 Myeongdong Hotel", time: "9:00 AM", coords: SEOUL_HOTEL, desc: "Check out of Seoul hotel." },
+          { name: "Incheon Airport (ICN)", time: "10:30 AM", coords: [37.4602, 126.4407], desc: "Fly to Tokyo Narita." },
+          { name: "Narita Airport (NRT)", time: "2:25 PM", coords: [35.7720, 140.3929], desc: "Land in Tokyo, add digital Suica card." },
+          { name: "🏨 Tokyo Hotel (Jimbocho)", time: "4:30 PM", coords: TOKYO_HOTEL, desc: "Check in to Tokyo hotel." },
+          { name: "Shinjuku Kabukicho & Ramen", time: "6:30 PM - 10:00 PM", coords: [35.6938, 139.7013], desc: "Godzilla head, neon lights, and counter ramen." }
+        ],
+        transit: "AREX train to ICN -> Flight to NRT -> Keisei Skyliner / Narita Express to central Tokyo."
+      },
+      "d10": {
+        title: "Day 10 (Mon, Apr 12): Shibuya Crossing & Harajuku",
+        region: "Tokyo, Japan",
+        stops: [
+          { name: "🏨 Tokyo Hotel", time: "9:30 AM", coords: TOKYO_HOTEL, desc: "Start from hotel." },
+          { name: "Meiji Jingu Shrine", time: "10:00 AM - 12:00 PM", coords: [35.6764, 139.6993], desc: "Tranquil cedar forest and massive wooden Torii gate." },
+          { name: "Takeshita Street (Harajuku)", time: "12:00 PM - 2:00 PM", coords: [35.6715, 139.7032], desc: "Crepes, fashion shops, and walk down Cat Street." },
+          { name: "Shibuya Crossing & Sky", time: "2:30 PM - 6:30 PM", coords: [35.6595, 139.7005], desc: "Scramble crossing, Hachiko statue, and conveyor sushi." }
+        ],
+        transit: "Metro to Harajuku Station. Walk down Cat Street south directly into Shibuya."
+      },
+      "d11": {
+        title: "Day 11 (Tue, Apr 13): Historic Senso-ji & Akihabara",
+        region: "Tokyo, Japan",
+        stops: [
+          { name: "🏨 Tokyo Hotel", time: "9:30 AM", coords: TOKYO_HOTEL, desc: "Start from hotel." },
+          { name: "Senso-ji Temple (Asakusa)", time: "10:00 AM - 1:00 PM", coords: [35.7148, 139.7967], desc: "Kaminarimon lantern, melonpan & tempura bowls." },
+          { name: "Akihabara Electric Town", time: "1:30 PM - 6:00 PM", coords: [35.6983, 139.7731], desc: "Retro gaming, multi-floor arcades & electronics." },
+          { name: "Gyukatsu Motomura Dinner", time: "6:30 PM - 8:30 PM", coords: [35.6995, 139.7712], desc: "Sizzle beef cutlets on tabletop hot stones." }
+        ],
+        transit: "Metro to Asakusa Station (Exit 1). Take Tsukuba Express (5 mins) straight to Akihabara."
+      },
+      "d12": {
+        title: "Day 12 (Wed, Apr 14): Toyosu Seafood & teamLab Planets",
+        region: "Tokyo, Japan",
+        stops: [
+          { name: "🏨 Tokyo Hotel", time: "10:00 AM", coords: TOKYO_HOTEL, desc: "Start from hotel." },
+          { name: "Toyosu Outer Market", time: "10:45 AM - 1:00 PM", coords: [35.6450, 139.7850], desc: "Fresh sashimi seafood bowls (Chirashi)." },
+          { name: "teamLab Planets", time: "1:30 PM - 4:00 PM", coords: [35.6517, 139.7897], desc: "Walk-through digital water art museum." },
+          { name: "Odaiba Seaside Park", time: "4:30 PM - 7:30 PM", coords: [35.6298, 139.7753], desc: "Giant Unicorn Gundam statue and rainbow bridge sunset." }
+        ],
+        transit: "Yurakucho Line + Yurikamome Monorail to Shijo-mae, Shin-Toyosu, and Daiba stations."
+      },
+      "d13": {
+        title: "Day 13 (Thu, Apr 15): Shinjuku Gyoen & Omoide Yokocho",
+        region: "Tokyo, Japan",
+        stops: [
+          { name: "🏨 Tokyo Hotel", time: "10:00 AM", coords: TOKYO_HOTEL, desc: "Start from hotel." },
+          { name: "Shinjuku Gyoen National Garden", time: "10:30 AM - 1:30 PM", coords: [35.6852, 139.7101], desc: "Peaceful landscape garden & traditional teahouse." },
+          { name: "Tokyo Metropolitan Gov. Bldg", time: "2:30 PM - 4:30 PM", coords: [35.6896, 139.6921], desc: "Free 45th-floor panoramic observatory deck." },
+          { name: "Omoide Yokocho (Memory Lane)", time: "5:30 PM - 8:30 PM", coords: [35.6931, 139.6997], desc: "Charcoal grilled yakitori skewers & highballs." }
+        ],
+        transit: "Toei Shinjuku line to Shinjuku-sanchome / Shinjuku Station."
+      },
+      "d14": {
+        title: "Day 14 (Fri, Apr 16): Vintage Shimokitazawa & Kichijoji",
+        region: "Tokyo, Japan",
+        stops: [
+          { name: "🏨 Tokyo Hotel", time: "10:30 AM", coords: TOKYO_HOTEL, desc: "Start from hotel." },
+          { name: "Shimokitazawa Thrift District", time: "11:00 AM - 3:00 PM", coords: [35.6616, 139.6667], desc: "Vintage clothing, vinyl records & craft coffee." },
+          { name: "Inokashira Park (Kichijoji)", time: "3:30 PM - 6:30 PM", coords: [35.7001, 139.5761], desc: "Lakeside walk and Harmonica Yokocho food alley." }
+        ],
+        transit: "Odakyu Line to Shimokitazawa Station, then Keio Inokashira Line to Kichijoji Station."
+      },
+      "d15": {
+        title: "Day 15 (Sat, Apr 17): Ueno Market ➔ Fly to Shanghai",
+        region: "Shanghai, China",
+        stops: [
+          { name: "🏨 Tokyo Hotel", time: "10:00 AM", coords: TOKYO_HOTEL, desc: "Check out of Tokyo hotel." },
+          { name: "Ameyoko Shopping Street (Ueno)", time: "10:30 AM - 1:30 PM", coords: [35.7107, 139.7744], desc: "Open-air market street for matcha snacks & shoes." },
+          { name: "Narita Airport (NRT)", time: "3:30 PM", coords: [35.7720, 140.3929], desc: "Board direct 3.5h flight to Shanghai (PVG)." },
+          { name: "🏨 Shanghai Hotel (Nanjing Rd)", time: "8:30 PM", coords: SHANGHAI_HOTEL, desc: "Check in & grab late-night pan-fried pork buns." }
+        ],
+        transit: "Keisei Skyliner from Ueno to NRT (41 mins) -> Flight to PVG -> Maglev/Metro Line 2 into downtown Shanghai."
+      },
+      "d16": {
+        title: "Day 16 (Sun, Apr 18): Yu Garden & The Bund Illuminated",
+        region: "Shanghai, China",
+        stops: [
+          { name: "🏨 Shanghai Hotel", time: "10:30 AM", coords: SHANGHAI_HOTEL, desc: "Start from hotel." },
+          { name: "Yu Garden & Yuyuan Bazaar", time: "11:00 AM - 2:00 PM", coords: [31.2272, 121.4921], desc: "Ming-dynasty garden & steaming soup dumplings (Xiaolongbao)." },
+          { name: "Nanjing Road Pedestrian Mall", time: "2:30 PM - 5:30 PM", coords: [31.2384, 121.4780], desc: "Bustling neon walking street towards the river." },
+          { name: "The Bund Waterfront Promenade", time: "6:00 PM - 8:30 PM", coords: [31.2397, 121.4903], desc: "Illuminated 1920s architecture & Pudong skyline." }
+        ],
+        transit: "Metro Line 10 to Yuyuan Station (Exit 1). Walk along East Nanjing Road east towards The Bund."
+      },
+      "d17": {
+        title: "Day 17 (Mon, Apr 19): French Concession & Wukang Mansion",
+        region: "Shanghai, China",
+        stops: [
+          { name: "🏨 Shanghai Hotel", time: "10:30 AM", coords: SHANGHAI_HOTEL, desc: "Start from hotel." },
+          { name: "Wukang Mansion", time: "11:00 AM - 1:30 PM", coords: [31.2062, 121.4398], desc: "Iconic wedge building & plane-tree shaded boulevards." },
+          { name: "Anfu Road Boutiques", time: "1:30 PM - 4:00 PM", coords: [31.2144, 121.4463], desc: "Designer pop-up shops & artisan bakeries." },
+          { name: "Fuxing Park", time: "4:30 PM - 6:30 PM", coords: [31.2185, 121.4674], desc: "French-style park with locals playing chess & Tai Chi." }
+        ],
+        transit: "Metro Line 10 to Shanghai Library Station (Exit 3). Walk along Wukang Road to Anfu Road."
+      },
+      "d18": {
+        title: "Day 18 (Tue, Apr 20): Shanghai Tower & Haidilao Hot Pot",
+        region: "Shanghai, China",
+        stops: [
+          { name: "🏨 Shanghai Hotel", time: "11:00 AM", coords: SHANGHAI_HOTEL, desc: "Start from hotel." },
+          { name: "Shanghai Tower (118th Floor)", time: "11:30 AM - 2:30 PM", coords: [31.2335, 121.5056], desc: "World's fastest elevator & 2,073-ft observation deck." },
+          { name: "Pudong Riverside Promenade", time: "3:00 PM - 5:30 PM", coords: [31.2405, 121.4975], desc: "Riverside walk looking back across at The Bund." },
+          { name: "Haidilao Hot Pot Dinner", time: "6:00 PM - 8:30 PM", coords: [31.2350, 121.4850], desc: "Famous noodle show, DIY sauce bar, and spicy broth." }
+        ],
+        transit: "Metro Line 2 under the river from East Nanjing Rd to Lujiazui Station (Exit 4)."
+      },
+      "d19": {
+        title: "Day 19 (Wed, Apr 21): Day Trip to Suzhou (Gardens & Canals)",
+        region: "Suzhou, China",
+        stops: [
+          { name: "🏨 Shanghai Hotel", time: "8:00 AM", coords: SHANGHAI_HOTEL, desc: "Depart hotel for railway." },
+          { name: "Shanghai Hongqiao Station", time: "8:45 AM", coords: [31.1959, 121.3197], desc: "Board high-speed bullet train." },
+          { name: "Humble Administrator's Garden", time: "9:45 AM - 1:00 PM", coords: [31.3255, 120.6277], desc: "UNESCO World Heritage Classical Chinese garden." },
+          { name: "Shantang Ancient Canal Street", time: "1:30 PM - 4:30 PM", coords: [31.3168, 120.5982], desc: "1,200-year-old stone canal houses & boat ride." }
+        ],
+        transit: "High-speed bullet train from Shanghai Hongqiao to Suzhou Station (25 mins, ~$6)."
+      },
+      "d20": {
+        title: "Day 20 (Thu, Apr 22): Tianzifang Alleys & Dim Sum",
+        region: "Shanghai, China",
+        stops: [
+          { name: "🏨 Shanghai Hotel", time: "11:00 AM", coords: SHANGHAI_HOTEL, desc: "Start from hotel." },
+          { name: "Tianzifang Shikumen Alleys", time: "11:30 AM - 3:00 PM", coords: [31.2084, 121.4688], desc: "Labyrinth alleys with tea boutiques & handmade crafts." },
+          { name: "Xintiandi Courtyards", time: "3:30 PM - 6:00 PM", coords: [31.2223, 121.4746], desc: "Outdoor European-Chinese terrace cafes & plazas." },
+          { name: "Cantonese Dim Sum Feast", time: "6:30 PM - 8:30 PM", coords: [31.2250, 121.4750], desc: "Steamed shrimp dumplings, BBQ pork buns & egg tarts." }
+        ],
+        transit: "Metro Line 9 to Dapuqiao Station (Exit 1). Walk 12m north into Xintiandi."
+      },
+      "d21": {
+        title: "Day 21 (Fri, Apr 23): High-Speed Train ➔ Hangzhou (West Lake)",
+        region: "Hangzhou, China",
+        stops: [
+          { name: "🏨 Shanghai Hotel", time: "8:00 AM", coords: SHANGHAI_HOTEL, desc: "Depart Shanghai for Hangzhou." },
+          { name: "Hangzhou East Railway Station", time: "9:30 AM", coords: [30.2905, 120.2131], desc: "Arrive via bullet train." },
+          { name: "🏨 Hangzhou West Lake Hotel", time: "10:30 AM", coords: HANGZHOU_HOTEL, desc: "Drop off bags." },
+          { name: "West Lake (Xi Hu) Cycling", time: "11:00 AM - 3:30 PM", coords: [30.2425, 120.1485], desc: "Bike perimeter, Broken Bridge & Su Causeway." },
+          { name: "Longjing Green Tea Village", time: "4:00 PM - 6:30 PM", coords: [30.2105, 120.1080], desc: "Tea plantation hills and fresh roasted Dragon Well tea." }
+        ],
+        transit: "Bullet train from Shanghai Hongqiao to Hangzhou East (45 mins, ~$10). DiDi taxi to West Lake."
+      },
+      "d22": {
+        title: "Day 22 (Sat, Apr 24): Lingyin Temple ➔ Return to Shanghai",
+        region: "Hangzhou / Shanghai, China",
+        stops: [
+          { name: "🏨 Hangzhou Hotel", time: "9:00 AM", coords: HANGZHOU_HOTEL, desc: "Check out of Hangzhou hotel." },
+          { name: "Lingyin Bamboo Temple", time: "9:30 AM - 12:30 PM", coords: [30.2411, 120.0967], desc: "Ancient Buddhist temple set in lush bamboo forest." },
+          { name: "Hangzhou East Station", time: "1:30 PM", coords: [30.2905, 120.2131], desc: "Bullet train back to Shanghai." },
+          { name: "🏨 Shanghai Hotel", time: "3:30 PM", coords: SHANGHAI_HOTEL, desc: "Check back in to Shanghai hotel." },
+          { name: "Spicy Hot Pot / Skewer Dinner", time: "6:30 PM - 9:00 PM", coords: [31.2384, 121.4829], desc: "Mala Xiangguo or street skewers." }
+        ],
+        transit: "DiDi taxi to Lingyin Temple -> Bullet train back to Shanghai Hongqiao (45 mins) -> Metro Line 2 to hotel."
+      },
+      "d23": {
+        title: "Day 23 (Sun, Apr 25): Zhujiajiao Ancient Water Town",
+        region: "Zhujiajiao, China",
+        stops: [
+          { name: "🏨 Shanghai Hotel", time: "10:00 AM", coords: SHANGHAI_HOTEL, desc: "Start from hotel." },
+          { name: "Zhujiajiao Water Town", time: "11:00 AM - 3:30 PM", coords: [31.1118, 121.0505], desc: "5-arch Fangsheng Bridge, canal gondola ride & street snacks." },
+          { name: "🏨 Shanghai Hotel (Return)", time: "5:00 PM", coords: SHANGHAI_HOTEL, desc: "Return to hotel and refresh." }
+        ],
+        transit: "Take Metro Line 17 directly west to Zhujiajiao Station (Exit 1). Walk 10m into old town."
+      },
+      "d24": {
+        title: "Day 24 (Mon, Apr 26): Jing'an Temple & M50 Art District",
+        region: "Shanghai, China",
+        stops: [
+          { name: "🏨 Shanghai Hotel", time: "10:30 AM", coords: SHANGHAI_HOTEL, desc: "Start from hotel." },
+          { name: "Jing'an Temple", time: "11:00 AM - 1:00 PM", coords: [31.2230, 121.4460], desc: "Golden Buddhist temple nestled between modern skyscrapers." },
+          { name: "M50 Contemporary Art District", time: "2:00 PM - 5:30 PM", coords: [31.2482, 121.4470], desc: "Converted textile mill galleries, graffiti walls & indie studios." }
+        ],
+        transit: "Metro Line 2 to Jing'an Temple Station. Line 13 to Jiangning Road Station for M50."
+      },
+      "d25": {
+        title: "Day 25 (Tue, Apr 27): People's Square & Underground Markets",
+        region: "Shanghai, China",
+        stops: [
+          { name: "🏨 Shanghai Hotel", time: "11:00 AM", coords: SHANGHAI_HOTEL, desc: "Start from hotel." },
+          { name: "People's Square & Museum", time: "11:30 AM - 3:00 PM", coords: [31.2317, 121.4754], desc: "Urban park and subterranean bargain gift markets." },
+          { name: "South Shaanxi Road Cafes", time: "3:30 PM - 6:00 PM", coords: [31.2180, 121.4590], desc: "Relax at boutique coffee lanes & pastry shops." }
+        ],
+        transit: "Metro Line 1/2/8 to People's Square Station. Line 1 south to South Shaanxi Road."
+      },
+      "d26": {
+        title: "Day 26 (Wed, Apr 28): Final Shopping & Rooftop Skyline Views",
+        region: "Shanghai, China",
+        stops: [
+          { name: "🏨 Shanghai Hotel", time: "11:00 AM", coords: SHANGHAI_HOTEL, desc: "Start from hotel." },
+          { name: "Local Supermarket & Tea Haul", time: "11:30 AM - 3:30 PM", coords: [31.2384, 121.4780], desc: "Pack up tea tins, White Rabbit candy, and gifts." },
+          { name: "The Bund Rooftop Celebration", time: "6:30 PM - 9:30 PM", coords: [31.2397, 121.4903], desc: "Farewell dinner & drinks overlooking the illuminated river." }
+        ],
+        transit: "Walk directly from hotel down East Nanjing Road to the waterfront."
+      },
+      "d27": {
+        title: "Day 27 (Thu, Apr 29): Maglev Train ➔ Fly Home to NYC",
+        region: "Shanghai to NYC",
+        stops: [
+          { name: "🏨 Shanghai Hotel", time: "11:30 AM", coords: SHANGHAI_HOTEL, desc: "Check out of Shanghai hotel." },
+          { name: "Longyang Road Maglev Station", time: "12:15 PM", coords: [31.2039, 121.5577], desc: "Board 268-mph magnetic levitation train." },
+          { name: "Shanghai Pudong Airport (PVG)", time: "12:30 PM", coords: [31.1443, 121.8083], desc: "Check in for 3:55 PM flight to NYC." }
+        ],
+        transit: "Metro Line 2 to Longyang Road Station -> Maglev Train (7 mins straight to PVG)."
+      }
+    };
+
+    let map, markerLayer, lineLayer, userLocationLayer;
+    let watchId = null;
+
+    function initMap() {
+      map = L.map('map').setView(SEOUL_HOTEL, 13);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap contributors'
+      }).addTo(map);
+
+      markerLayer = L.layerGroup().addTo(map);
+      lineLayer = L.layerGroup().addTo(map);
+      userLocationLayer = L.layerGroup().addTo(map);
+
+      const selector = document.getElementById('daySelector');
+      selector.innerHTML = '';
+      for (const [key, data] of Object.entries(itinerary)) {
+        const opt = document.createElement('option');
+        opt.value = key;
+        opt.innerText = data.title;
+        selector.appendChild(opt);
+      }
+
+      renderDay('d2'); // Default to Day 2
+    }
+
+    function renderDay(dayKey) {
+      const day = itinerary[dayKey];
+      if (!day) return;
+
+      markerLayer.clearLayers();
+      lineLayer.clearLayers();
+
+      const latlngs = [];
+
+      day.stops.forEach((stop, index) => {
+        const marker = L.marker(stop.coords).addTo(markerLayer);
+        const gmapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${stop.coords[0]},${stop.coords[1]}&dir_action=navigate&travelmode=transit`;
+        
+        marker.bindPopup(`
+          <b>#${index + 1}: ${stop.name}</b><br>
+          ⏰ ${stop.time}<br>
+          ${stop.desc}<br>
+          <a href="${gmapsUrl}" target="_blank" class="gmaps-link" style="margin-top:6px; display:inline-block;">🧭 Navigate in Google Maps</a>
+        `);
+        latlngs.push(stop.coords);
+      });
+
+      if (latlngs.length > 1) {
+        const polyline = L.polyline(latlngs, { color: '#1a73e8', weight: 4, opacity: 0.8, dashArray: '6, 8' }).addTo(lineLayer);
+        map.fitBounds(polyline.getBounds(), { padding: [50, 50] });
+      } else {
+        map.setView(latlngs[0], 13);
+      }
+
+      let stepsHtml = `<h2>${day.title}</h2><p style="color:#666; font-size:0.9rem; margin-bottom:15px;">📍 ${day.region}</p>`;
+      day.stops.forEach((stop, index) => {
+        const isHotel = stop.name.includes("🏨");
+        const gmapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${stop.coords[0]},${stop.coords[1]}&dir_action=navigate&travelmode=transit`;
+
+        stepsHtml += `
+          <div class="step-item">
+            <div class="step-badge ${isHotel ? 'hotel' : ''}">${index + 1}</div>
+            <div class="step-content">
+              <div class="step-time">${stop.time}</div>
+              <div class="step-title">${stop.name}</div>
+              <div style="font-size:0.9rem; color:#444;">${stop.desc}</div>
+              <a href="${gmapsUrl}" target="_blank" class="gmaps-link">
+                🧭 Open in Google Maps
+              </a>
+            </div>
+          </div>
+        `;
+      });
+
+      stepsHtml += `
+        <div class="step-transit">
+          <b>🚇 Recommended Transit:</b> ${day.transit}
+        </div>
+      `;
+
+      document.getElementById('day-summary').innerHTML = stepsHtml;
+    }
+
+    function toggleGPS() {
+      if (!navigator.geolocation) {
+        alert("Geolocation is not supported by your browser.");
+        return;
+      }
+
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+        userLocationLayer.clearLayers();
+        document.querySelector('.gps-btn').innerText = "📍 Find Me";
+        return;
+      }
+
+      document.querySelector('.gps-btn').innerText = "⏳ Locating...";
+
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          const accuracy = pos.coords.accuracy;
+
+          userLocationLayer.clearLayers();
+
+          const userIcon = L.divIcon({
+            className: 'user-location-dot',
+            iconSize: [14, 14],
+            iconAnchor: [7, 7]
+          });
+
+          L.marker([lat, lng], { icon: userIcon }).addTo(userLocationLayer).bindPopup("<b>📍 You are here</b>").openPopup();
+          L.circle([lat, lng], { radius: accuracy, color: '#007aff', opacity: 0.2, fillOpacity: 0.1 }).addTo(userLocationLayer);
+
+          document.querySelector('.gps-btn').innerText = "🔴 Tracking";
+          map.panTo([lat, lng]);
+        },
+        (err) => {
+          alert("Unable to retrieve location: " + err.message + "\n(Note: GPS tracking requires an HTTPS connection on mobile).");
+          document.querySelector('.gps-btn').innerText = "📍 Find Me";
+          watchId = null;
+        },
+        { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 }
+      );
+    }
+
+    window.onload = initMap;
+  </script>
+</body>
+</html>
