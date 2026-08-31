@@ -1,58 +1,951 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>TripShuffle — Your AI Travel Copilot</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+
 <style>
-:root{--ink:#14231f;--muted:#6f7d77;--line:#e7eeea;--soft:#f5f8f6;--mint:#ddf7ec;--green:#11795c;--orange:#ff8059;--yellow:#fff2c7;--white:#fff;--shadow:0 18px 60px rgba(14,45,35,.08)}*{box-sizing:border-box}body{margin:0;font-family:'DM Sans',sans-serif;color:var(--ink);background:#fbfcfb}button,input,select,textarea{font:inherit}button{cursor:pointer;border:0}.app{min-height:100vh}.topbar{height:74px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 28px;position:sticky;top:0;z-index:1000}.brand{display:flex;align-items:center;gap:10px;font-family:'Plus Jakarta Sans';font-weight:800;font-size:21px}.brandmark{width:34px;height:34px;border-radius:11px;background:linear-gradient(135deg,#11795c,#51c59f);display:grid;place-items:center;color:#fff}.topnav{display:flex;gap:6px}.navbtn{background:transparent;padding:10px 14px;border-radius:10px;color:#53635d}.navbtn.active,.navbtn:hover{background:var(--soft);color:var(--ink)}.profile{display:flex;align-items:center;gap:12px}.avatar{width:38px;height:38px;border-radius:50%;background:#20342e;color:#fff;display:grid;place-items:center;font-weight:700}.layout{display:grid;grid-template-columns:275px minmax(520px,1fr) minmax(360px,500px);min-height:calc(100vh - 74px)}.sidebar{border-right:1px solid var(--line);background:#fff;padding:24px 18px}.sideTitle{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:#94a19c;margin:10px 10px 12px}.tripCard{border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:10px}.tripCard.active{background:var(--soft);border-color:#d6e8df}.tripName{font-weight:700}.small{font-size:12px;color:var(--muted)}.sideItem{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:12px;color:#52615c;margin:3px 0}.sideItem.active,.sideItem:hover{background:var(--soft);color:var(--ink)}.main{padding:24px 26px 50px;overflow:auto}.hero{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:22px}.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.13em;color:var(--green);font-weight:700}.hero h1{font:800 34px/1.1 'Plus Jakarta Sans';margin:6px 0}.hero p{margin:0;color:var(--muted)}.actions{display:flex;gap:8px}.btn{padding:11px 14px;border-radius:11px;background:#fff;border:1px solid var(--line);font-weight:600}.btn.primary{background:var(--green);color:#fff;border-color:var(--green)}.btn.magic{background:#132720;color:#fff}.controlRow{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;margin-bottom:18px}.control{background:#fff;border:1px solid var(--line);border-radius:13px;padding:11px 13px}.control label{display:block;font-size:11px;color:#95a19d;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px}.control select,.control input{width:100%;border:0;outline:0;background:transparent;color:var(--ink);font-weight:700}.chips{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 20px}.chip{padding:9px 12px;border-radius:99px;background:var(--soft);color:#607069}.chip.selected{background:var(--mint);color:var(--green);font-weight:700}.dashboard{display:grid;grid-template-columns:1.15fr .85fr;gap:16px}.panel{background:#fff;border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow)}.panelHead{display:flex;justify-content:space-between;align-items:center;padding:17px 18px;border-bottom:1px solid var(--line)}.panelHead h3{margin:0;font:700 17px 'Plus Jakarta Sans'}.dayTabs{display:flex;gap:7px;overflow:auto;padding:12px 18px;border-bottom:1px solid var(--line)}.dayTab{min-width:82px;padding:9px 10px;border-radius:10px;background:var(--soft);text-align:center}.dayTab.active{background:#132720;color:#fff}.timeline{padding:16px 18px}.stop{display:grid;grid-template-columns:32px 1fr auto;gap:12px;position:relative;padding:12px 0}.stop:not(:last-child):after{content:"";position:absolute;left:15px;top:44px;bottom:-8px;width:2px;background:#dfe9e5}.num{width:30px;height:30px;border-radius:50%;background:var(--mint);color:var(--green);display:grid;place-items:center;font-weight:800;z-index:1}.stop h4{margin:0 0 4px;font-size:15px}.stop p{margin:0;color:var(--muted);font-size:12px}.meta{display:flex;gap:10px;margin-top:7px;color:#74827d;font-size:11px}.score{font-size:13px;font-weight:800}.cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px 18px}.place{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#fff}.place img{display:block;width:100%;height:120px;object-fit:cover}.placeBody{padding:11px}.place h4{margin:0 0 4px;font-size:14px}.place p{margin:0;color:var(--muted);font-size:11px}.placeFoot{display:flex;justify-content:space-between;align-items:center;margin-top:8px}.add{background:var(--soft);padding:7px 9px;border-radius:9px;color:var(--green);font-weight:700;font-size:11px}.mapPanel{min-height:520px;display:flex;flex-direction:column}.map{flex:1;min-height:420px;border-radius:0 0 18px 18px}.mapLegend{display:flex;gap:8px;padding:10px 14px;flex-wrap:wrap}.legend{padding:6px 9px;border-radius:99px;background:var(--soft);font-size:11px;color:#596861}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}.stat{padding:14px;background:#fff;border:1px solid var(--line);border-radius:14px}.stat .v{font-size:22px;font-weight:800}.stat .k{font-size:11px;color:var(--muted)}.ai{position:fixed;right:22px;bottom:22px;width:380px;max-width:calc(100vw - 30px);background:#fff;border:1px solid var(--line);border-radius:20px;box-shadow:0 24px 80px rgba(9,35,27,.2);z-index:1500;overflow:hidden}.aiHead{background:#132720;color:#fff;padding:15px 16px;display:flex;align-items:center;justify-content:space-between}.aiTitle{font-weight:800}.aiSub{font-size:11px;opacity:.7}.aiBody{height:390px;display:flex;flex-direction:column}.messages{flex:1;overflow:auto;padding:14px}.msg{max-width:88%;padding:11px 12px;border-radius:14px;margin:7px 0;font-size:13px;line-height:1.45;white-space:pre-wrap}.msg.user{margin-left:auto;background:#132720;color:#fff;border-bottom-right-radius:5px}.msg.ai{background:var(--soft);border-bottom-left-radius:5px}.suggestions{display:flex;gap:6px;flex-wrap:wrap;padding:0 14px 10px}.suggestion{font-size:11px;padding:7px 9px;border-radius:99px;background:#fff;border:1px solid var(--line)}.aiInput{display:flex;gap:8px;padding:12px;border-top:1px solid var(--line)}.aiInput textarea{flex:1;resize:none;height:44px;border:1px solid var(--line);border-radius:12px;padding:11px;outline:0}.send{width:44px;border-radius:12px;background:var(--green);color:#fff;font-size:18px}.hidden{display:none}.modalBack{position:fixed;inset:0;background:rgba(10,30,24,.45);display:none;align-items:center;justify-content:center;z-index:2000}.modal{width:min(700px,calc(100vw - 30px));background:#fff;border-radius:22px;padding:22px}.modal.show{display:flex}.modal h2{margin:0 0 8px;font-family:'Plus Jakarta Sans'}.preferenceGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:16px 0}.pref{border:1px solid var(--line);border-radius:13px;padding:13px}.pref.active{background:var(--mint);border-color:#bce9d6}.pref b{display:block}.pref span{font-size:11px;color:var(--muted)}@media(max-width:1100px){.layout{grid-template-columns:220px 1fr}.mapPanel{display:none}}@media(max-width:760px){.topnav{display:none}.layout{display:block}.sidebar{display:none}.main{padding:18px}.controlRow{grid-template-columns:1fr 1fr}.dashboard{grid-template-columns:1fr}.ai{right:10px;bottom:10px;width:calc(100vw - 20px)}.hero{display:block}.actions{margin-top:14px}.stats{grid-template-columns:1fr 1fr 1fr}}
+:root{
+  --ink:#14231f;
+  --muted:#6f7d77;
+  --line:#e7eeea;
+  --soft:#f5f8f6;
+  --mint:#ddf7ec;
+  --green:#11795c;
+  --orange:#ff8059;
+  --yellow:#fff2c7;
+  --white:#fff;
+  --shadow:0 18px 60px rgba(14,45,35,.08);
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:'DM Sans',sans-serif;color:var(--ink);background:#fbfcfb;overflow-x:hidden}
+button,input,select,textarea{font:inherit}
+button{cursor:pointer;border:0}
+
+/* ==========================================================================
+   VIEW 1: LANDING HOME PAGE (Wanderlog Style)
+   ========================================================================== */
+#home-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: #ffffff;
+}
+.home-nav {
+  height: 74px;
+  padding: 0 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+  background: #ffffff;
+}
+.home-nav-left { display: flex; align-items: center; gap: 24px; }
+.logo-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-weight: 800;
+  font-size: 21px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.logo-brand .brandmark {
+  width: 34px; height: 34px; border-radius: 11px;
+  background: linear-gradient(135deg,#11795c,#51c59f);
+  display: grid; place-items: center; color: #fff;
+}
+.nav-links { display: flex; gap: 20px; list-style: none; }
+.nav-links a { text-decoration: none; color: #53635d; font-weight: 600; font-size: 14px; }
+.nav-links a:hover { color: var(--green); }
+
+.hero-plan-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 50px 20px 70px;
+  max-width: 620px;
+  margin: 0 auto;
+  width: 100%;
+  text-align: center;
+}
+.hero-heading {
+  font: 800 36px/1.1 'Plus Jakarta Sans', sans-serif;
+  color: var(--ink);
+  margin-bottom: 24px;
+}
+.plan-card {
+  width: 100%;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  margin-bottom: 20px;
+  text-align: left;
+  position: relative;
+}
+.input-row {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+  position: relative;
+}
+.input-row label {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-bottom: 4px;
+  display: flex;
+  justify-content: space-between;
+}
+.input-row input {
+  border: none;
+  outline: none;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+  width: 100%;
+  background: transparent;
+}
+.autocomplete-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 14px 40px rgba(14,45,35,.12);
+  z-index: 2000;
+  max-height: 280px;
+  overflow-y: auto;
+  display: none;
+}
+.autocomplete-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 11px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid #f5f8f6;
+}
+.autocomplete-item:hover { background: var(--soft); }
+.autocomplete-main { font-weight: 700; font-size: 14px; color: var(--ink); }
+.autocomplete-sub { font-size: 11px; color: var(--muted); }
+.autocomplete-badge {
+  background: var(--mint);
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.date-row { display: flex; }
+.date-col { flex: 1; padding: 12px 18px; }
+.date-col:first-child { border-right: 1px solid var(--line); }
+.date-col input { border: 0; outline: 0; font-size: 13px; font-weight: 600; color: var(--ink); width: 100%; }
+
+.btn-start-planning {
+  background: var(--green);
+  color: #fff;
+  font: 700 16px 'Plus Jakarta Sans', sans-serif;
+  border-radius: 99px;
+  padding: 14px 44px;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(17,121,92,.25);
+  transition: all .15s;
+}
+.btn-start-planning:hover { background: #0e624a; transform: translateY(-1px); }
+
+/* ==========================================================================
+   VIEW 2: WORKSPACE APP DASHBOARD
+   ========================================================================== */
+#workspace-view { display: none; min-height: 100vh; }
+.topbar{height:74px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 28px;position:sticky;top:0;z-index:1000}
+.brand{display:flex;align-items:center;gap:10px;font-family:'Plus Jakarta Sans';font-weight:800;font-size:21px;cursor:pointer}
+.brandmark{width:34px;height:34px;border-radius:11px;background:linear-gradient(135deg,#11795c,#51c59f);display:grid;place-items:center;color:#fff}
+.topnav{display:flex;gap:6px}
+.navbtn{background:transparent;padding:10px 14px;border-radius:10px;color:#53635d;font-weight:600}
+.navbtn.active,.navbtn:hover{background:var(--soft);color:var(--ink)}
+.profile{display:flex;align-items:center;gap:12px}
+.avatar{width:38px;height:38px;border-radius:50%;background:#20342e;color:#fff;display:grid;place-items:center;font-weight:700}
+
+.layout{display:grid;grid-template-columns:275px minmax(520px,1fr) minmax(360px,500px);min-height:calc(100vh - 74px)}
+.sidebar{border-right:1px solid var(--line);background:#fff;padding:24px 18px}
+.sideTitle{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:#94a19c;margin:10px 10px 12px;font-weight:700}
+.tripCard{border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:10px;cursor:pointer}
+.tripCard.active{background:var(--soft);border-color:#d6e8df}
+.tripName{font-weight:700}
+.small{font-size:12px;color:var(--muted)}
+.sideItem{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:12px;color:#52615c;margin:3px 0;font-weight:600;cursor:pointer}
+.sideItem.active,.sideItem:hover{background:var(--soft);color:var(--ink)}
+
+.main{padding:24px 26px 50px;overflow:auto}
+.hero{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:22px}
+.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.13em;color:var(--green);font-weight:700}
+.hero h1{font:800 34px/1.1 'Plus Jakarta Sans';margin:6px 0}
+.hero p{margin:0;color:var(--muted)}
+.actions{display:flex;gap:8px}
+.btn{padding:11px 14px;border-radius:11px;background:#fff;border:1px solid var(--line);font-weight:600;display:inline-flex;align-items:center;gap:6px}
+.btn.primary{background:var(--green);color:#fff;border-color:var(--green)}
+.btn.magic{background:#132720;color:#fff}
+
+.controlRow{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;margin-bottom:18px}
+.control{background:#fff;border:1px solid var(--line);border-radius:13px;padding:11px 13px}
+.control label{display:block;font-size:11px;color:#95a19d;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;font-weight:700}
+.control select,.control input{width:100%;border:0;outline:0;background:transparent;color:var(--ink);font-weight:700}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 20px}
+.chip{padding:9px 12px;border-radius:99px;background:var(--soft);color:#607069;font-weight:600}
+.chip.selected{background:var(--mint);color:var(--green);font-weight:700}
+
+.dashboard{display:grid;grid-template-columns:1.15fr .85fr;gap:16px}
+.panel{background:#fff;border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow)}
+.panelHead{display:flex;justify-content:space-between;align-items:center;padding:17px 18px;border-bottom:1px solid var(--line)}
+.panelHead h3{margin:0;font:700 17px 'Plus Jakarta Sans'}
+.dayTabs{display:flex;gap:7px;overflow-x:auto;padding:12px 18px;border-bottom:1px solid var(--line)}
+.dayTab{min-width:82px;padding:9px 10px;border-radius:10px;background:var(--soft);text-align:center;color:var(--ink);font-weight:700;cursor:pointer}
+.dayTab.active{background:#132720;color:#fff}
+
+.timeline{padding:16px 18px}
+.stop{display:grid;grid-template-columns:32px 1fr auto;gap:12px;position:relative;padding:12px 0}
+.stop:not(:last-child):after{content:"";position:absolute;left:15px;top:44px;bottom:-8px;width:2px;background:#dfe9e5}
+.num{width:30px;height:30px;border-radius:50%;background:var(--mint);color:var(--green);display:grid;place-items:center;font-weight:800;z-index:1}
+.stop h4{margin:0 0 4px;font-size:15px}
+.stop p{margin:0;color:var(--muted);font-size:12px}
+.meta{display:flex;gap:10px;margin-top:7px;color:#74827d;font-size:11px;flex-wrap:wrap}
+
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px 18px}
+.place{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#fff}
+.place img{display:block;width:100%;height:115px;object-fit:cover}
+.placeBody{padding:11px}
+.place h4{margin:0 0 4px;font-size:14px}
+.place p{margin:0;color:var(--muted);font-size:11px}
+.placeFoot{display:flex;justify-content:space-between;align-items:center;margin-top:8px}
+.add{background:var(--soft);padding:7px 9px;border-radius:9px;color:var(--green);font-weight:700;font-size:11px}
+
+/* Map Section */
+.mapPanel{min-height:520px;display:flex;flex-direction:column;position:relative}
+.map{flex:1;min-height:420px;border-radius:0 0 18px 18px;position:relative}
+.mapLegend{display:flex;gap:8px;padding:10px 14px;flex-wrap:wrap;background:#fff;border-bottom:1px solid var(--line)}
+.legend{padding:6px 9px;border-radius:99px;background:var(--soft);font-size:11px;color:#596861;font-weight:600}
+
+/* Turn Navigation Overlay HUD */
+.turn-hud {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  right: 14px;
+  background: #132720;
+  color: white;
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  z-index: 1000;
+  padding: 12px 14px;
+  display: none;
+}
+.turn-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 6px; margin-bottom: 8px; font-size: 11px; color: #a3e3cb; font-weight: 700; }
+.turn-body { display: flex; gap: 10px; align-items: center; }
+.turn-icon-box { width: 36px; height: 36px; border-radius: 8px; background: var(--green); display: grid; place-items: center; font-size: 16px; flex-shrink: 0; }
+.turn-controls { display: flex; gap: 6px; margin-top: 8px; }
+.turn-btn { flex: 1; padding: 6px; border-radius: 8px; font-size: 11px; font-weight: 700; background: rgba(255,255,255,0.12); color: white; border: none; }
+
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
+.stat{padding:14px;background:#fff;border:1px solid var(--line);border-radius:14px}
+.stat .v{font-size:22px;font-weight:800}
+.stat .k{font-size:11px;color:var(--muted)}
+
+/* Gemini AI Widget */
+.ai{position:fixed;right:22px;bottom:22px;width:380px;max-width:calc(100vw - 30px);background:#fff;border:1px solid var(--line);border-radius:20px;box-shadow:0 24px 80px rgba(9,35,27,.2);z-index:1500;overflow:hidden}
+.aiHead{background:#132720;color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between}
+.aiTitle{font-weight:800;display:flex;align-items:center;gap:6px}
+.aiSub{font-size:11px;opacity:.7}
+.aiBody{height:390px;display:flex;flex-direction:column}
+.messages{flex:1;overflow:auto;padding:14px}
+.msg{max-width:88%;padding:11px 12px;border-radius:14px;margin:7px 0;font-size:13px;line-height:1.45;white-space:pre-wrap}
+.msg.user{margin-left:auto;background:#132720;color:#fff;border-bottom-right-radius:4px}
+.msg.ai{background:var(--soft);border-bottom-left-radius:4px;color:var(--ink)}
+.suggestions{display:flex;gap:6px;flex-wrap:wrap;padding:0 14px 10px}
+.suggestion{font-size:11px;padding:7px 9px;border-radius:99px;background:#fff;border:1px solid var(--line)}
+.aiInput{display:flex;gap:8px;padding:12px;border-top:1px solid var(--line)}
+.aiInput textarea{flex:1;resize:none;height:44px;border:1px solid var(--line);border-radius:12px;padding:11px;outline:0}
+.send{width:44px;border-radius:12px;background:var(--green);color:#fff;font-size:18px}
+.hidden{display:none}
+
+/* Modals */
+.modalBack{position:fixed;inset:0;background:rgba(10,30,24,.45);display:none;align-items:center;justify-content:center;z-index:2000}
+.modal{width:min(700px,calc(100vw - 30px));background:#fff;border-radius:22px;padding:22px}
+.modal.show{display:flex}
+.modal h2{margin:0 0 8px;font-family:'Plus Jakarta Sans'}
+.preferenceGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:16px 0}
+.pref{border:1px solid var(--line);border-radius:13px;padding:13px;text-align:left}
+.pref.active{background:var(--mint);border-color:#bce9d6}
+.pref b{display:block;color:var(--ink)}
+.pref span{font-size:11px;color:var(--muted)}
+
+.leaflet-routing-container{display:none!important}
+
+@media(max-width:1100px){.layout{grid-template-columns:220px 1fr}.mapPanel{display:none}}
+@media(max-width:760px){.topnav{display:none}.layout{display:block}.sidebar{display:none}.main{padding:18px}.controlRow{grid-template-columns:1fr 1fr}.dashboard{grid-template-columns:1fr}.ai{right:10px;bottom:10px;width:calc(100vw - 20px)}.hero{display:block}.actions{margin-top:14px}}
 </style>
 </head>
 <body>
+
 <div class="app">
-<header class="topbar"><div class="brand"><div class="brandmark">✦</div>TripShuffle</div><nav class="topnav"><button class="navbtn active">Plan</button><button class="navbtn">Explore</button><button class="navbtn">Saved</button><button class="navbtn">Budget</button></nav><div class="profile"><button class="btn" id="newTripBtn">＋ New trip</button><div class="avatar">JW</div></div></header>
-<div class="layout">
-<aside class="sidebar"><div class="sideTitle">Your trips</div><div class="tripCard active"><div class="tripName">Tokyo • Fall 2026</div><div class="small">Oct 4 – Oct 10 · 6 nights</div></div><div class="tripCard"><div class="tripName">Paris • Spring</div><div class="small">Apr 12 – Apr 17 · 5 nights</div></div><div class="sideTitle" style="margin-top:24px">Workspace</div><div class="sideItem active">🗺️ <span>Trip plan</span></div><div class="sideItem">🔎 <span>Discover places</span></div><div class="sideItem">❤️ <span>Saved places</span></div><div class="sideItem">💸 <span>Budget</span></div><div class="sideItem">🎒 <span>Packing list</span></div><div class="sideItem">✈️ <span>Bookings</span></div><div class="sideTitle" style="margin-top:24px">Tripmates</div><div class="small" style="padding:0 10px">You · Maya · Alex</div></aside>
-<main class="main">
-<section class="hero"><div><div class="eyebrow">AI-powered trip workspace</div><h1>Tokyo, your way.</h1><p>Plan it yourself, ask the copilot, or let TripShuffle build a day around your taste.</p></div><div class="actions"><button class="btn" id="optBtn">↗ Optimize route</button><button class="btn magic" id="surpriseBtn">✦ Surprise Me</button></div></section>
-<div class="controlRow"><div class="control"><label>Destination</label><input id="destination" value="Tokyo, Japan"></div><div class="control"><label>Dates</label><input value="Oct 4 – Oct 10, 2026"></div><div class="control"><label>Pace</label><select id="pace"><option>Balanced</option><option>Relaxed</option><option>Packed</option></select></div><button class="btn primary" id="planBtn">Build plan</button></div>
-<div><div class="small">Trip personality</div><div class="chips" id="chips"><button class="chip selected">Foodie</button><button class="chip selected">Culture</button><button class="chip">Nightlife</button><button class="chip selected">Hidden gems</button><button class="chip">Nature</button><button class="chip">Shopping</button><button class="chip">Photography</button><button class="chip">Relaxed</button></div></div>
-<div class="dashboard">
-<section class="panel"><div class="panelHead"><h3>Itinerary</h3><button class="btn" id="addStop">＋ Add place</button></div><div class="dayTabs" id="dayTabs"><button class="dayTab active">Day 1<br><b>Oct 4</b></button><button class="dayTab">Day 2<br><b>Oct 5</b></button><button class="dayTab">Day 3<br><b>Oct 6</b></button><button class="dayTab">Day 4<br><b>Oct 7</b></button><button class="dayTab">Day 5<br><b>Oct 8</b></button></div><div class="timeline" id="timeline"></div><div class="panelHead" style="border-top:1px solid var(--line);border-bottom:0"><h3>Recommended near your route</h3><span class="small">ranked for you</span></div><div class="cards" id="recommendations"></div></section>
-<section class="panel mapPanel"><div class="panelHead"><h3>Map & route</h3><button class="btn" id="centerBtn">◎ Center</button></div><div class="mapLegend"><span class="legend">● Planned</span><span class="legend">★ Top rated</span><span class="legend">✦ AI pick</span></div><div id="map" class="map"></div></section>
-</div>
-<div class="stats"><div class="stat"><div class="v" id="distance">8.4 km</div><div class="k">Estimated walking</div></div><div class="stat"><div class="v" id="budget">¥18,600</div><div class="k">Planned spend</div></div><div class="stat"><div class="v">4.8/5</div><div class="k">Trip match score</div></div></div>
-</main></div>
+
+  <div id="home-view">
+    <header class="home-nav">
+      <div class="home-nav-left">
+        <div class="logo-brand" onclick="showHome()">
+          <div class="brandmark">✦</div> TripShuffle
+        </div>
+        <ul class="nav-links">
+          <li><a href="#" onclick="showHome()">Home</a></li>
+          <li><a href="#">Travel guides</a></li>
+          <li><a href="#">Hotels</a></li>
+        </ul>
+      </div>
+      <div class="home-nav-right">
+        <button class="btn" onclick="promptApiKey()"><i class="fa-solid fa-key"></i> Gemini API Key</button>
+      </div>
+    </header>
+
+    <main class="hero-plan-section">
+      <h1 class="hero-heading">Plan a new trip</h1>
+
+      <div class="plan-card">
+        <div class="input-row">
+          <label>
+            <span>Where to?</span>
+            <span style="color:var(--green); cursor:pointer;" onclick="rollRandomCity()"><i class="fa-solid fa-dice"></i> Random City</span>
+          </label>
+          <input type="text" id="heroDestInput" placeholder="e.g. Tokyo, Paris, Seoul, Barcelona" autocomplete="off" oninput="handleAutocomplete(this.value)" onkeypress="if(event.key==='Enter') startPlanning()">
+          <div class="autocomplete-dropdown" id="home-dropdown"></div>
+        </div>
+
+        <div class="date-row">
+          <div class="date-col">
+            <label style="font-size:11px; font-weight:800; color:var(--muted); text-transform:uppercase; margin-bottom:4px; display:block;">Start date</label>
+            <input type="date" id="startDateInput">
+          </div>
+          <div class="date-col">
+            <label style="font-size:11px; font-weight:800; color:var(--muted); text-transform:uppercase; margin-bottom:4px; display:block;">End date</label>
+            <input type="date" id="endDateInput">
+          </div>
+        </div>
+      </div>
+
+      <button class="btn-start-planning" onclick="startPlanning()">Start planning</button>
+    </main>
+
+    <footer class="home-footer" style="padding: 24px; text-align: center; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line);">
+      © 2026 TripShuffle Inc. Built for spontaneous travelers and AI trip copilots.
+    </footer>
+  </div>
+
+  <div id="workspace-view">
+    <header class="topbar">
+      <div class="brand" onclick="showHome()"><div class="brandmark">✦</div>TripShuffle</div>
+      <nav class="topnav">
+        <button class="navbtn active">Plan</button>
+        <button class="navbtn" onclick="triggerSpatialSearch('cafe')">Explore</button>
+        <button class="navbtn" onclick="showHome()">Home</button>
+      </nav>
+      <div class="profile">
+        <button class="btn" id="newTripBtn" onclick="showHome()">＋ New trip</button>
+        <div class="avatar">JW</div>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="sideTitle">Your trips</div>
+        <div class="tripCard active">
+          <div class="tripName" id="sideTripName">Tokyo • Fall 2026</div>
+          <div class="small" id="sideTripDates">Oct 4 – Oct 10 · Active Plan</div>
+        </div>
+        <div class="sideTitle" style="margin-top:24px">Workspace</div>
+        <div class="sideItem active">🗺️ <span>Trip plan</span></div>
+        <div class="sideItem" onclick="triggerSpatialSearch('restaurant')">🍜 <span>Food & Drinks</span></div>
+        <div class="sideItem" onclick="triggerSpatialSearch('tourism')">🎡 <span>Top Sights</span></div>
+        <div class="sideItem" onclick="promptApiKey()">🔑 <span>Gemini Settings</span></div>
+      </aside>
+
+      <main class="main">
+        <section class="hero">
+          <div>
+            <div class="eyebrow">AI-powered trip workspace</div>
+            <h1 id="heroTripHeader">Tokyo, your way.</h1>
+            <p>Plan it yourself, ask the copilot, or let TripShuffle build a day around your taste.</p>
+          </div>
+          <div class="actions">
+            <button class="btn" id="optBtn">↗ Optimize route</button>
+            <button class="btn magic" id="surpriseBtn">✦ Surprise Me</button>
+          </div>
+        </section>
+
+        <div class="controlRow">
+          <div class="control">
+            <label>Destination</label>
+            <input id="destination" value="Tokyo, Japan" onchange="updateCity(this.value)">
+          </div>
+          <div class="control">
+            <label>Dates</label>
+            <input id="tripDatesField" value="Oct 4 – Oct 10, 2026">
+          </div>
+          <div class="control">
+            <label>Pace</label>
+            <select id="pace">
+              <option>Balanced</option>
+              <option>Relaxed</option>
+              <option>Packed</option>
+            </select>
+          </div>
+          <button class="btn primary" id="planBtn">Build plan</button>
+        </div>
+
+        <div>
+          <div class="small">Trip personality</div>
+          <div class="chips" id="chips">
+            <button class="chip selected">Foodie</button>
+            <button class="chip selected">Culture</button>
+            <button class="chip">Nightlife</button>
+            <button class="chip selected">Hidden gems</button>
+            <button class="chip">Nature</button>
+            <button class="chip">Shopping</button>
+            <button class="chip">Photography</button>
+            <button class="chip">Relaxed</button>
+          </div>
+        </div>
+
+        <div class="dashboard">
+          <section class="panel">
+            <div class="panelHead">
+              <h3>Itinerary</h3>
+              <button class="btn" id="addStop" onclick="openAddSpotModal()">＋ Add place</button>
+            </div>
+            <div class="dayTabs" id="dayTabs">
+              <button class="dayTab active" onclick="switchDay(0)">Day 1</button>
+              <button class="dayTab" onclick="switchDay(1)">Day 2</button>
+              <button class="dayTab" onclick="switchDay(2)">Day 3</button>
+            </div>
+            <div class="timeline" id="timeline"></div>
+            <div class="panelHead" style="border-top:1px solid var(--line);border-bottom:0">
+              <h3>Recommended near your route</h3>
+              <span class="small">spatial live picks</span>
+            </div>
+            <div class="cards" id="recommendations"></div>
+          </section>
+
+          <section class="panel mapPanel">
+            <div class="panelHead">
+              <h3>Map & route</h3>
+              <button class="btn" id="centerBtn">◎ Center</button>
+            </div>
+            <div class="mapLegend">
+              <span class="legend">● Planned</span>
+              <span class="legend">★ Top rated</span>
+              <span class="legend">✦ AI pick</span>
+            </div>
+            
+            <div class="turn-hud" id="turnHud">
+              <div class="turn-header">
+                <span><i class="fa-solid fa-location-arrow"></i> LIVE NAVIGATION</span>
+                <span id="turn-dist-total">0.0 km</span>
+              </div>
+              <div class="turn-body">
+                <div class="turn-icon-box" id="turn-icon"><i class="fa-solid fa-arrow-up"></i></div>
+                <div>
+                  <div style="font-size:13px; font-weight:700;" id="turn-text">Follow route</div>
+                  <div style="font-size:11px; opacity:0.8;" id="turn-sub">Step 1</div>
+                </div>
+              </div>
+              <div class="turn-controls">
+                <button class="turn-btn" onclick="prevTurn()"><i class="fa-solid fa-backward-step"></i> Prev</button>
+                <button class="turn-btn" onclick="nextTurn()">Next <i class="fa-solid fa-forward-step"></i></button>
+                <button class="turn-btn" style="background:#ef4444;" onclick="stopTurnNav()">Exit</button>
+              </div>
+            </div>
+
+            <div id="map" class="map"></div>
+          </section>
+        </div>
+
+        <div class="stats">
+          <div class="stat"><div class="v" id="distance">8.4 km</div><div class="k">Estimated walking</div></div>
+          <div class="stat"><div class="v" id="budget">¥18,600</div><div class="k">Planned spend</div></div>
+          <div class="stat"><div class="v">4.9/5</div><div class="k">Trip match score</div></div>
+        </div>
+      </main>
+    </div>
+  </div>
 </div>
 
-<div class="ai" id="ai"><div class="aiHead"><div><div class="aiTitle">✦ TripShuffle Copilot</div><div class="aiSub">Ask about anything — places, food, routes, budgets, packing.</div></div><button id="closeAI" style="background:transparent;color:#fff;font-size:18px">×</button></div><div class="aiBody"><div class="messages" id="messages"><div class="msg ai">Hey! I’m your travel copilot. Ask me something like “build me a cheap foodie day in Shibuya” or “is the JR Pass worth it for this trip?”</div></div><div class="suggestions"><button class="suggestion">Build my perfect Day 2</button><button class="suggestion">Cheap eats near Shibuya</button><button class="suggestion">What should I book first?</button></div><div class="aiInput"><textarea id="aiText" placeholder="Ask your trip anything..."></textarea><button class="send" id="sendAI">➜</button></div></div></div>
+<div class="ai" id="ai">
+  <div class="aiHead">
+    <div>
+      <div class="aiTitle">✦ TripShuffle Copilot (Gemini AI)</div>
+      <div class="aiSub">Ask anything about places, routes, food & budgets.</div>
+    </div>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <i class="fa-solid fa-gear" style="cursor:pointer; font-size:13px;" onclick="promptApiKey()" title="API Key"></i>
+      <button id="closeAI" style="background:transparent;color:#fff;font-size:18px">×</button>
+    </div>
+  </div>
+  <div class="aiBody">
+    <div class="messages" id="messages">
+      <div class="msg ai">Hey! I’m your Gemini-powered travel copilot. Ask me something like “build me a cheap foodie day in Shibuya” or “what are 3 hidden izakayas nearby?”</div>
+    </div>
+    <div class="suggestions">
+      <button class="suggestion">Build my perfect Day plan</button>
+      <button class="suggestion">Cheap food spots near here</button>
+      <button class="suggestion">What should I pack?</button>
+    </div>
+    <div class="aiInput">
+      <textarea id="aiText" placeholder="Ask your trip copilot anything..."></textarea>
+      <button class="send" id="sendAI">➜</button>
+    </div>
+  </div>
+</div>
 
-<div class="modalBack" id="modalBack"><div class="modal"><h2>✨ Surprise Me</h2><p class="small">Tell TripShuffle what you like. It will build a fresh day-by-day plan and score every stop against your preferences.</p><div class="preferenceGrid"><button class="pref active"><b>🍜 Foodie</b><span>local spots, markets, tastings</span></button><button class="pref active"><b>🏮 Culture</b><span>temples, museums, neighborhoods</span></button><button class="pref"><b>🌿 Nature</b><span>parks, gardens, views</span></button><button class="pref active"><b>📸 Hidden gems</b><span>less touristy, unique finds</span></button><button class="pref"><b>🛍 Shopping</b><span>vintage, design, streetwear</span></button><button class="pref"><b>🌙 Nightlife</b><span>bars, izakaya, late nights</span></button></div><div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn" id="cancelModal">Cancel</button><button class="btn primary" id="generate">Generate my trip</button></div></div></div>
+<div class="modalBack" id="modalBack">
+  <div class="modal">
+    <h2>✨ Surprise Me</h2>
+    <p class="small">Tell TripShuffle what you like. It will build a fresh day-by-day plan and query live spatial spots.</p>
+    <div class="preferenceGrid">
+      <button class="pref active"><b>🍜 Foodie</b><span>local spots, markets, tastings</span></button>
+      <button class="pref active"><b>🏮 Culture</b><span>temples, museums, neighborhoods</span></button>
+      <button class="pref"><b>🌿 Nature</b><span>parks, gardens, views</span></button>
+      <button class="pref active"><b>📸 Hidden gems</b><span>less touristy, unique finds</span></button>
+      <button class="pref"><b>🛍 Shopping</b><span>vintage, design, streetwear</span></button>
+      <button class="pref"><b>🌙 Nightlife</b><span>bars, izakaya, late nights</span></button>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px">
+      <button class="btn" id="cancelModal">Cancel</button>
+      <button class="btn primary" id="generate">Generate my trip</button>
+    </div>
+  </div>
+</div>
+
+<div class="modalBack" id="addSpotModal">
+  <div class="modal" style="max-width:440px;">
+    <h2>＋ Add Place to Day</h2>
+    <div style="margin:12px 0;">
+      <label class="small" style="font-weight:700;">PLACE NAME</label>
+      <input type="text" id="customSpotName" placeholder="e.g. Shibuya Sky" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:10px; margin:4px 0 10px;">
+      <label class="small" style="font-weight:700;">NOTES & TIME</label>
+      <input type="text" id="customSpotDesc" placeholder="e.g. Sunset drinks & photo spot" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:10px; margin:4px 0 14px;">
+    </div>
+    <div style="display:flex; justify-content:flex-end; gap:8px;">
+      <button class="btn" onclick="document.getElementById('addSpotModal').classList.remove('show')">Cancel</button>
+      <button class="btn primary" onclick="saveCustomSpot()">Add to Day</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-<script>
-const places=[
-{name:'Senso-ji Temple',area:'Asakusa',type:'Culture',rating:4.7,cost:0,mins:90,desc:'Iconic temple complex with an atmospheric old-Tokyo approach.',img:'https://images.unsplash.com/photo-1542051841857-5f90071e7989?auto=format&fit=crop&w=900&q=80',lat:35.7148,lng:139.7967},
-{name:'Tsukiji Outer Market',area:'Tsukiji',type:'Food',rating:4.6,cost:1800,mins:90,desc:'Snacks, sushi, tamagoyaki and tiny specialty stalls.',img:'https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?auto=format&fit=crop&w=900&q=80',lat:35.6655,lng:139.7708},
-{name:'Shibuya Sky',area:'Shibuya',type:'View',rating:4.6,cost:2500,mins:90,desc:'Sky-high Tokyo views, best around golden hour.',img:'https://images.unsplash.com/photo-1526481280695-3c687fd643ed?auto=format&fit=crop&w=900&q=80',lat:35.6580,lng:139.7016},
-{name:'Kappabashi Kitchen Town',area:'Asakusa',type:'Shopping',rating:4.5,cost:1200,mins:75,desc:'Chef knives, ceramics, fake food and unusual souvenirs.',img:'https://images.unsplash.com/photo-1545569341-9eb8b30979d9?auto=format&fit=crop&w=900&q=80',lat:35.7143,lng:139.7906},
-{name:'Yanaka Ginza',area:'Yanaka',type:'Hidden gem',rating:4.4,cost:900,mins:80,desc:'Old-school shopping street with snacks and neighborhood charm.',img:'https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?auto=format&fit=crop&w=900&q=80',lat:35.7263,lng:139.7661},
-{name:'Omoide Yokocho',area:'Shinjuku',type:'Nightlife',rating:4.4,cost:2200,mins:80,desc:'Tiny yakitori lanes tucked beside Shinjuku Station.',img:'https://images.unsplash.com/photo-1554797589-7241bb691973?auto=format&fit=crop&w=900&q=80',lat:35.6935,lng:139.6982},
-{name:'Meiji Jingu',area:'Harajuku',type:'Nature',rating:4.7,cost:0,mins:80,desc:'Forest sanctuary in the middle of Tokyo.',img:'https://images.unsplash.com/photo-1528360983277-13d401cdc186?auto=format&fit=crop&w=900&q=80',lat:35.6764,lng:139.6993},
-{name:'TeamLab Borderless',area:'Azabudai',type:'Art',rating:4.5,cost:3800,mins:120,desc:'Immersive digital art rooms that change as you move.',img:'https://images.unsplash.com/photo-1531058020387-3be344556be6?auto=format&fit=crop&w=900&q=80',lat:35.6628,lng:139.7396}
-];
-let currentDay=0; let itinerary=[places[0],places[1],places[6],places[2]]; let map, markers=[];
-function initMap(){map=L.map('map',{zoomControl:true}).setView([35.6848,139.725],12);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap contributors'}).addTo(map);renderMap();}
-function renderMap(){markers.forEach(m=>map.removeLayer(m));markers=[]; itinerary.forEach((p,i)=>{const m=L.marker([p.lat,p.lng]).addTo(map).bindPopup(`<b>${i+1}. ${p.name}</b><br>${p.area} · ${p.rating}★`);markers.push(m)}); if(itinerary.length>1) L.polyline(itinerary.map(p=>[p.lat,p.lng]),{color:'#11795c',weight:5,opacity:.8}).addTo(map);}
-function renderTimeline(){const el=document.getElementById('timeline');el.innerHTML=itinerary.map((p,i)=>`<div class="stop"><div class="num">${i+1}</div><div><h4>${p.name}</h4><p>${p.desc}</p><div class="meta"><span>🕒 ${i===0?'9:00 AM':i===1?'11:15 AM':i===2?'2:00 PM':'5:30 PM'}</span><span>📍 ${p.area}</span><span>¥${p.cost.toLocaleString()}</span></div></div><div><div class="score">★ ${p.rating}</div><button class="btn" style="margin-top:8px;padding:6px 8px;font-size:11px" onclick="removeStop(${i})">Remove</button></div></div>`).join('');}
-function renderRecommendations(){const rec=places.filter(p=>!itinerary.includes(p)).slice(0,4);document.getElementById('recommendations').innerHTML=rec.map((p,i)=>`<div class="place"><img src="${p.img}" alt=""><div class="placeBody"><h4>${p.name}</h4><p>${p.area} · ${p.type}</p><div class="placeFoot"><span>★ ${p.rating}</span><button class="add" onclick="addPlace(${places.indexOf(p)})">＋ Add</button></div></div></div>`).join('');}
-function addPlace(idx){if(!itinerary.includes(places[idx])) itinerary.push(places[idx]); renderAll();}
-function removeStop(i){itinerary.splice(i,1);renderAll();}
-function renderAll(){renderTimeline();renderRecommendations();renderMap();document.getElementById('distance').textContent=(itinerary.length*2.1).toFixed(1)+' km';document.getElementById('budget').textContent='¥'+itinerary.reduce((a,p)=>a+p.cost,0).toLocaleString();}
-function surprise(){const active=[...document.querySelectorAll('.pref.active')].map(x=>x.innerText.toLowerCase());const filtered=places.filter(p=>active.some(a=>p.type.toLowerCase().includes(a.split(' ')[1]||a) || p.name.toLowerCase().includes(a.split(' ')[1]||a)));const pool=filtered.length>=4?filtered:places;itinerary=[...pool].sort(()=>Math.random()-.5).slice(0,4);renderAll();document.getElementById('modalBack').style.display='none';document.getElementById('messages').insertAdjacentHTML('beforeend','<div class="msg ai">I shuffled a fresh plan around your selected preferences. I also kept the stops geographically reasonable so the day doesn’t bounce all over Tokyo.</div>');}
-async function sendAI(){const text=document.getElementById('aiText').value.trim();if(!text)return;const msgs=document.getElementById('messages');msgs.insertAdjacentHTML('beforeend',`<div class="msg user">${text.replace(/[<>]/g,'')}</div>`);document.getElementById('aiText').value='';msgs.scrollTop=msgs.scrollHeight;const typing=document.createElement('div');typing.className='msg ai';typing.textContent='Thinking…';msgs.appendChild(typing);try{const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text,destination:document.getElementById('destination').value,itinerary:itinerary.map(p=>p.name),preferences:[...document.querySelectorAll('.chip.selected')].map(x=>x.innerText)})});if(!r.ok) throw new Error('AI endpoint unavailable');const data=await r.json();typing.textContent=data.output||'I could not generate a response.';}catch(e){typing.textContent='Demo mode: the UI is ready, but the live AI backend is not connected yet. Deploy the included /api/chat backend and add your OPENAI_API_KEY server-side to make me fully live.';}msgs.scrollTop=msgs.scrollHeight;}
+<script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
 
-document.getElementById('surpriseBtn').onclick=()=>document.getElementById('modalBack').style.display='flex';document.getElementById('cancelModal').onclick=()=>document.getElementById('modalBack').style.display='none';document.getElementById('generate').onclick=surprise;document.querySelectorAll('.pref').forEach(p=>p.onclick=()=>p.classList.toggle('active'));document.querySelectorAll('.chip').forEach(c=>c.onclick=()=>c.classList.toggle('selected'));document.getElementById('sendAI').onclick=sendAI;document.getElementById('aiText').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendAI()}});document.querySelectorAll('.suggestion').forEach(s=>s.onclick=()=>{document.getElementById('aiText').value=s.innerText;sendAI()});document.getElementById('closeAI').onclick=()=>document.getElementById('ai').classList.add('hidden');document.getElementById('newTripBtn').onclick=()=>alert('New trip flow: add destination + dates, then let TripShuffle build your first draft.');document.getElementById('planBtn').onclick=()=>{alert('Plan refreshed for '+document.getElementById('destination').value+'.');};document.getElementById('optBtn').onclick=()=>{itinerary.sort((a,b)=>a.lng-b.lng);renderAll();};document.getElementById('centerBtn').onclick=()=>map.setView([35.6848,139.725],12);document.getElementById('addStop').onclick=()=>window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});document.querySelectorAll('.dayTab').forEach((b,i)=>b.onclick=()=>{document.querySelectorAll('.dayTab').forEach(x=>x.classList.remove('active'));b.classList.add('active');currentDay=i;});initMap();renderAll();
+<script>
+const defaultPlaces = [
+  {name:'Senso-ji Temple',area:'Asakusa',type:'Culture',rating:4.7,cost:0,mins:90,desc:'Iconic temple complex with an atmospheric old-Tokyo approach.',img:'https://images.unsplash.com/photo-1542051841857-5f90071e7989?auto=format&fit=crop&w=900&q=80',lat:35.7148,lng:139.7967},
+  {name:'Tsukiji Outer Market',area:'Tsukiji',type:'Food',rating:4.6,cost:1800,mins:90,desc:'Snacks, sushi, tamagoyaki and tiny specialty stalls.',img:'https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?auto=format&fit=crop&w=900&q=80',lat:35.6655,lng:139.7708},
+  {name:'Shibuya Sky',area:'Shibuya',type:'View',rating:4.6,cost:2500,mins:90,desc:'Sky-high Tokyo views, best around golden hour.',img:'https://images.unsplash.com/photo-1526481280695-3c687fd643ed?auto=format&fit=crop&w=900&q=80',lat:35.6580,lng:139.7016},
+  {name:'Kappabashi Kitchen Town',area:'Asakusa',type:'Shopping',rating:4.5,cost:1200,mins:75,desc:'Chef knives, ceramics, fake food and unusual souvenirs.',img:'https://images.unsplash.com/photo-1545569341-9eb8b30979d9?auto=format&fit=crop&w=900&q=80',lat:35.7143,lng:139.7906},
+  {name:'Yanaka Ginza',area:'Yanaka',type:'Hidden gem',rating:4.4,cost:900,mins:80,desc:'Old-school shopping street with snacks and neighborhood charm.',img:'https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?auto=format&fit=crop&w=900&q=80',lat:35.7263,lng:139.7661},
+  {name:'Omoide Yokocho',area:'Shinjuku',type:'Nightlife',rating:4.4,cost:2200,mins:80,desc:'Tiny yakitori lanes tucked beside Shinjuku Station.',img:'https://images.unsplash.com/photo-1554797589-7241bb691973?auto=format&fit=crop&w=900&q=80',lat:35.6935,lng:139.6982},
+  {name:'Meiji Jingu',area:'Harajuku',type:'Nature',rating:4.7,cost:0,mins:80,desc:'Forest sanctuary in the middle of Tokyo.',img:'https://images.unsplash.com/photo-1528360983277-13d401cdc186?auto=format&fit=crop&w=900&q=80',lat:35.6764,lng:139.6993},
+  {name:'TeamLab Borderless',area:'Azabudai',type:'Art',rating:4.5,cost:3800,mins:120,desc:'Immersive digital art rooms that change as you move.',img:'https://images.unsplash.com/photo-1531058020387-3be344556be6?auto=format&fit=crop&w=900&q=80',lat:35.6628,lng:139.7396}
+];
+
+let places = [...defaultPlaces];
+let currentDay = 0;
+let multiDayData = [
+  [places[0], places[1], places[6], places[2]],
+  [places[3], places[4], places[7]],
+  [places[5], places[2], places[0]]
+];
+let itinerary = multiDayData[0];
+let map = null, markers = [], polylineLayer = null;
+let routingControl = null, routeInstructions = [], currentStepIndex = 0;
+let geminiApiKey = localStorage.getItem('tripshuffle_gemini_key') || '';
+let autocompleteTimeout = null;
+
+const randomCities = ["Tokyo, Japan", "Seoul, South Korea", "Paris, France", "Rome, Italy", "Barcelona, Spain", "Kyoto, Japan", "New York, USA"];
+
+// Navigation between views
+function showHome() {
+  document.getElementById('home-view').style.display = 'flex';
+  document.getElementById('workspace-view').style.display = 'none';
+  window.scrollTo(0,0);
+}
+
+function showWorkspace() {
+  document.getElementById('home-view').style.display = 'none';
+  document.getElementById('workspace-view').style.display = 'block';
+  if (!map) initMap();
+  else setTimeout(() => map.invalidateSize(), 200);
+  renderAll();
+}
+
+function rollRandomCity() {
+  const c = randomCities[Math.floor(Math.random() * randomCities.length)];
+  document.getElementById('heroDestInput').value = c;
+}
+
+// Live Autocomplete for Destination Input
+function handleAutocomplete(query) {
+  const dropdown = document.getElementById('home-dropdown');
+  clearTimeout(autocompleteTimeout);
+  if (!query || query.trim().length < 1) {
+    dropdown.style.display = 'none';
+    return;
+  }
+  autocompleteTimeout = setTimeout(async () => {
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&addressdetails=1&limit=6`);
+      const data = await res.json();
+      if (!data || data.length === 0) { dropdown.style.display = 'none'; return; }
+      dropdown.innerHTML = '';
+      data.forEach(item => {
+        const name = item.name || item.display_name.split(',')[0];
+        const parts = item.display_name.split(',');
+        const sub = parts.slice(1, 3).join(', ');
+        let type = item.addresstype || item.type || "City";
+        const div = document.createElement('div');
+        div.className = 'autocomplete-item';
+        div.innerHTML = `<div><div class="autocomplete-main">${name}</div><div class="autocomplete-sub">${sub}</div></div><div class="autocomplete-badge">${type}</div>`;
+        div.onclick = () => {
+          document.getElementById('heroDestInput').value = `${name}, ${parts[parts.length - 1].trim()}`;
+          dropdown.style.display = 'none';
+        };
+        dropdown.appendChild(div);
+      });
+      dropdown.style.display = 'block';
+    } catch(e){}
+  }, 200);
+}
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.input-row')) document.getElementById('home-dropdown').style.display = 'none';
+});
+
+async function startPlanning() {
+  const dest = document.getElementById('heroDestInput').value.trim();
+  if (!dest) return alert("Please enter a destination!");
+  updateCity(dest);
+  showWorkspace();
+}
+
+async function updateCity(cityName) {
+  document.getElementById('destination').value = cityName;
+  document.getElementById('sideTripName').innerText = `${cityName.split(',')[0]} • Trip`;
+  document.getElementById('heroTripHeader').innerText = `${cityName.split(',')[0]}, your way.`;
+
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cityName)}&limit=1`);
+    const data = await res.json();
+    if (data && data.length > 0) {
+      const lat = parseFloat(data[0].lat), lon = parseFloat(data[0].lon);
+      if (map) map.setView([lat, lon], 13);
+    }
+  } catch(e){}
+}
+
+// Map & Routing
+function initMap() {
+  map = L.map('map', { zoomControl: true }).setView([35.6848, 139.725], 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap contributors' }).addTo(map);
+  map.on('click', onMapClick);
+  renderMap();
+}
+
+function renderMap() {
+  if (!map) return;
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+  if (polylineLayer) map.removeLayer(polylineLayer);
+
+  itinerary.forEach((p, i) => {
+    const customPin = L.divIcon({
+      html: `<div style="background:#11795c; color:white; border-radius:50%; width:26px; height:26px; display:grid; place-items:center; font-size:12px; font-weight:800; border:2px solid white; box-shadow:0 3px 10px rgba(0,0,0,0.3);">${i+1}</div>`,
+      iconSize: [26, 26],
+      iconAnchor: [13, 13]
+    });
+    const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.name + ' ' + document.getElementById('destination').value)}`;
+    const m = L.marker([p.lat, p.lng], { icon: customPin }).addTo(map).bindPopup(`
+      <b style="font-size:14px;">${i+1}. ${p.name}</b><br>
+      <span style="font-size:12px; color:#6f7d77;">${p.area} · ★ ${p.rating}</span><br>
+      <div style="display:flex; gap:6px; margin-top:8px;">
+        <button class="btn primary" style="padding:4px 8px; font-size:11px;" onclick="startTurnNav(${p.lat}, ${p.lng}, '${p.name}')">Route Here</button>
+        <a href="${gmapsUrl}" target="_blank" class="btn" style="padding:4px 8px; font-size:11px;">Google Maps</a>
+      </div>
+    `);
+    markers.push(m);
+  });
+
+  if (itinerary.length > 1) {
+    polylineLayer = L.polyline(itinerary.map(p => [p.lat, p.lng]), { color: '#11795c', weight: 4, opacity: 0.85, dashArray: '6, 8' }).addTo(map);
+    map.fitBounds(polylineLayer.getBounds(), { padding: [40, 40] });
+  } else if (itinerary.length === 1) {
+    map.setView([itinerary[0].lat, itinerary[0].lng], 14);
+  }
+}
+
+function renderTimeline() {
+  const el = document.getElementById('timeline');
+  el.innerHTML = itinerary.map((p, i) => {
+    const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.name + ' ' + document.getElementById('destination').value)}`;
+    return `
+      <div class="stop">
+        <div class="num">${i+1}</div>
+        <div>
+          <h4>${p.name}</h4>
+          <p>${p.desc}</p>
+          <div class="meta">
+            <span>🕒 ${i===0?'9:00 AM':i===1?'11:15 AM':i===2?'2:00 PM':'5:30 PM'}</span>
+            <span>📍 ${p.area}</span>
+            <span>¥${p.cost.toLocaleString()}</span>
+          </div>
+          <div style="display:flex; gap:6px; margin-top:8px;">
+            <button class="btn primary" style="padding:4px 8px; font-size:11px;" onclick="startTurnNav(${p.lat}, ${p.lng}, '${p.name}')"><i class="fa-solid fa-location-arrow"></i> Route</button>
+            <a href="${gmapsUrl}" target="_blank" class="btn" style="padding:4px 8px; font-size:11px;"><i class="fa-solid fa-map-pin"></i> Google Maps</a>
+          </div>
+        </div>
+        <div>
+          <div class="score">★ ${p.rating}</div>
+          <button class="btn" style="margin-top:8px;padding:6px 8px;font-size:11px; color:#ef4444;" onclick="removeStop(${i})">Remove</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderRecommendations() {
+  const rec = places.filter(p => !itinerary.some(item => item.name === p.name)).slice(0, 4);
+  document.getElementById('recommendations').innerHTML = rec.map(p => `
+    <div class="place">
+      <img src="${p.img}" alt="">
+      <div class="placeBody">
+        <h4>${p.name}</h4>
+        <p>${p.area} · ${p.type}</p>
+        <div class="placeFoot">
+          <span>★ ${p.rating}</span>
+          <button class="add" onclick="addPlaceDirect('${p.name}')">＋ Add</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function addPlaceDirect(name) {
+  const found = places.find(p => p.name === name);
+  if (found && !itinerary.includes(found)) {
+    itinerary.push(found);
+    renderAll();
+  }
+}
+
+function removeStop(i) {
+  itinerary.splice(i, 1);
+  renderAll();
+}
+
+function renderAll() {
+  renderTimeline();
+  renderRecommendations();
+  renderMap();
+  document.getElementById('distance').textContent = (itinerary.length * 2.1).toFixed(1) + ' km';
+  document.getElementById('budget').textContent = '¥' + itinerary.reduce((a, p) => a + p.cost, 0).toLocaleString();
+}
+
+// Turn-by-Turn Navigation HUD
+function startTurnNav(destLat, destLng, destName) {
+  if (routingControl && map) map.removeControl(routingControl);
+  const origin = itinerary[0] ? [itinerary[0].lat, itinerary[0].lng] : map.getCenter();
+
+  routingControl = L.Routing.control({
+    waypoints: [L.latLng(origin[0], origin[1]), L.latLng(destLat, destLng)],
+    lineOptions: { styles: [{ color: '#11795c', opacity: 0.95, weight: 6 }] }
+  }).addTo(map);
+
+  routingControl.on('routesfound', function(e) {
+    const routes = e.routes;
+    routeInstructions = routes[0].instructions || [];
+    currentStepIndex = 0;
+    document.getElementById('turn-dist-total').innerText = `${(routes[0].summary.totalDistance / 1000).toFixed(1)} km`;
+    document.getElementById('turnHud').style.display = 'block';
+    updateTurnDisplay();
+  });
+  map.flyTo([destLat, destLng], 15);
+}
+
+function updateTurnDisplay() {
+  if (!routeInstructions.length) return;
+  const step = routeInstructions[currentStepIndex];
+  document.getElementById('turn-text').innerText = step.text || "Continue along route";
+  document.getElementById('turn-sub').innerText = `Step ${currentStepIndex + 1} of ${routeInstructions.length} • in ${Math.round(step.distance)}m`;
+}
+function nextTurn() { if (currentStepIndex < routeInstructions.length - 1) { currentStepIndex++; updateTurnDisplay(); } }
+function prevTurn() { if (currentStepIndex > 0) { currentStepIndex--; updateTurnDisplay(); } }
+function stopTurnNav() {
+  if (routingControl && map) { map.removeControl(routingControl); routingControl = null; }
+  document.getElementById('turnHud').style.display = 'none';
+  routeInstructions = [];
+}
+
+// Map Click Inspector
+async function onMapClick(e) {
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${e.latlng.lat}&lon=${e.latlng.lng}&zoom=18&addressdetails=1`);
+    const data = await res.json();
+    if (data && data.display_name) {
+      const name = data.name || data.display_name.split(',')[0];
+      L.popup().setLatLng(e.latlng).setContent(`
+        <b>${name}</b><br>
+        <div style="display:flex; gap:6px; margin-top:6px;">
+          <button class="btn primary" style="padding:4px 8px; font-size:11px;" onclick="addCustomSpotDirect('${name}', [${e.latlng.lat}, ${e.latlng.lng}])">＋ Add to Plan</button>
+          <button class="btn" style="padding:4px 8px; font-size:11px;" onclick="startTurnNav(${e.latlng.lat}, ${e.latlng.lng}, '${name}')">Route</button>
+        </div>
+      `).openOn(map);
+    }
+  } catch(err){}
+}
+
+function addCustomSpotDirect(name, coords) {
+  const newSpot = { name: name, area: 'Local Pick', type: 'Custom', rating: 4.8, cost: 1000, desc: 'Added to your itinerary.', lat: coords[0], lng: coords[1] };
+  itinerary.push(newSpot);
+  renderAll();
+}
+
+function openAddSpotModal() { document.getElementById('addSpotModal').classList.add('show'); }
+function saveCustomSpot() {
+  const name = document.getElementById('customSpotName').value.trim();
+  const desc = document.getElementById('customSpotDesc').value.trim();
+  if (!name) return alert("Please enter a name");
+  const center = map.getCenter();
+  itinerary.push({ name: name, area: 'Custom Spot', type: 'Custom', rating: 5.0, cost: 0, desc: desc || 'Custom place in itinerary', lat: center.lat, lng: center.lng });
+  document.getElementById('customSpotName').value = '';
+  document.getElementById('customSpotDesc').value = '';
+  document.getElementById('addSpotModal').classList.remove('show');
+  renderAll();
+}
+
+function switchDay(idx) {
+  currentDay = idx;
+  document.querySelectorAll('.dayTab').forEach((b, i) => b.classList.toggle('active', i === idx));
+  if (!multiDayData[idx]) multiDayData[idx] = [];
+  itinerary = multiDayData[idx];
+  renderAll();
+}
+
+// Spatial Live Discovery (Overpass)
+async function triggerSpatialSearch(type) {
+  if (!map) return;
+  const center = map.getCenter();
+  const query = `[out:json][timeout:15];(node["amenity"~"${type==='cafe'?'cafe':type==='restaurant'?'restaurant':'bar'}"](around:2500,${center.lat},${center.lng}););out body 10;`;
+  try {
+    const res = await fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(query));
+    const data = await res.json();
+    if (data.elements && data.elements.length > 0) {
+      data.elements.forEach(el => {
+        const name = el.tags.name || el.tags['name:en'] || 'Local Spot';
+        if (!places.some(p => p.name === name)) {
+          places.push({ name: name, area: 'Nearby Area', type: type, rating: 4.5, cost: 1200, desc: 'Live spatial recommendation.', img: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=900&q=80', lat: el.lat, lng: el.lon });
+        }
+      });
+      renderRecommendations();
+      alert(`✨ Found new nearby ${type} recommendations! Check the recommended card feed.`);
+    }
+  } catch(e){}
+}
+
+// Gemini AI Chatbot
+function promptApiKey() {
+  const key = prompt("Enter your free Google Gemini API Key from aistudio.google.com:", geminiApiKey);
+  if (key !== null) {
+    geminiApiKey = key.trim();
+    localStorage.setItem('tripshuffle_gemini_key', geminiApiKey);
+    alert(geminiApiKey ? "Gemini Key Saved!" : "Gemini Key Cleared.");
+  }
+}
+
+async function sendAI() {
+  const text = document.getElementById('aiText').value.trim();
+  if (!text) return;
+  const msgs = document.getElementById('messages');
+  msgs.insertAdjacentHTML('beforeend', `<div class="msg user">${text.replace(/[<>]/g,'')}</div>`);
+  document.getElementById('aiText').value = '';
+  msgs.scrollTop = msgs.scrollHeight;
+
+  const typing = document.createElement('div');
+  typing.className = 'msg ai';
+  typing.textContent = 'Thinking with Gemini…';
+  msgs.appendChild(typing);
+  msgs.scrollTop = msgs.scrollHeight;
+
+  const destination = document.getElementById('destination').value;
+  const currentStops = itinerary.map(p => p.name).join(', ');
+  const systemPrompt = `You are TripShuffle AI Copilot, a savvy, concise travel advisor. Destination: ${destination}. Current Day ${currentDay+1} Itinerary stops: [${currentStops}]. Keep answers under 3 concise bullet points with actionable tips.`;
+
+  if (geminiApiKey) {
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: `${systemPrompt}\n\nUser Question: ${text}` }] }] })
+      });
+      const data = await res.json();
+      if (data.candidates && data.candidates[0].content) {
+        typing.innerHTML = data.candidates[0].content.parts[0].text.replace(/\n/g, '<br>');
+      } else {
+        typing.textContent = "Gemini returned an error. Please verify your API Key.";
+      }
+    } catch(err) {
+      typing.textContent = "Unable to connect to Gemini API. Check your internet connection.";
+    }
+  } else {
+    setTimeout(() => {
+      typing.innerHTML = `For **${destination}**, Day ${currentDay+1} looks great! Consider checking out local alley izakayas near ${itinerary[0]?itinerary[0].name:'your morning stop'}.<br><br>💡 *Tip: Click the 🔑 key icon in the header to enter your free Gemini API key for live real-time AI responses.*`;
+      msgs.scrollTop = msgs.scrollHeight;
+    }, 600);
+  }
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+// Modal Handlers & Button Listeners
+document.getElementById('surpriseBtn').onclick = () => document.getElementById('modalBack').style.display = 'flex';
+document.getElementById('cancelModal').onclick = () => document.getElementById('modalBack').style.display = 'none';
+document.getElementById('generate').onclick = () => {
+  itinerary = [...places].sort(() => Math.random() - .5).slice(0, 4);
+  multiDayData[currentDay] = itinerary;
+  renderAll();
+  document.getElementById('modalBack').style.display = 'none';
+};
+
+document.querySelectorAll('.pref').forEach(p => p.onclick = () => p.classList.toggle('active'));
+document.querySelectorAll('.chip').forEach(c => c.onclick = () => c.classList.toggle('selected'));
+document.getElementById('sendAI').onclick = sendAI;
+document.getElementById('aiText').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAI(); } });
+document.querySelectorAll('.suggestion').forEach(s => s.onclick = () => { document.getElementById('aiText').value = s.innerText; sendAI(); });
+document.getElementById('closeAI').onclick = () => document.getElementById('ai').classList.add('hidden');
+document.getElementById('optBtn').onclick = () => { itinerary.sort((a,b) => a.lng - b.lng); renderAll(); };
+document.getElementById('centerBtn').onclick = () => { if (map && itinerary[0]) map.setView([itinerary[0].lat, itinerary[0].lng], 13); };
+
+window.onload = () => {
+  showHome();
+};
 </script>
-</body></html>
+</body>
+</html>
