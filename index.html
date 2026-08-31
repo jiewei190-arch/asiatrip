@@ -13,16 +13,9 @@
 
 <style>
 :root{
-  --ink:#14231f;
-  --muted:#6f7d77;
-  --line:#e7eeea;
-  --soft:#f5f8f6;
-  --mint:#ddf7ec;
-  --green:#11795c;
-  --orange:#ff8059;
-  --yellow:#fff2c7;
-  --white:#fff;
-  --shadow:0 18px 60px rgba(14,45,35,.08);
+  --ink:#14231f; --muted:#6f7d77; --line:#e7eeea; --soft:#f5f8f6;
+  --mint:#ddf7ec; --green:#11795c; --orange:#ff8059; --yellow:#fff2c7;
+  --white:#fff; --shadow:0 18px 60px rgba(14,45,35,.08);
 }
 *{box-sizing:border-box}
 body{margin:0;font-family:'DM Sans',sans-serif;color:var(--ink);background:#fbfcfb;overflow-x:hidden}
@@ -32,141 +25,35 @@ button{cursor:pointer;border:0}
 /* ==========================================================================
    VIEW 1: LANDING HOME PAGE (Wanderlog Style)
    ========================================================================== */
-#home-view {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-  background: #ffffff;
-}
-.home-nav {
-  height: 74px;
-  padding: 0 32px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--line);
-  background: #ffffff;
-}
+#home-view { display: flex; flex-direction: column; min-height: 100vh; background: #ffffff; }
+.home-nav { height: 74px; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); background: #ffffff; }
 .home-nav-left { display: flex; align-items: center; gap: 24px; }
-.logo-brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-family: 'Plus Jakarta Sans', sans-serif;
-  font-weight: 800;
-  font-size: 21px;
-  color: var(--ink);
-  cursor: pointer;
-}
-.logo-brand .brandmark {
-  width: 34px; height: 34px; border-radius: 11px;
-  background: linear-gradient(135deg,#11795c,#51c59f);
-  display: grid; place-items: center; color: #fff;
-}
-.nav-links { display: flex; gap: 20px; list-style: none; }
+.logo-brand { display: flex; align-items: center; gap: 10px; font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 800; font-size: 21px; color: var(--ink); cursor: pointer; }
+.logo-brand .brandmark { width: 34px; height: 34px; border-radius: 11px; background: linear-gradient(135deg,#11795c,#51c59f); display: grid; place-items: center; color: #fff; }
+.nav-links { display: flex; gap: 20px; list-style: none; padding:0; margin:0;}
 .nav-links a { text-decoration: none; color: #53635d; font-weight: 600; font-size: 14px; }
 .nav-links a:hover { color: var(--green); }
+.home-nav-right { display: flex; align-items: center; gap: 12px; }
 
-.hero-plan-section {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 50px 20px 70px;
-  max-width: 620px;
-  margin: 0 auto;
-  width: 100%;
-  text-align: center;
-}
-.hero-heading {
-  font: 800 36px/1.1 'Plus Jakarta Sans', sans-serif;
-  color: var(--ink);
-  margin-bottom: 24px;
-}
-.plan-card {
-  width: 100%;
-  background: #ffffff;
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  box-shadow: var(--shadow);
-  margin-bottom: 20px;
-  text-align: left;
-  position: relative;
-}
-.input-row {
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--line);
-  position: relative;
-}
-.input-row label {
-  font-size: 11px;
-  font-weight: 800;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: .08em;
-  margin-bottom: 4px;
-  display: flex;
-  justify-content: space-between;
-}
-.input-row input {
-  border: none;
-  outline: none;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--ink);
-  width: 100%;
-  background: transparent;
-}
-.autocomplete-dropdown {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  background: #ffffff;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  box-shadow: 0 14px 40px rgba(14,45,35,.12);
-  z-index: 2000;
-  max-height: 280px;
-  overflow-y: auto;
-  display: none;
-}
-.autocomplete-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 11px 16px;
-  cursor: pointer;
-  border-bottom: 1px solid #f5f8f6;
-}
+.hero-plan-section { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 50px 20px 70px; max-width: 620px; margin: 0 auto; width: 100%; text-align: center; }
+.hero-heading { font: 800 36px/1.1 'Plus Jakarta Sans', sans-serif; color: var(--ink); margin-bottom: 24px; }
+.plan-card { width: 100%; background: #ffffff; border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); margin-bottom: 20px; text-align: left; position: relative; }
+.input-row { padding: 14px 18px; border-bottom: 1px solid var(--line); position: relative; }
+.input-row label { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 4px; display: flex; justify-content: space-between; }
+.input-row input { border: none; outline: none; font-size: 16px; font-weight: 700; color: var(--ink); width: 100%; background: transparent; }
+.autocomplete-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: #ffffff; border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 14px 40px rgba(14,45,35,.12); z-index: 2000; max-height: 280px; overflow-y: auto; display: none; }
+.autocomplete-item { display: flex; align-items: center; justify-content: space-between; padding: 11px 16px; cursor: pointer; border-bottom: 1px solid #f5f8f6; }
 .autocomplete-item:hover { background: var(--soft); }
 .autocomplete-main { font-weight: 700; font-size: 14px; color: var(--ink); }
 .autocomplete-sub { font-size: 11px; color: var(--muted); }
-.autocomplete-badge {
-  background: var(--mint);
-  color: var(--green);
-  font-size: 11px;
-  font-weight: 700;
-  padding: 3px 8px;
-  border-radius: 6px;
-}
+.autocomplete-badge { background: var(--mint); color: var(--green); font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 6px; }
 
 .date-row { display: flex; }
 .date-col { flex: 1; padding: 12px 18px; }
 .date-col:first-child { border-right: 1px solid var(--line); }
 .date-col input { border: 0; outline: 0; font-size: 13px; font-weight: 600; color: var(--ink); width: 100%; }
 
-.btn-start-planning {
-  background: var(--green);
-  color: #fff;
-  font: 700 16px 'Plus Jakarta Sans', sans-serif;
-  border-radius: 99px;
-  padding: 14px 44px;
-  cursor: pointer;
-  box-shadow: 0 8px 24px rgba(17,121,92,.25);
-  transition: all .15s;
-}
+.btn-start-planning { background: var(--green); color: #fff; font: 700 16px 'Plus Jakarta Sans', sans-serif; border-radius: 99px; padding: 14px 44px; cursor: pointer; box-shadow: 0 8px 24px rgba(17,121,92,.25); transition: all .15s; }
 .btn-start-planning:hover { background: #0e624a; transform: translateY(-1px); }
 
 /* ==========================================================================
@@ -185,21 +72,27 @@ button{cursor:pointer;border:0}
 .layout{display:grid;grid-template-columns:275px minmax(520px,1fr) minmax(360px,500px);min-height:calc(100vh - 74px)}
 .sidebar{border-right:1px solid var(--line);background:#fff;padding:24px 18px}
 .sideTitle{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:#94a19c;margin:10px 10px 12px;font-weight:700}
-.tripCard{border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:10px;cursor:pointer}
+.tripCard{border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:10px;cursor:pointer; width:100%; text-align:left; background:white; transition: 0.15s;}
 .tripCard.active{background:var(--soft);border-color:#d6e8df}
-.tripName{font-weight:700}
+.tripCard:hover{transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.05);}
+.tripName{font-weight:700; font-size:15px;}
 .small{font-size:12px;color:var(--muted)}
-.sideItem{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:12px;color:#52615c;margin:3px 0;font-weight:600;cursor:pointer}
+.sideItem{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:12px;color:#52615c;margin:3px 0;font-weight:600;cursor:pointer; width:100%; background:transparent; border:none; text-align:left;}
 .sideItem.active,.sideItem:hover{background:var(--soft);color:var(--ink)}
 
-.main{padding:24px 26px 50px;overflow:auto}
+.main{padding:24px 26px 50px;overflow:auto; position: relative;}
+.view-content { display: none; }
+.view-content.active { display: block; }
+
 .hero{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:22px}
 .eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.13em;color:var(--green);font-weight:700}
 .hero h1{font:800 34px/1.1 'Plus Jakarta Sans';margin:6px 0}
 .hero p{margin:0;color:var(--muted)}
 .actions{display:flex;gap:8px}
-.btn{padding:11px 14px;border-radius:11px;background:#fff;border:1px solid var(--line);font-weight:600;display:inline-flex;align-items:center;gap:6px}
+.btn{padding:11px 14px;border-radius:11px;background:#fff;border:1px solid var(--line);font-weight:600;display:inline-flex;align-items:center;gap:6px; transition: 0.1s;}
+.btn:hover{background:#f5f8f6;}
 .btn.primary{background:var(--green);color:#fff;border-color:var(--green)}
+.btn.primary:hover{background:#0e624a;}
 .btn.magic{background:#132720;color:#fff}
 
 .controlRow{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;margin-bottom:18px}
@@ -207,7 +100,7 @@ button{cursor:pointer;border:0}
 .control label{display:block;font-size:11px;color:#95a19d;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;font-weight:700}
 .control select,.control input{width:100%;border:0;outline:0;background:transparent;color:var(--ink);font-weight:700}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 20px}
-.chip{padding:9px 12px;border-radius:99px;background:var(--soft);color:#607069;font-weight:600}
+.chip{padding:9px 12px;border-radius:99px;background:var(--soft);color:#607069;font-weight:600; border:none; cursor:pointer;}
 .chip.selected{background:var(--mint);color:var(--green);font-weight:700}
 
 .dashboard{display:grid;grid-template-columns:1.15fr .85fr;gap:16px}
@@ -215,7 +108,7 @@ button{cursor:pointer;border:0}
 .panelHead{display:flex;justify-content:space-between;align-items:center;padding:17px 18px;border-bottom:1px solid var(--line)}
 .panelHead h3{margin:0;font:700 17px 'Plus Jakarta Sans'}
 .dayTabs{display:flex;gap:7px;overflow-x:auto;padding:12px 18px;border-bottom:1px solid var(--line)}
-.dayTab{min-width:82px;padding:9px 10px;border-radius:10px;background:var(--soft);text-align:center;color:var(--ink);font-weight:700;cursor:pointer}
+.dayTab{min-width:82px;padding:9px 10px;border-radius:10px;background:var(--soft);text-align:center;color:var(--ink);font-weight:700;cursor:pointer; border:none;}
 .dayTab.active{background:#132720;color:#fff}
 
 .timeline{padding:16px 18px}
@@ -223,7 +116,7 @@ button{cursor:pointer;border:0}
 .stop:not(:last-child):after{content:"";position:absolute;left:15px;top:44px;bottom:-8px;width:2px;background:#dfe9e5}
 .num{width:30px;height:30px;border-radius:50%;background:var(--mint);color:var(--green);display:grid;place-items:center;font-weight:800;z-index:1}
 .stop h4{margin:0 0 4px;font-size:15px}
-.stop p{margin:0;color:var(--muted);font-size:12px}
+.stop p{margin:0;color:var(--muted);font-size:12px; line-height: 1.4;}
 .meta{display:flex;gap:10px;margin-top:7px;color:#74827d;font-size:11px;flex-wrap:wrap}
 
 .cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px 18px}
@@ -233,7 +126,7 @@ button{cursor:pointer;border:0}
 .place h4{margin:0 0 4px;font-size:14px}
 .place p{margin:0;color:var(--muted);font-size:11px}
 .placeFoot{display:flex;justify-content:space-between;align-items:center;margin-top:8px}
-.add{background:var(--soft);padding:7px 9px;border-radius:9px;color:var(--green);font-weight:700;font-size:11px}
+.add{background:var(--soft);padding:7px 9px;border-radius:9px;color:var(--green);font-weight:700;font-size:11px; border:none; cursor:pointer;}
 
 /* Map Section */
 .mapPanel{min-height:520px;display:flex;flex-direction:column;position:relative}
@@ -259,7 +152,7 @@ button{cursor:pointer;border:0}
 .turn-body { display: flex; gap: 10px; align-items: center; }
 .turn-icon-box { width: 36px; height: 36px; border-radius: 8px; background: var(--green); display: grid; place-items: center; font-size: 16px; flex-shrink: 0; }
 .turn-controls { display: flex; gap: 6px; margin-top: 8px; }
-.turn-btn { flex: 1; padding: 6px; border-radius: 8px; font-size: 11px; font-weight: 700; background: rgba(255,255,255,0.12); color: white; border: none; }
+.turn-btn { flex: 1; padding: 6px; border-radius: 8px; font-size: 11px; font-weight: 700; background: rgba(255,255,255,0.12); color: white; border: none; cursor:pointer;}
 
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
 .stat{padding:14px;background:#fff;border:1px solid var(--line);border-radius:14px}
@@ -267,7 +160,9 @@ button{cursor:pointer;border:0}
 .stat .k{font-size:11px;color:var(--muted)}
 
 /* Gemini AI Widget */
-.ai{position:fixed;right:22px;bottom:22px;width:380px;max-width:calc(100vw - 30px);background:#fff;border:1px solid var(--line);border-radius:20px;box-shadow:0 24px 80px rgba(9,35,27,.2);z-index:1500;overflow:hidden}
+.aiLauncher{position:fixed;right:22px;bottom:22px;z-index:1800;display:flex;align-items:center;gap:8px;background:var(--ink);color:#fff;border-radius:999px;padding:13px 16px;box-shadow:0 20px 60px rgba(9,35,27,.25);font-weight:700; cursor:pointer;}
+.ai{position:fixed;right:22px;bottom:22px;width:380px;max-width:calc(100vw - 30px);background:#fff;border:1px solid var(--line);border-radius:20px;box-shadow:0 24px 80px rgba(9,35,27,.2);z-index:1801;overflow:hidden; display:flex; flex-direction:column;}
+.ai.hidden{display:none}
 .aiHead{background:#132720;color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between}
 .aiTitle{font-weight:800;display:flex;align-items:center;gap:6px}
 .aiSub{font-size:11px;opacity:.7}
@@ -277,11 +172,10 @@ button{cursor:pointer;border:0}
 .msg.user{margin-left:auto;background:#132720;color:#fff;border-bottom-right-radius:4px}
 .msg.ai{background:var(--soft);border-bottom-left-radius:4px;color:var(--ink)}
 .suggestions{display:flex;gap:6px;flex-wrap:wrap;padding:0 14px 10px}
-.suggestion{font-size:11px;padding:7px 9px;border-radius:99px;background:#fff;border:1px solid var(--line)}
+.suggestion{font-size:11px;padding:7px 9px;border-radius:99px;background:#fff;border:1px solid var(--line); cursor:pointer;}
 .aiInput{display:flex;gap:8px;padding:12px;border-top:1px solid var(--line)}
-.aiInput textarea{flex:1;resize:none;height:44px;border:1px solid var(--line);border-radius:12px;padding:11px;outline:0}
-.send{width:44px;border-radius:12px;background:var(--green);color:#fff;font-size:18px}
-.hidden{display:none}
+.aiInput textarea{flex:1;resize:none;height:44px;border:1px solid var(--line);border-radius:12px;padding:11px;outline:0; font-family: inherit;}
+.send{width:44px;border-radius:12px;background:var(--green);color:#fff;font-size:18px; display:grid; place-items:center;}
 
 /* Modals */
 .modalBack{position:fixed;inset:0;background:rgba(10,30,24,.45);display:none;align-items:center;justify-content:center;z-index:2000}
@@ -289,7 +183,7 @@ button{cursor:pointer;border:0}
 .modal.show{display:flex}
 .modal h2{margin:0 0 8px;font-family:'Plus Jakarta Sans'}
 .preferenceGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:16px 0}
-.pref{border:1px solid var(--line);border-radius:13px;padding:13px;text-align:left}
+.pref{border:1px solid var(--line);border-radius:13px;padding:13px;text-align:left; background:white; cursor:pointer;}
 .pref.active{background:var(--mint);border-color:#bce9d6}
 .pref b{display:block;color:var(--ink)}
 .pref span{font-size:11px;color:var(--muted)}
@@ -317,7 +211,7 @@ button{cursor:pointer;border:0}
         </ul>
       </div>
       <div class="home-nav-right">
-        <button class="btn" onclick="promptApiKey()"><i class="fa-solid fa-key"></i> Gemini API Key</button>
+        <button class="btn" onclick="promptApiKey()"><i class="fa-solid fa-key"></i> Gemini AI Setup</button>
       </div>
     </header>
 
@@ -348,19 +242,16 @@ button{cursor:pointer;border:0}
 
       <button class="btn-start-planning" onclick="startPlanning()">Start planning</button>
     </main>
-
-    <footer class="home-footer" style="padding: 24px; text-align: center; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line);">
-      © 2026 TripShuffle Inc. Built for spontaneous travelers and AI trip copilots.
-    </footer>
   </div>
 
   <div id="workspace-view">
     <header class="topbar">
       <div class="brand" onclick="showHome()"><div class="brandmark">✦</div>TripShuffle</div>
-      <nav class="topnav">
-        <button class="navbtn active">Plan</button>
-        <button class="navbtn" onclick="triggerSpatialSearch('cafe')">Explore</button>
-        <button class="navbtn" onclick="showHome()">Home</button>
+      <nav class="topnav" id="topnav">
+        <button class="navbtn active" onclick="switchMainView('plan')">Plan</button>
+        <button class="navbtn" onclick="switchMainView('explore')">Explore</button>
+        <button class="navbtn" onclick="switchMainView('saved')">Saved</button>
+        <button class="navbtn" onclick="switchMainView('budget')">Budget</button>
       </nav>
       <div class="profile">
         <button class="btn" id="newTripBtn" onclick="showHome()">＋ New trip</button>
@@ -376,145 +267,172 @@ button{cursor:pointer;border:0}
           <div class="small" id="sideTripDates">Oct 4 – Oct 10 · Active Plan</div>
         </div>
         <div class="sideTitle" style="margin-top:24px">Workspace</div>
-        <div class="sideItem active">🗺️ <span>Trip plan</span></div>
-        <div class="sideItem" onclick="triggerSpatialSearch('restaurant')">🍜 <span>Food & Drinks</span></div>
-        <div class="sideItem" onclick="triggerSpatialSearch('tourism')">🎡 <span>Top Sights</span></div>
-        <div class="sideItem" onclick="promptApiKey()">🔑 <span>Gemini Settings</span></div>
+        <button class="sideItem active" onclick="switchMainView('plan')">🗺️ <span>Trip plan</span></button>
+        <button class="sideItem" onclick="switchMainView('explore')">🔎 <span>Discover places</span></button>
+        <button class="sideItem" onclick="switchMainView('saved')">❤️ <span>Saved places</span></button>
+        <button class="sideItem" onclick="switchMainView('budget')">💸 <span>Budget</span></button>
       </aside>
 
       <main class="main">
-        <section class="hero">
-          <div>
-            <div class="eyebrow">AI-powered trip workspace</div>
-            <h1 id="heroTripHeader">Tokyo, your way.</h1>
-            <p>Plan it yourself, ask the copilot, or let TripShuffle build a day around your taste.</p>
-          </div>
-          <div class="actions">
-            <button class="btn" id="optBtn">↗ Optimize route</button>
-            <button class="btn magic" id="surpriseBtn">✦ Surprise Me</button>
-          </div>
-        </section>
-
-        <div class="controlRow">
-          <div class="control">
-            <label>Destination</label>
-            <input id="destination" value="Tokyo, Japan" onchange="updateCity(this.value)">
-          </div>
-          <div class="control">
-            <label>Dates</label>
-            <input id="tripDatesField" value="Oct 4 – Oct 10, 2026">
-          </div>
-          <div class="control">
-            <label>Pace</label>
-            <select id="pace">
-              <option>Balanced</option>
-              <option>Relaxed</option>
-              <option>Packed</option>
-            </select>
-          </div>
-          <button class="btn primary" id="planBtn">Build plan</button>
-        </div>
-
-        <div>
-          <div class="small">Trip personality</div>
-          <div class="chips" id="chips">
-            <button class="chip selected">Foodie</button>
-            <button class="chip selected">Culture</button>
-            <button class="chip">Nightlife</button>
-            <button class="chip selected">Hidden gems</button>
-            <button class="chip">Nature</button>
-            <button class="chip">Shopping</button>
-            <button class="chip">Photography</button>
-            <button class="chip">Relaxed</button>
-          </div>
-        </div>
-
-        <div class="dashboard">
-          <section class="panel">
-            <div class="panelHead">
-              <h3>Itinerary</h3>
-              <button class="btn" id="addStop" onclick="openAddSpotModal()">＋ Add place</button>
+        <div class="view-content active" id="view-plan">
+          <section class="hero">
+            <div>
+              <div class="eyebrow">AI-powered trip workspace</div>
+              <h1 id="heroTripHeader">Tokyo, your way.</h1>
+              <p>Plan it yourself, ask the copilot, or let TripShuffle build a day around your taste.</p>
             </div>
-            <div class="dayTabs" id="dayTabs">
-              <button class="dayTab active" onclick="switchDay(0)">Day 1</button>
-              <button class="dayTab" onclick="switchDay(1)">Day 2</button>
-              <button class="dayTab" onclick="switchDay(2)">Day 3</button>
+            <div class="actions">
+              <button class="btn" id="optBtn" onclick="optimizeRoute()">↗ Optimize route</button>
+              <button class="btn magic" onclick="document.getElementById('modalBack').style.display='flex'">✦ Surprise Me</button>
             </div>
-            <div class="timeline" id="timeline"></div>
-            <div class="panelHead" style="border-top:1px solid var(--line);border-bottom:0">
-              <h3>Recommended near your route</h3>
-              <span class="small">spatial live picks</span>
-            </div>
-            <div class="cards" id="recommendations"></div>
           </section>
 
-          <section class="panel mapPanel">
-            <div class="panelHead">
-              <h3>Map & route</h3>
-              <button class="btn" id="centerBtn">◎ Center</button>
+          <div class="controlRow">
+            <div class="control">
+              <label>Destination</label>
+              <input id="destination" value="Tokyo, Japan" onchange="updateCity(this.value)">
             </div>
-            <div class="mapLegend">
-              <span class="legend">● Planned</span>
-              <span class="legend">★ Top rated</span>
-              <span class="legend">✦ AI pick</span>
+            <div class="control">
+              <label>Dates</label>
+              <input id="tripDatesField" value="Oct 4 – Oct 10, 2026">
             </div>
-            
-            <div class="turn-hud" id="turnHud">
-              <div class="turn-header">
-                <span><i class="fa-solid fa-location-arrow"></i> LIVE NAVIGATION</span>
-                <span id="turn-dist-total">0.0 km</span>
+            <div class="control">
+              <label>Pace</label>
+              <select id="pace">
+                <option>Balanced</option>
+                <option>Relaxed</option>
+                <option>Packed</option>
+              </select>
+            </div>
+            <button class="btn primary" onclick="renderAll()">Build plan</button>
+          </div>
+
+          <div>
+            <div class="small">Trip personality</div>
+            <div class="chips" id="chips">
+              <button class="chip selected">Foodie</button>
+              <button class="chip selected">Culture</button>
+              <button class="chip">Nightlife</button>
+              <button class="chip selected">Hidden gems</button>
+              <button class="chip">Nature</button>
+              <button class="chip">Shopping</button>
+              <button class="chip">Photography</button>
+            </div>
+          </div>
+
+          <div class="dashboard">
+            <section class="panel">
+              <div class="panelHead">
+                <h3>Itinerary</h3>
+                <button class="btn" onclick="openAddSpotModal()">＋ Add place</button>
               </div>
-              <div class="turn-body">
-                <div class="turn-icon-box" id="turn-icon"><i class="fa-solid fa-arrow-up"></i></div>
-                <div>
-                  <div style="font-size:13px; font-weight:700;" id="turn-text">Follow route</div>
-                  <div style="font-size:11px; opacity:0.8;" id="turn-sub">Step 1</div>
+              <div class="dayTabs" id="dayTabs">
+                <button class="dayTab active" onclick="switchDay(0)">Day 1</button>
+                <button class="dayTab" onclick="switchDay(1)">Day 2</button>
+                <button class="dayTab" onclick="switchDay(2)">Day 3</button>
+              </div>
+              <div class="timeline" id="timeline"></div>
+              <div class="panelHead" style="border-top:1px solid var(--line);border-bottom:0">
+                <h3>Recommended near your route</h3>
+                <span class="small">ranked for you</span>
+              </div>
+              <div class="cards" id="recommendations"></div>
+            </section>
+
+            <section class="panel mapPanel">
+              <div class="panelHead">
+                <h3>Map & route</h3>
+                <button class="btn" onclick="centerMap()">◎ Center</button>
+              </div>
+              <div class="mapLegend">
+                <span class="legend">● Planned</span>
+                <span class="legend">★ Top rated</span>
+                <span class="legend">✦ AI pick</span>
+              </div>
+              
+              <div class="turn-hud" id="turnHud">
+                <div class="turn-header">
+                  <span><i class="fa-solid fa-location-arrow"></i> LIVE NAVIGATION</span>
+                  <span id="turn-dist-total">0.0 km</span>
+                </div>
+                <div class="turn-body">
+                  <div class="turn-icon-box" id="turn-icon"><i class="fa-solid fa-arrow-up"></i></div>
+                  <div>
+                    <div style="font-size:13px; font-weight:700;" id="turn-text">Follow route</div>
+                    <div style="font-size:11px; opacity:0.8;" id="turn-sub">Step 1</div>
+                  </div>
+                </div>
+                <div class="turn-controls">
+                  <button class="turn-btn" onclick="prevTurn()"><i class="fa-solid fa-backward-step"></i> Prev</button>
+                  <button class="turn-btn" onclick="nextTurn()">Next <i class="fa-solid fa-forward-step"></i></button>
+                  <button class="turn-btn" style="background:#c94c4c;" onclick="stopTurnNav()">Exit</button>
                 </div>
               </div>
-              <div class="turn-controls">
-                <button class="turn-btn" onclick="prevTurn()"><i class="fa-solid fa-backward-step"></i> Prev</button>
-                <button class="turn-btn" onclick="nextTurn()">Next <i class="fa-solid fa-forward-step"></i></button>
-                <button class="turn-btn" style="background:#ef4444;" onclick="stopTurnNav()">Exit</button>
-              </div>
-            </div>
 
-            <div id="map" class="map"></div>
-          </section>
+              <div id="map" class="map"></div>
+            </section>
+          </div>
+
+          <div class="stats">
+            <div class="stat"><div class="v" id="distance">8.4 km</div><div class="k">Estimated walking</div></div>
+            <div class="stat"><div class="v" id="budget">¥18,600</div><div class="k">Planned spend</div></div>
+            <div class="stat"><div class="v">4.8/5</div><div class="k">Trip match score</div></div>
+          </div>
         </div>
 
-        <div class="stats">
-          <div class="stat"><div class="v" id="distance">8.4 km</div><div class="k">Estimated walking</div></div>
-          <div class="stat"><div class="v" id="budget">¥18,600</div><div class="k">Planned spend</div></div>
-          <div class="stat"><div class="v">4.9/5</div><div class="k">Trip match score</div></div>
+        <div class="view-content" id="view-explore">
+          <div class="hero"><div><div class="eyebrow">Discover</div><h1>Find somewhere you'll love.</h1><p>Search, filter, and add places directly to your itinerary.</p></div></div>
+          <div style="display:flex; gap:10px; margin-bottom:16px;">
+            <input type="text" id="exploreSearch" placeholder="Search cafes, temples, ramen..." style="flex:1; padding:12px; border:1px solid var(--line); border-radius:12px;">
+            <button class="btn primary" onclick="triggerSpatialSearch()">Search Map</button>
+          </div>
+          <div class="cards" id="exploreGrid" style="display:grid; grid-template-columns:1fr 1fr; gap:10px;"></div>
         </div>
+
+        <div class="view-content" id="view-saved">
+          <div class="hero"><div><div class="eyebrow">Your collection</div><h1>Saved places.</h1><p>Keep your favorites here.</p></div></div>
+          <div class="empty" style="padding:40px; text-align:center; color:var(--muted);">No places saved yet. Click the ♡ to save spots.</div>
+        </div>
+
+        <div class="view-content" id="view-budget">
+          <div class="hero"><div><div class="eyebrow">Trip Finance</div><h1>Budget at a glance.</h1><p>Track your trip spend.</p></div></div>
+          <div class="stats">
+            <div class="stat"><div class="v" id="bud-total">¥120,000</div><div class="k">Total Target</div></div>
+            <div class="stat"><div class="v" id="bud-plan">¥0</div><div class="k">Planned So Far</div></div>
+            <div class="stat"><div class="v" id="bud-rem">¥120,000</div><div class="k">Remaining</div></div>
+          </div>
+        </div>
+
       </main>
     </div>
   </div>
 </div>
 
-<div class="ai" id="ai">
+<button class="aiLauncher" id="aiLauncher" onclick="toggleAI()"><i class="fa-solid fa-wand-magic-sparkles"></i> ✦ Ask TripShuffle</button>
+
+<div class="ai hidden" id="ai">
   <div class="aiHead">
     <div>
-      <div class="aiTitle">✦ TripShuffle Copilot (Gemini AI)</div>
-      <div class="aiSub">Ask anything about places, routes, food & budgets.</div>
+      <div class="aiTitle">✦ TripShuffle Copilot</div>
+      <div class="aiSub">Powered by Gemini AI</div>
     </div>
     <div style="display:flex; gap:8px; align-items:center;">
-      <i class="fa-solid fa-gear" style="cursor:pointer; font-size:13px;" onclick="promptApiKey()" title="API Key"></i>
-      <button id="closeAI" style="background:transparent;color:#fff;font-size:18px">×</button>
+      <i class="fa-solid fa-gear" style="cursor:pointer; font-size:14px;" onclick="promptApiKey()" title="API Key Setup"></i>
+      <button onclick="toggleAI()" style="background:transparent;color:#fff;font-size:18px">×</button>
     </div>
   </div>
   <div class="aiBody">
     <div class="messages" id="messages">
-      <div class="msg ai">Hey! I’m your Gemini-powered travel copilot. Ask me something like “build me a cheap foodie day in Shibuya” or “what are 3 hidden izakayas nearby?”</div>
+      <div class="msg ai">Hey! I’m your Gemini travel copilot. Ask me something like “build me a cheap foodie day” or “what are 3 hidden izakayas nearby?”</div>
     </div>
     <div class="suggestions">
-      <button class="suggestion">Build my perfect Day plan</button>
-      <button class="suggestion">Cheap food spots near here</button>
-      <button class="suggestion">What should I pack?</button>
+      <button class="suggestion" onclick="fillAI('Build my perfect Day plan')">Build my perfect Day plan</button>
+      <button class="suggestion" onclick="fillAI('Cheap food spots near here')">Cheap food spots near here</button>
+      <button class="suggestion" onclick="fillAI('What should I pack?')">What should I pack?</button>
     </div>
     <div class="aiInput">
       <textarea id="aiText" placeholder="Ask your trip copilot anything..."></textarea>
-      <button class="send" id="sendAI">➜</button>
+      <button class="send" id="sendAI" onclick="sendAI()"><i class="fa-solid fa-paper-plane"></i></button>
     </div>
   </div>
 </div>
@@ -522,18 +440,18 @@ button{cursor:pointer;border:0}
 <div class="modalBack" id="modalBack">
   <div class="modal">
     <h2>✨ Surprise Me</h2>
-    <p class="small">Tell TripShuffle what you like. It will build a fresh day-by-day plan and query live spatial spots.</p>
-    <div class="preferenceGrid">
-      <button class="pref active"><b>🍜 Foodie</b><span>local spots, markets, tastings</span></button>
-      <button class="pref active"><b>🏮 Culture</b><span>temples, museums, neighborhoods</span></button>
-      <button class="pref"><b>🌿 Nature</b><span>parks, gardens, views</span></button>
-      <button class="pref active"><b>📸 Hidden gems</b><span>less touristy, unique finds</span></button>
-      <button class="pref"><b>🛍 Shopping</b><span>vintage, design, streetwear</span></button>
-      <button class="pref"><b>🌙 Nightlife</b><span>bars, izakaya, late nights</span></button>
+    <p class="small">Tell TripShuffle what you like. It will build a fresh day-by-day plan.</p>
+    <div class="preferenceGrid" style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:16px 0;">
+      <button class="pref active" onclick="this.classList.toggle('active')"><b>🍜 Foodie</b><span>local spots, markets, tastings</span></button>
+      <button class="pref active" onclick="this.classList.toggle('active')"><b>🏮 Culture</b><span>temples, museums, neighborhoods</span></button>
+      <button class="pref" onclick="this.classList.toggle('active')"><b>🌿 Nature</b><span>parks, gardens, views</span></button>
+      <button class="pref active" onclick="this.classList.toggle('active')"><b>📸 Hidden gems</b><span>less touristy, unique finds</span></button>
+      <button class="pref" onclick="this.classList.toggle('active')"><b>🛍 Shopping</b><span>vintage, design, streetwear</span></button>
+      <button class="pref" onclick="this.classList.toggle('active')"><b>🌙 Nightlife</b><span>bars, izakaya, late nights</span></button>
     </div>
     <div style="display:flex;justify-content:flex-end;gap:8px">
-      <button class="btn" id="cancelModal">Cancel</button>
-      <button class="btn primary" id="generate">Generate my trip</button>
+      <button class="btn" onclick="document.getElementById('modalBack').style.display='none'">Cancel</button>
+      <button class="btn primary" onclick="generateSurprise()">Generate my trip</button>
     </div>
   </div>
 </div>
@@ -548,7 +466,7 @@ button{cursor:pointer;border:0}
       <input type="text" id="customSpotDesc" placeholder="e.g. Sunset drinks & photo spot" style="width:100%; padding:10px; border:1px solid var(--line); border-radius:10px; margin:4px 0 14px;">
     </div>
     <div style="display:flex; justify-content:flex-end; gap:8px;">
-      <button class="btn" onclick="document.getElementById('addSpotModal').classList.remove('show')">Cancel</button>
+      <button class="btn" onclick="document.getElementById('addSpotModal').style.display='none'">Cancel</button>
       <button class="btn primary" onclick="saveCustomSpot()">Add to Day</button>
     </div>
   </div>
@@ -558,6 +476,7 @@ button{cursor:pointer;border:0}
 <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
 
 <script>
+// --- INITIAL DATA ---
 const defaultPlaces = [
   {name:'Senso-ji Temple',area:'Asakusa',type:'Culture',rating:4.7,cost:0,mins:90,desc:'Iconic temple complex with an atmospheric old-Tokyo approach.',img:'https://images.unsplash.com/photo-1542051841857-5f90071e7989?auto=format&fit=crop&w=900&q=80',lat:35.7148,lng:139.7967},
   {name:'Tsukiji Outer Market',area:'Tsukiji',type:'Food',rating:4.6,cost:1800,mins:90,desc:'Snacks, sushi, tamagoyaki and tiny specialty stalls.',img:'https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?auto=format&fit=crop&w=900&q=80',lat:35.6655,lng:139.7708},
@@ -577,6 +496,7 @@ let multiDayData = [
   [places[5], places[2], places[0]]
 ];
 let itinerary = multiDayData[0];
+
 let map = null, markers = [], polylineLayer = null;
 let routingControl = null, routeInstructions = [], currentStepIndex = 0;
 let geminiApiKey = localStorage.getItem('tripshuffle_gemini_key') || '';
@@ -584,7 +504,7 @@ let autocompleteTimeout = null;
 
 const randomCities = ["Tokyo, Japan", "Seoul, South Korea", "Paris, France", "Rome, Italy", "Barcelona, Spain", "Kyoto, Japan", "New York, USA"];
 
-// Navigation between views
+// --- VIEW NAVIGATION ---
 function showHome() {
   document.getElementById('home-view').style.display = 'flex';
   document.getElementById('workspace-view').style.display = 'none';
@@ -599,12 +519,20 @@ function showWorkspace() {
   renderAll();
 }
 
-function rollRandomCity() {
-  const c = randomCities[Math.floor(Math.random() * randomCities.length)];
-  document.getElementById('heroDestInput').value = c;
+function switchMainView(viewId) {
+  document.querySelectorAll('.navbtn').forEach(btn => btn.classList.remove('active'));
+  document.querySelectorAll('.sideItem').forEach(btn => btn.classList.remove('active'));
+  document.querySelectorAll('.view-content').forEach(v => v.classList.remove('active'));
+  
+  event.target.classList.add('active');
+  document.getElementById(`view-${viewId}`).classList.add('active');
 }
 
-// Live Autocomplete for Destination Input
+// --- LANDING PAGE LOGIC ---
+function rollRandomCity() {
+  document.getElementById('heroDestInput').value = randomCities[Math.floor(Math.random() * randomCities.length)];
+}
+
 function handleAutocomplete(query) {
   const dropdown = document.getElementById('home-dropdown');
   clearTimeout(autocompleteTimeout);
@@ -658,12 +586,14 @@ async function updateCity(cityName) {
     const data = await res.json();
     if (data && data.length > 0) {
       const lat = parseFloat(data[0].lat), lon = parseFloat(data[0].lon);
-      if (map) map.setView([lat, lon], 13);
+      if (map) {
+        map.setView([lat, lon], 13);
+      }
     }
   } catch(e){}
 }
 
-// Map & Routing
+// --- MAP & WORKSPACE LOGIC ---
 function initMap() {
   map = L.map('map', { zoomControl: true }).setView([35.6848, 139.725], 12);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap contributors' }).addTo(map);
@@ -766,11 +696,35 @@ function renderAll() {
   renderTimeline();
   renderRecommendations();
   renderMap();
-  document.getElementById('distance').textContent = (itinerary.length * 2.1).toFixed(1) + ' km';
-  document.getElementById('budget').textContent = '¥' + itinerary.reduce((a, p) => a + p.cost, 0).toLocaleString();
+  
+  const dist = (itinerary.length * 2.1).toFixed(1);
+  const cost = itinerary.reduce((a, p) => a + p.cost, 0);
+  
+  document.getElementById('distance').textContent = dist + ' km';
+  document.getElementById('budget').textContent = '¥' + cost.toLocaleString();
+  
+  document.getElementById('bud-plan').textContent = '¥' + cost.toLocaleString();
+  document.getElementById('bud-rem').textContent = '¥' + Math.max(0, 120000 - cost).toLocaleString();
 }
 
-// Turn-by-Turn Navigation HUD
+function switchDay(idx) {
+  currentDay = idx;
+  document.querySelectorAll('.dayTab').forEach((b, i) => b.classList.toggle('active', i === idx));
+  if (!multiDayData[idx]) multiDayData[idx] = [];
+  itinerary = multiDayData[idx];
+  renderAll();
+}
+
+function optimizeRoute() {
+  itinerary.sort((a,b) => a.lng - b.lng);
+  renderAll();
+}
+
+function centerMap() {
+  if (map && itinerary[0]) map.setView([itinerary[0].lat, itinerary[0].lng], 13);
+}
+
+// --- TURN-BY-TURN NAVIGATION ---
 function startTurnNav(destLat, destLng, destName) {
   if (routingControl && map) map.removeControl(routingControl);
   const origin = itinerary[0] ? [itinerary[0].lat, itinerary[0].lng] : map.getCenter();
@@ -805,7 +759,7 @@ function stopTurnNav() {
   routeInstructions = [];
 }
 
-// Map Click Inspector
+// --- MAP CLICK INSPECTOR ---
 async function onMapClick(e) {
   try {
     const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${e.latlng.lat}&lon=${e.latlng.lng}&zoom=18&addressdetails=1`);
@@ -829,7 +783,7 @@ function addCustomSpotDirect(name, coords) {
   renderAll();
 }
 
-function openAddSpotModal() { document.getElementById('addSpotModal').classList.add('show'); }
+function openAddSpotModal() { document.getElementById('addSpotModal').style.display = 'flex'; }
 function saveCustomSpot() {
   const name = document.getElementById('customSpotName').value.trim();
   const desc = document.getElementById('customSpotDesc').value.trim();
@@ -838,52 +792,80 @@ function saveCustomSpot() {
   itinerary.push({ name: name, area: 'Custom Spot', type: 'Custom', rating: 5.0, cost: 0, desc: desc || 'Custom place in itinerary', lat: center.lat, lng: center.lng });
   document.getElementById('customSpotName').value = '';
   document.getElementById('customSpotDesc').value = '';
-  document.getElementById('addSpotModal').classList.remove('show');
+  document.getElementById('addSpotModal').style.display = 'none';
   renderAll();
 }
 
-function switchDay(idx) {
-  currentDay = idx;
-  document.querySelectorAll('.dayTab').forEach((b, i) => b.classList.toggle('active', i === idx));
-  if (!multiDayData[idx]) multiDayData[idx] = [];
-  itinerary = multiDayData[idx];
+function generateSurprise() {
+  itinerary = [...places].sort(() => Math.random() - .5).slice(0, 4);
+  multiDayData[currentDay] = itinerary;
   renderAll();
+  document.getElementById('modalBack').style.display = 'none';
 }
 
-// Spatial Live Discovery (Overpass)
-async function triggerSpatialSearch(type) {
+async function triggerSpatialSearch() {
+  const q = document.getElementById('exploreSearch').value.trim().toLowerCase();
+  if (!q) return;
   if (!map) return;
   const center = map.getCenter();
-  const query = `[out:json][timeout:15];(node["amenity"~"${type==='cafe'?'cafe':type==='restaurant'?'restaurant':'bar'}"](around:2500,${center.lat},${center.lng}););out body 10;`;
+  const query = `[out:json][timeout:15];(node["name"~"${q}",i](around:3500,${center.lat},${center.lng}););out body 10;`;
   try {
     const res = await fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(query));
     const data = await res.json();
     if (data.elements && data.elements.length > 0) {
+      let html = '';
       data.elements.forEach(el => {
-        const name = el.tags.name || el.tags['name:en'] || 'Local Spot';
+        const name = el.tags.name || el.tags['name:en'] || q;
         if (!places.some(p => p.name === name)) {
-          places.push({ name: name, area: 'Nearby Area', type: type, rating: 4.5, cost: 1200, desc: 'Live spatial recommendation.', img: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=900&q=80', lat: el.lat, lng: el.lon });
+          places.push({ name: name, area: 'Discovery', type: 'Spot', rating: 4.5, cost: 1200, desc: 'Live spatial recommendation.', img: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=900&q=80', lat: el.lat, lng: el.lon });
         }
+        html += `<div class="place"><div class="placeBody"><h4>${name}</h4><button class="add" style="margin-top:6px;" onclick="addPlaceDirect('${name}')">＋ Add to Plan</button></div></div>`;
       });
-      renderRecommendations();
-      alert(`✨ Found new nearby ${type} recommendations! Check the recommended card feed.`);
+      document.getElementById('exploreGrid').innerHTML = html;
+    } else {
+      document.getElementById('exploreGrid').innerHTML = `<div class="empty">No exact matches nearby.</div>`;
     }
   } catch(e){}
 }
 
-// Gemini AI Chatbot
+// --- GEMINI AI CHATBOT LOGIC ---
+function toggleAI() {
+  const ai = document.getElementById('ai');
+  const launcher = document.getElementById('aiLauncher');
+  if (ai.classList.contains('hidden')) {
+    ai.classList.remove('hidden');
+    launcher.style.display = 'none';
+  } else {
+    ai.classList.add('hidden');
+    launcher.style.display = 'flex';
+  }
+}
+document.getElementById('aiLauncher').addEventListener('click', toggleAI);
+document.getElementById('closeAI').addEventListener('click', toggleAI);
+document.getElementById('minAI').addEventListener('click', toggleAI);
+
 function promptApiKey() {
   const key = prompt("Enter your free Google Gemini API Key from aistudio.google.com:", geminiApiKey);
   if (key !== null) {
     geminiApiKey = key.trim();
     localStorage.setItem('tripshuffle_gemini_key', geminiApiKey);
-    alert(geminiApiKey ? "Gemini Key Saved!" : "Gemini Key Cleared.");
+    alert(geminiApiKey ? "Gemini Key Saved! AI is now live." : "Gemini Key Cleared.");
   }
 }
+
+function fillAI(text) {
+  document.getElementById('aiText').value = text;
+  sendAI();
+}
+
+document.getElementById('aiText').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAI(); }
+});
 
 async function sendAI() {
   const text = document.getElementById('aiText').value.trim();
   if (!text) return;
+
   const msgs = document.getElementById('messages');
   msgs.insertAdjacentHTML('beforeend', `<div class="msg user">${text.replace(/[<>]/g,'')}</div>`);
   document.getElementById('aiText').value = '';
@@ -897,7 +879,7 @@ async function sendAI() {
 
   const destination = document.getElementById('destination').value;
   const currentStops = itinerary.map(p => p.name).join(', ');
-  const systemPrompt = `You are TripShuffle AI Copilot, a savvy, concise travel advisor. Destination: ${destination}. Current Day ${currentDay+1} Itinerary stops: [${currentStops}]. Keep answers under 3 concise bullet points with actionable tips.`;
+  const systemPrompt = `You are TripShuffle AI Copilot, a savvy travel advisor. Destination: ${destination}. Current Day ${currentDay+1} Itinerary stops: [${currentStops}]. Keep answers under 3 concise bullet points with actionable tips.`;
 
   if (geminiApiKey) {
     try {
@@ -917,31 +899,11 @@ async function sendAI() {
     }
   } else {
     setTimeout(() => {
-      typing.innerHTML = `For **${destination}**, Day ${currentDay+1} looks great! Consider checking out local alley izakayas near ${itinerary[0]?itinerary[0].name:'your morning stop'}.<br><br>💡 *Tip: Click the 🔑 key icon in the header to enter your free Gemini API key for live real-time AI responses.*`;
+      typing.innerHTML = `For **${destination}**, Day ${currentDay+1} looks great! Consider checking out local alley izakayas near ${itinerary[0]?itinerary[0].name:'your morning stop'}.<br><br>💡 *Tip: Click the ⚙️ gear icon in the header to enter your free Gemini API key for live real-time AI responses.*`;
       msgs.scrollTop = msgs.scrollHeight;
     }, 600);
   }
-  msgs.scrollTop = msgs.scrollHeight;
 }
-
-// Modal Handlers & Button Listeners
-document.getElementById('surpriseBtn').onclick = () => document.getElementById('modalBack').style.display = 'flex';
-document.getElementById('cancelModal').onclick = () => document.getElementById('modalBack').style.display = 'none';
-document.getElementById('generate').onclick = () => {
-  itinerary = [...places].sort(() => Math.random() - .5).slice(0, 4);
-  multiDayData[currentDay] = itinerary;
-  renderAll();
-  document.getElementById('modalBack').style.display = 'none';
-};
-
-document.querySelectorAll('.pref').forEach(p => p.onclick = () => p.classList.toggle('active'));
-document.querySelectorAll('.chip').forEach(c => c.onclick = () => c.classList.toggle('selected'));
-document.getElementById('sendAI').onclick = sendAI;
-document.getElementById('aiText').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAI(); } });
-document.querySelectorAll('.suggestion').forEach(s => s.onclick = () => { document.getElementById('aiText').value = s.innerText; sendAI(); });
-document.getElementById('closeAI').onclick = () => document.getElementById('ai').classList.add('hidden');
-document.getElementById('optBtn').onclick = () => { itinerary.sort((a,b) => a.lng - b.lng); renderAll(); };
-document.getElementById('centerBtn').onclick = () => { if (map && itinerary[0]) map.setView([itinerary[0].lat, itinerary[0].lng], 13); };
 
 window.onload = () => {
   showHome();
