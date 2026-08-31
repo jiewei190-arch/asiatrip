@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>VoyagePulse - The Ultimate Smart Travel & Map Explorer</title>
+  <title>VoyagePulse - Google Maps Travel Planner & Explorer</title>
   
-  <!-- Leaflet Map Engine -->
+  <!-- Map Engine -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
   
@@ -29,7 +29,6 @@
       --accent: #f59e0b;
       --danger: #ef4444;
       --success: #10b981;
-      
       --bg-main: #f8fafc;
       --bg-card: #ffffff;
       --bg-card-hover: #f1f5f9;
@@ -38,15 +37,14 @@
       --border: #e2e8f0;
       --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
       --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.08), 0 2px 4px -2px rgba(0,0,0,0.06);
-      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.05);
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1);
       --shadow-xl: 0 20px 25px -5px rgba(0,0,0,0.15);
       --radius: 12px;
       --radius-sm: 8px;
       --radius-lg: 16px;
       --nav-height: 64px;
-      --quick-bar-height: 42px;
+      --quick-bar-height: 44px;
     }
-
     [data-theme="dark"] {
       --bg-main: #090d16;
       --bg-card: #131b2e;
@@ -55,38 +53,19 @@
       --text-muted: #94a3b8;
       --border: #23304d;
       --primary-light: #172554;
-      --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
-      --shadow-md: 0 4px 6px rgba(0,0,0,0.5);
-      --shadow-lg: 0 10px 15px rgba(0,0,0,0.5);
     }
-
     html, body {
       height: 100%;
       width: 100%;
       margin: 0;
       padding: 0;
       overflow: hidden;
-      box-sizing: border-box;
       font-family: 'Plus Jakarta Sans', sans-serif;
       background-color: var(--bg-main);
       color: var(--text-main);
     }
-
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      font-family: inherit;
-    }
-
-    .app-root {
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-      width: 100vw;
-      overflow: hidden;
-    }
-
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    .app-root { display: flex; flex-direction: column; height: 100vh; width: 100vw; overflow: hidden; }
     header.navbar {
       height: var(--nav-height);
       min-height: var(--nav-height);
@@ -100,12 +79,10 @@
       gap: 0.75rem;
       box-shadow: var(--shadow-sm);
     }
-
     .brand-section {
       display: flex;
       align-items: center;
       gap: 0.6rem;
-      text-decoration: none;
       color: var(--text-main);
       font-weight: 800;
       font-size: 1.3rem;
@@ -113,23 +90,19 @@
       cursor: pointer;
       flex-shrink: 0;
     }
-
     .brand-section i {
       font-size: 1.55rem;
-      color: var(--primary);
       background: linear-gradient(135deg, #2563eb, #0d9488);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
-
     .global-destination-search {
       flex: 1;
-      max-width: 440px;
+      max-width: 460px;
       position: relative;
       display: flex;
       align-items: center;
     }
-
     .global-search-input {
       width: 100%;
       background: var(--bg-main);
@@ -142,13 +115,11 @@
       outline: none;
       transition: all 0.2s ease;
     }
-
     .global-search-input:focus {
       border-color: var(--primary);
       background: var(--bg-card);
       box-shadow: 0 0 0 3.5px rgba(37, 99, 235, 0.15);
     }
-
     .global-search-icon {
       position: absolute;
       left: 0.9rem;
@@ -156,7 +127,6 @@
       font-size: 0.9rem;
       pointer-events: none;
     }
-
     .global-search-submit {
       position: absolute;
       right: 0.35rem;
@@ -164,21 +134,14 @@
       color: #fff;
       border: none;
       border-radius: 50%;
-      width: 30px;
-      height: 30px;
+      width: 32px;
+      height: 32px;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 0.75rem;
-      transition: transform 0.2s, background 0.2s;
+      font-size: 0.8rem;
     }
-
-    .global-search-submit:hover {
-      background: var(--primary-hover);
-      transform: scale(1.06);
-    }
-
     .nav-tabs {
       display: flex;
       gap: 0.25rem;
@@ -188,7 +151,6 @@
       border: 1px solid var(--border);
       flex-shrink: 0;
     }
-
     .nav-btn {
       background: transparent;
       border: none;
@@ -201,26 +163,13 @@
       display: flex;
       align-items: center;
       gap: 0.4rem;
-      transition: all 0.2s ease;
     }
-
-    .nav-btn:hover {
-      color: var(--text-main);
-    }
-
     .nav-btn.active {
       background: var(--primary);
       color: #ffffff;
       box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
     }
-
-    .header-actions {
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      flex-shrink: 0;
-    }
-
+    .header-actions { display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0; }
     .btn {
       display: inline-flex;
       align-items: center;
@@ -232,58 +181,16 @@
       border-radius: var(--radius-sm);
       border: 1px solid transparent;
       cursor: pointer;
-      transition: all 0.2s ease;
       text-decoration: none;
       white-space: nowrap;
     }
-
-    .btn-primary {
-      background: var(--primary);
-      color: #fff;
-    }
-
-    .btn-primary:hover {
-      background: var(--primary-hover);
-      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
-    }
-
-    .btn-outline {
-      background: var(--bg-card);
-      border-color: var(--border);
-      color: var(--text-main);
-    }
-
-    .btn-outline:hover {
-      background: var(--bg-card-hover);
-      border-color: var(--primary);
-    }
-
-    .btn-success {
-      background: #10b981;
-      color: #fff;
-    }
-
-    .btn-success:hover {
-      background: #059669;
-    }
-
-    .btn-danger {
-      background: #fee2e2;
-      color: #b91c1c;
-      border-color: #fecaca;
-    }
-
-    [data-theme="dark"] .btn-danger {
-      background: #450a0a;
-      color: #f87171;
-      border-color: #7f1d1d;
-    }
-
-    .btn-sm {
-      padding: 0.3rem 0.65rem;
-      font-size: 0.76rem;
-    }
-
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-outline { background: var(--bg-card); border-color: var(--border); color: var(--text-main); }
+    .btn-outline:hover { background: var(--bg-card-hover); border-color: var(--primary); }
+    .btn-success { background: #10b981; color: #fff; }
+    .btn-danger { background: #fee2e2; color: #b91c1c; border-color: #fecaca; }
+    .btn-sm { padding: 0.3rem 0.65rem; font-size: 0.76rem; }
     .icon-btn {
       background: var(--bg-main);
       border: 1px solid var(--border);
@@ -295,14 +202,7 @@
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      transition: all 0.2s;
     }
-
-    .icon-btn:hover {
-      background: var(--bg-card-hover);
-      transform: translateY(-1px);
-    }
-
     .quick-destinations-bar {
       height: var(--quick-bar-height);
       min-height: var(--quick-bar-height);
@@ -317,32 +217,27 @@
       scrollbar-width: none;
       z-index: 1050;
     }
-
     .quick-destinations-bar::-webkit-scrollbar { display: none; }
-
     .quick-dest-chip {
       background: var(--bg-main);
       border: 1px solid var(--border);
       color: var(--text-muted);
-      padding: 0.22rem 0.65rem;
+      padding: 0.25rem 0.7rem;
       border-radius: 16px;
       cursor: pointer;
       white-space: nowrap;
       font-weight: 600;
-      transition: all 0.2s;
     }
-
     .quick-dest-chip:hover, .quick-dest-chip.active {
       background: var(--primary-light);
       border-color: var(--primary);
       color: var(--primary);
     }
-
     .tool-chip {
       background: linear-gradient(135deg, #eff6ff, #f0fdf4);
       border: 1px solid #bfdbfe;
       color: #1d4ed8;
-      padding: 0.22rem 0.75rem;
+      padding: 0.25rem 0.75rem;
       border-radius: 16px;
       cursor: pointer;
       white-space: nowrap;
@@ -351,18 +246,6 @@
       align-items: center;
       gap: 0.35rem;
     }
-
-    [data-theme="dark"] .tool-chip {
-      background: #1e293b;
-      border-color: #3b82f6;
-      color: #93c5fd;
-    }
-
-    .tool-chip:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 2px 6px rgba(37,99,235,0.2);
-    }
-
     main.main-content {
       flex: 1;
       height: calc(100vh - var(--nav-height) - var(--quick-bar-height));
@@ -372,28 +255,9 @@
       overflow: hidden;
       position: relative;
     }
-
-    .tab-panel {
-      display: none;
-      flex: 1;
-      height: 100%;
-      width: 100%;
-      overflow: hidden;
-    }
-
-    .tab-panel.active {
-      display: flex;
-    }
-
-    /* EXPLORE VIEW */
-    .explore-container {
-      display: flex;
-      flex: 1;
-      height: 100%;
-      width: 100%;
-      overflow: hidden;
-    }
-
+    .tab-panel { display: none; flex: 1; height: 100%; width: 100%; overflow: hidden; }
+    .tab-panel.active { display: flex; }
+    .explore-container { display: flex; flex: 1; height: 100%; width: 100%; overflow: hidden; }
     .explore-sidebar {
       width: 480px;
       min-width: 380px;
@@ -407,7 +271,6 @@
       box-shadow: var(--shadow-md);
       overflow: hidden;
     }
-
     .explore-search-header {
       padding: 0.85rem 1rem 0.65rem 1rem;
       border-bottom: 1px solid var(--border);
@@ -416,44 +279,11 @@
       gap: 0.65rem;
       flex-shrink: 0;
     }
-
-    .city-hero-banner {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .city-hero-title {
-      font-size: 1.1rem;
-      font-weight: 800;
-      color: var(--text-main);
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-    }
-
-    .places-count-badge {
-      font-size: 0.75rem;
-      font-weight: 700;
-      background: var(--primary-light);
-      color: var(--primary);
-      padding: 0.15rem 0.5rem;
-      border-radius: 12px;
-    }
-
-    .local-search-box {
-      position: relative;
-      display: flex;
-      align-items: center;
-    }
-
-    .local-search-box i {
-      position: absolute;
-      left: 0.85rem;
-      color: var(--text-muted);
-      font-size: 0.85rem;
-    }
-
+    .city-hero-banner { display: flex; align-items: center; justify-content: space-between; }
+    .city-hero-title { font-size: 1.1rem; font-weight: 800; color: var(--text-main); display: flex; align-items: center; gap: 0.4rem; }
+    .places-count-badge { font-size: 0.75rem; font-weight: 700; background: var(--primary-light); color: var(--primary); padding: 0.15rem 0.5rem; border-radius: 12px; }
+    .local-search-box { position: relative; display: flex; align-items: center; }
+    .local-search-box i { position: absolute; left: 0.85rem; color: var(--text-muted); font-size: 0.85rem; }
     .local-search-box input {
       width: 100%;
       background: var(--bg-main);
@@ -463,24 +293,9 @@
       font-size: 0.84rem;
       color: var(--text-main);
       outline: none;
-      transition: all 0.2s;
     }
-
-    .local-search-box input:focus {
-      border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
-    }
-
-    .category-pills {
-      display: flex;
-      gap: 0.35rem;
-      overflow-x: auto;
-      padding-bottom: 0.2rem;
-      scrollbar-width: none;
-    }
-
+    .category-pills { display: flex; gap: 0.35rem; overflow-x: auto; padding-bottom: 0.2rem; scrollbar-width: none; }
     .category-pills::-webkit-scrollbar { display: none; }
-
     .pill-btn {
       white-space: nowrap;
       background: var(--bg-main);
@@ -494,1170 +309,147 @@
       display: inline-flex;
       align-items: center;
       gap: 0.3rem;
-      transition: all 0.2s;
     }
-
-    .pill-btn:hover, .pill-btn.active {
-      background: var(--primary-light);
-      border-color: var(--primary);
-      color: var(--primary);
-    }
-
-    [data-theme="dark"] .pill-btn.active {
-      background: #1e3a8a;
-      color: #93c5fd;
-    }
-
-    .filter-bar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.4rem;
-      font-size: 0.76rem;
-      flex-wrap: wrap;
-    }
-
-    .filter-select {
-      background: var(--bg-main);
-      border: 1px solid var(--border);
-      color: var(--text-main);
-      padding: 0.3rem 0.5rem;
-      border-radius: var(--radius-sm);
-      font-size: 0.76rem;
-      outline: none;
-      cursor: pointer;
-    }
-
-    .price-filters {
-      display: flex;
-      gap: 0.15rem;
-    }
-
-    .price-btn {
-      background: var(--bg-main);
-      border: 1px solid var(--border);
-      color: var(--text-muted);
-      width: 26px;
-      height: 26px;
-      border-radius: 6px;
-      font-size: 0.72rem;
-      font-weight: 700;
-      cursor: pointer;
-    }
-
-    .price-btn.active {
-      background: var(--secondary);
-      border-color: var(--secondary);
-      color: #fff;
-    }
-
-    .places-list-container {
-      flex: 1;
-      overflow-y: auto;
-      padding: 0.85rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.85rem;
-      height: 100%;
-    }
-
-    .place-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      box-shadow: var(--shadow-sm);
-      transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
-      cursor: pointer;
-      position: relative;
-    }
-
-    .place-card:hover {
-      transform: translateY(-2px);
-      box-shadow: var(--shadow-md);
-      border-color: var(--primary);
-    }
-
-    .place-card-img-wrapper {
-      position: relative;
-      height: 145px;
-      background: #1e293b;
-      overflow: hidden;
-    }
-
-    .place-card-img-wrapper img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      transition: transform 0.3s ease;
-    }
-
-    .place-card:hover .place-card-img-wrapper img {
-      transform: scale(1.04);
-    }
-
-    .place-card-badge {
-      position: absolute;
-      top: 0.55rem;
-      left: 0.55rem;
-      background: rgba(15, 23, 42, 0.85);
-      backdrop-filter: blur(8px);
-      color: #fff;
-      padding: 0.2rem 0.5rem;
-      border-radius: 14px;
-      font-size: 0.68rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .place-fav-btn {
-      position: absolute;
-      top: 0.55rem;
-      right: 0.55rem;
-      background: rgba(255, 255, 255, 0.92);
-      color: #475569;
-      border: none;
-      width: 30px;
-      height: 30px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      transition: all 0.2s;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-    }
-
-    .place-fav-btn.favorited {
-      color: #ef4444;
-    }
-
-    .place-fav-btn:hover {
-      transform: scale(1.12);
-    }
-
-    .place-card-body {
-      padding: 0.85rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.4rem;
-    }
-
-    .place-card-title-row {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 0.5rem;
-    }
-
-    .place-card-title {
-      font-size: 0.98rem;
-      font-weight: 700;
-      color: var(--text-main);
-      line-height: 1.3;
-    }
-
-    .place-card-price {
-      font-size: 0.82rem;
-      font-weight: 700;
-      color: var(--secondary);
-    }
-
-    .rating-row {
-      display: flex;
-      align-items: center;
-      gap: 0.35rem;
-      font-size: 0.78rem;
-    }
-
-    .stars {
-      color: #f59e0b;
-      display: flex;
-      gap: 2px;
-      font-size: 0.75rem;
-    }
-
-    .review-count {
-      color: var(--text-muted);
-      font-size: 0.74rem;
-    }
-
-    .place-tags {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.25rem;
-      margin-top: 0.15rem;
-    }
-
-    .tag-chip {
-      background: var(--bg-main);
-      color: var(--text-muted);
-      border: 1px solid var(--border);
-      padding: 0.12rem 0.4rem;
-      border-radius: 4px;
-      font-size: 0.68rem;
-      font-weight: 500;
-    }
-
-    .place-card-footer {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding-top: 0.55rem;
-      border-top: 1px solid var(--border);
-      margin-top: 0.25rem;
-      gap: 0.4rem;
-    }
-
-    .open-status {
-      font-size: 0.72rem;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: 0.3rem;
-    }
-
-    .status-open { color: #10b981; }
-    .status-closed { color: #ef4444; }
-
-    .explore-map-wrapper {
-      flex: 1;
-      height: 100%;
-      width: 100%;
-      position: relative;
-      background: #e2e8f0;
-      overflow: hidden;
-    }
-
-    #explore-map {
-      width: 100%;
-      height: 100%;
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      z-index: 1;
-    }
-
-    .map-floating-controls {
-      position: absolute;
-      top: 1rem;
-      right: 1rem;
-      z-index: 500;
-      display: flex;
-      flex-direction: column;
-      gap: 0.45rem;
-    }
-
-    .map-layer-selector {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 0.35rem 0.65rem;
-      font-size: 0.78rem;
-      font-weight: 700;
-      color: var(--text-main);
-      box-shadow: var(--shadow-md);
-      cursor: pointer;
-      outline: none;
-    }
-
-    .map-btn {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      color: var(--text-main);
-      padding: 0.5rem 0.8rem;
-      border-radius: var(--radius-sm);
-      font-size: 0.78rem;
-      font-weight: 600;
-      cursor: pointer;
-      box-shadow: var(--shadow-md);
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      backdrop-filter: blur(8px);
-      transition: all 0.2s;
-    }
-
-    .map-btn:hover {
-      background: var(--bg-card-hover);
-      color: var(--primary);
-    }
-
-    .custom-map-marker {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 34px;
-      height: 34px;
-      border-radius: 50%;
-      color: #fff;
-      font-size: 13px;
-      box-shadow: 0 4px 10px rgba(0,0,0,0.35);
-      border: 2px solid #ffffff;
-      transition: transform 0.2s;
-    }
-
-    .custom-map-marker:hover {
-      transform: scale(1.2);
-    }
-
+    .pill-btn:hover, .pill-btn.active { background: var(--primary-light); border-color: var(--primary); color: var(--primary); }
+    .filter-bar { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; font-size: 0.76rem; flex-wrap: wrap; }
+    .filter-select { background: var(--bg-main); border: 1px solid var(--border); color: var(--text-main); padding: 0.3rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.76rem; outline: none; cursor: pointer; }
+    .price-filters { display: flex; gap: 0.15rem; }
+    .price-btn { background: var(--bg-main); border: 1px solid var(--border); color: var(--text-muted); width: 26px; height: 26px; border-radius: 6px; font-size: 0.72rem; font-weight: 700; cursor: pointer; }
+    .price-btn.active { background: var(--secondary); border-color: var(--secondary); color: #fff; }
+    .places-list-container { flex: 1; overflow-y: auto; padding: 0.85rem; display: flex; flex-direction: column; gap: 0.85rem; height: 100%; }
+    .place-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; display: flex; flex-direction: column; box-shadow: var(--shadow-sm); transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s; cursor: pointer; position: relative; }
+    .place-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: var(--primary); }
+    .place-card-img-wrapper { position: relative; height: 145px; background: #1e293b; overflow: hidden; }
+    .place-card-img-wrapper img { width: 100%; height: 100%; object-fit: cover; }
+    .place-card-badge { position: absolute; top: 0.55rem; left: 0.55rem; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px); color: #fff; padding: 0.2rem 0.5rem; border-radius: 14px; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; }
+    .place-fav-btn { position: absolute; top: 0.55rem; right: 0.55rem; background: rgba(255, 255, 255, 0.92); color: #475569; border: none; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.15); }
+    .place-fav-btn.favorited { color: #ef4444; }
+    .place-card-body { padding: 0.85rem; display: flex; flex-direction: column; gap: 0.4rem; }
+    .place-card-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
+    .place-card-title { font-size: 0.98rem; font-weight: 700; color: var(--text-main); line-height: 1.3; }
+    .place-card-price { font-size: 0.82rem; font-weight: 700; color: var(--secondary); }
+    .rating-row { display: flex; align-items: center; gap: 0.35rem; font-size: 0.78rem; }
+    .stars { color: #f59e0b; display: flex; gap: 2px; font-size: 0.75rem; }
+    .review-count { color: var(--text-muted); font-size: 0.74rem; }
+    .place-tags { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 0.15rem; }
+    .tag-chip { background: var(--bg-main); color: var(--text-muted); border: 1px solid var(--border); padding: 0.12rem 0.4rem; border-radius: 4px; font-size: 0.68rem; font-weight: 500; }
+    .place-card-footer { display: flex; align-items: center; justify-content: space-between; padding-top: 0.55rem; border-top: 1px solid var(--border); margin-top: 0.25rem; gap: 0.4rem; }
+    .explore-map-wrapper { flex: 1; height: 100%; width: 100%; position: relative; background: #e2e8f0; overflow: hidden; }
+    #explore-map { width: 100%; height: 100%; position: absolute; top: 0; bottom: 0; left: 0; right: 0; z-index: 1; }
+    .map-floating-controls { position: absolute; top: 1rem; right: 1rem; z-index: 500; display: flex; flex-direction: column; gap: 0.45rem; }
+    .map-layer-selector { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.35rem 0.65rem; font-size: 0.78rem; font-weight: 700; color: var(--text-main); box-shadow: var(--shadow-md); cursor: pointer; outline: none; }
+    .map-btn { background: var(--bg-card); border: 1px solid var(--border); color: var(--text-main); padding: 0.5rem 0.8rem; border-radius: var(--radius-sm); font-size: 0.78rem; font-weight: 600; cursor: pointer; box-shadow: var(--shadow-md); display: flex; align-items: center; gap: 0.4rem; backdrop-filter: blur(8px); }
+    .custom-map-marker { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; color: #fff; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.35); border: 2.5px solid #ffffff; transition: transform 0.2s; }
+    .custom-map-marker:hover { transform: scale(1.25); }
     .marker-attraction { background: #3b82f6; }
     .marker-restaurant { background: #f97316; }
     .marker-hotel { background: #8b5cf6; }
     .marker-activity { background: #10b981; }
     .marker-nightlife { background: #ec4899; }
-
-    /* ITINERARY BUILDER */
-    .itinerary-container {
-      display: flex;
-      flex: 1;
-      height: 100%;
-      width: 100%;
-      overflow: hidden;
-    }
-
-    .itinerary-sidebar {
-      width: 520px;
-      min-width: 420px;
-      max-width: 580px;
-      background: var(--bg-card);
-      border-right: 1px solid var(--border);
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-      box-shadow: var(--shadow-md);
-      z-index: 10;
-      overflow: hidden;
-    }
-
-    .itinerary-header {
-      padding: 1rem;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      flex-direction: column;
-      gap: 0.75rem;
-      flex-shrink: 0;
-    }
-
-    .trip-meta-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.5rem;
-    }
-
-    .trip-title-input {
-      font-size: 1.15rem;
-      font-weight: 800;
-      color: var(--text-main);
-      background: transparent;
-      border: none;
-      outline: none;
-      flex: 1;
-      border-bottom: 2px solid transparent;
-      transition: border-color 0.2s;
-    }
-
-    .trip-title-input:focus {
-      border-bottom-color: var(--primary);
-    }
-
-    .trip-stats-bar {
-      display: flex;
-      gap: 1rem;
-      background: var(--bg-main);
-      padding: 0.45rem 0.75rem;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border);
-      font-size: 0.78rem;
-    }
-
-    .trip-stat-item {
-      display: flex;
-      align-items: center;
-      gap: 0.35rem;
-      color: var(--text-muted);
-    }
-
-    .trip-stat-item strong {
-      color: var(--text-main);
-    }
-
-    .days-tab-nav {
-      display: flex;
-      gap: 0.4rem;
-      overflow-x: auto;
-      padding-bottom: 0.2rem;
-      scrollbar-width: none;
-    }
-
-    .days-tab-nav::-webkit-scrollbar { display: none; }
-
-    .day-tab-btn {
-      background: var(--bg-main);
-      border: 1px solid var(--border);
-      color: var(--text-muted);
-      padding: 0.35rem 0.75rem;
-      border-radius: var(--radius-sm);
-      font-size: 0.78rem;
-      font-weight: 700;
-      cursor: pointer;
-      white-space: nowrap;
-      display: flex;
-      align-items: center;
-      gap: 0.3rem;
-      transition: all 0.2s;
-    }
-
-    .day-tab-btn.active {
-      background: var(--primary);
-      border-color: var(--primary);
-      color: #fff;
-    }
-
-    .itinerary-scrollable-content {
-      flex: 1;
-      overflow-y: auto;
-      padding: 1rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.85rem;
-      height: 100%;
-    }
-
-    .day-notes-card {
-      background: var(--primary-light);
-      border: 1px dashed var(--primary);
-      border-radius: var(--radius-sm);
-      padding: 0.65rem 0.85rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.25rem;
-    }
-
-    .day-notes-card textarea {
-      background: transparent;
-      border: none;
-      resize: none;
-      outline: none;
-      font-size: 0.82rem;
-      color: var(--text-main);
-      width: 100%;
-      height: 40px;
-    }
-
-    .timeline-stops-list {
-      display: flex;
-      flex-direction: column;
-      gap: 0.65rem;
-    }
-
-    .timeline-stop-item {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 0.85rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.55rem;
-      box-shadow: var(--shadow-sm);
-      position: relative;
-      transition: border-color 0.2s, box-shadow 0.2s;
-    }
-
-    .timeline-stop-item:hover {
-      border-color: var(--primary);
-      box-shadow: var(--shadow-md);
-    }
-
-    .stop-top-row {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.65rem;
-    }
-
-    .stop-number-badge {
-      width: 26px;
-      height: 26px;
-      background: var(--primary);
-      color: #fff;
-      font-weight: 800;
-      font-size: 0.78rem;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-    }
-
-    .stop-details {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 0.15rem;
-    }
-
-    .stop-title {
-      font-size: 0.94rem;
-      font-weight: 700;
-      color: var(--text-main);
-    }
-
-    .stop-meta {
-      display: flex;
-      align-items: center;
-      gap: 0.55rem;
-      font-size: 0.74rem;
-      color: var(--text-muted);
-    }
-
-    .stop-controls {
-      display: flex;
-      gap: 0.2rem;
-    }
-
-    .stop-btn {
-      background: var(--bg-main);
-      border: 1px solid var(--border);
-      color: var(--text-muted);
-      width: 24px;
-      height: 24px;
-      border-radius: 4px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.72rem;
-    }
-
-    .stop-btn:hover {
-      color: var(--text-main);
-      background: var(--bg-card-hover);
-    }
-
-    .stop-time-row {
-      display: flex;
-      align-items: center;
-      gap: 0.55rem;
-      font-size: 0.76rem;
-      background: var(--bg-main);
-      padding: 0.3rem 0.55rem;
-      border-radius: var(--radius-sm);
-    }
-
-    .time-input {
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text-main);
-      border-radius: 4px;
-      padding: 0.12rem 0.3rem;
-      font-size: 0.74rem;
-      outline: none;
-    }
-
-    .transit-indicator {
-      display: flex;
-      align-items: center;
-      gap: 0.45rem;
-      padding: 0.3rem 0.65rem;
-      margin-left: 1.2rem;
-      border-left: 2px dashed var(--border);
-      font-size: 0.72rem;
-      color: var(--text-muted);
-    }
-
-    .transit-indicator i {
-      color: var(--primary);
-    }
-
-    .itinerary-map-wrapper {
-      flex: 1;
-      height: 100%;
-      width: 100%;
-      position: relative;
-      background: #e2e8f0;
-      overflow: hidden;
-    }
-
-    #itinerary-map {
-      width: 100%;
-      height: 100%;
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      z-index: 1;
-    }
-
-    /* BUDGET VIEW */
-    .budget-view-container {
-      flex: 1;
-      height: 100%;
-      overflow-y: auto;
-      padding: 1.5rem;
-      display: flex;
-      flex-direction: column;
-      gap: 1.25rem;
-      max-width: 1100px;
-      margin: 0 auto;
-      width: 100%;
-    }
-
-    .budget-dashboard-cards {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-      gap: 1rem;
-    }
-
-    .stat-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.15rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.4rem;
-      box-shadow: var(--shadow-sm);
-    }
-
-    .stat-card-title {
-      font-size: 0.78rem;
-      font-weight: 600;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .stat-card-value {
-      font-size: 1.65rem;
-      font-weight: 800;
-      color: var(--text-main);
-      font-family: 'Space Grotesk', sans-serif;
-    }
-
-    .budget-progress-bar-bg {
-      height: 8px;
-      background: var(--bg-main);
-      border-radius: 10px;
-      overflow: hidden;
-      margin-top: 0.35rem;
-    }
-
-    .budget-progress-bar-fill {
-      height: 100%;
-      background: linear-gradient(90deg, #10b981, #f59e0b, #ef4444);
-      width: 45%;
-      border-radius: 10px;
-      transition: width 0.3s ease;
-    }
-
-    .budget-charts-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 1.25rem;
-    }
-
-    .chart-box {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.15rem;
-      box-shadow: var(--shadow-sm);
-      display: flex;
-      flex-direction: column;
-      gap: 0.85rem;
-      align-items: center;
-    }
-
-    .chart-box-title {
-      font-size: 0.95rem;
-      font-weight: 700;
-      align-self: flex-start;
-    }
-
-    .chart-wrapper {
-      position: relative;
-      width: 100%;
-      max-width: 300px;
-      height: 230px;
-    }
-
-    .expenses-table-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.15rem;
-      box-shadow: var(--shadow-sm);
-      display: flex;
-      flex-direction: column;
-      gap: 0.85rem;
-    }
-
-    .expenses-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 0.84rem;
-    }
-
-    .expenses-table th {
-      text-align: left;
-      padding: 0.6rem 0.7rem;
-      border-bottom: 2px solid var(--border);
-      color: var(--text-muted);
-      font-weight: 600;
-    }
-
-    .expenses-table td {
-      padding: 0.6rem 0.7rem;
-      border-bottom: 1px solid var(--border);
-    }
-
-    /* PACKING CHECKLIST */
-    .packing-view-container {
-      flex: 1;
-      height: 100%;
-      overflow-y: auto;
-      padding: 1.5rem;
-      display: flex;
-      flex-direction: column;
-      gap: 1.25rem;
-      max-width: 900px;
-      margin: 0 auto;
-      width: 100%;
-    }
-
-    .packing-progress-box {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.15rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.6rem;
-      box-shadow: var(--shadow-sm);
-    }
-
-    .packing-categories-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-      gap: 1rem;
-    }
-
-    .packing-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.1rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.75rem;
-      box-shadow: var(--shadow-sm);
-    }
-
-    .packing-card-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      font-weight: 700;
-      font-size: 0.92rem;
-    }
-
-    .checklist-items {
-      display: flex;
-      flex-direction: column;
-      gap: 0.4rem;
-    }
-
-    .checklist-item-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0.2rem 0;
-      font-size: 0.84rem;
-    }
-
-    .checklist-label {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      cursor: pointer;
-    }
-
-    .checklist-label input[type="checkbox"] {
-      width: 15px;
-      height: 15px;
-      accent-color: var(--primary);
-      cursor: pointer;
-    }
-
-    .checklist-label.checked span {
-      text-decoration: line-through;
-      color: var(--text-muted);
-    }
-
-    /* MODALS & DRAWERS */
-    .modal-overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.65);
-      backdrop-filter: blur(4px);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 2100;
-      padding: 1rem;
-      animation: fadeIn 0.2s ease-out;
-    }
-
-    .modal-overlay.active {
-      display: flex;
-    }
-
-    .modal-content {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      width: 100%;
-      max-width: 620px;
-      max-height: 90vh;
-      overflow-y: auto;
-      box-shadow: var(--shadow-xl);
-      display: flex;
-      flex-direction: column;
-      position: relative;
-    }
-
-    .modal-header {
-      padding: 1.1rem 1.25rem;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .modal-close-btn {
-      background: var(--bg-main);
-      border: 1px solid var(--border);
-      color: var(--text-muted);
-      width: 30px;
-      height: 30px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-    }
-
-    .modal-close-btn:hover {
-      color: var(--text-main);
-    }
-
-    .modal-body {
-      padding: 1.25rem;
-      display: flex;
-      flex-direction: column;
-      gap: 1.1rem;
-    }
-
-    .detail-hero-img {
-      width: 100%;
-      height: 220px;
-      border-radius: var(--radius);
-      object-fit: cover;
-    }
-
-    .ratings-breakdown-box {
-      background: var(--bg-main);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 0.85rem;
-      display: flex;
-      align-items: center;
-      gap: 1.25rem;
-    }
-
-    .big-score {
-      font-size: 2.2rem;
-      font-weight: 800;
-      color: var(--text-main);
-      font-family: 'Space Grotesk', sans-serif;
-      text-align: center;
-      line-height: 1;
-    }
-
-    .rating-bars {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 0.25rem;
-      font-size: 0.74rem;
-    }
-
-    .rating-bar-row {
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-    }
-
-    .bar-bg {
-      flex: 1;
-      height: 5px;
-      background: var(--border);
-      border-radius: 4px;
-      overflow: hidden;
-    }
-
-    .bar-fill {
-      height: 100%;
-      background: #f59e0b;
-      border-radius: 4px;
-    }
-
-    .amenities-list {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 0.5rem;
-      font-size: 0.8rem;
-      color: var(--text-main);
-    }
-
-    .amenity-item {
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-      color: var(--text-muted);
-    }
-
-    .amenity-item i {
-      color: var(--secondary);
-    }
-
-    .reviews-stream {
-      display: flex;
-      flex-direction: column;
-      gap: 0.75rem;
-    }
-
-    .review-bubble {
-      background: var(--bg-main);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 0.75rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.35rem;
-    }
-
-    .reviewer-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .reviewer-name {
-      font-weight: 700;
-      font-size: 0.82rem;
-    }
-
-    .form-group {
-      display: flex;
-      flex-direction: column;
-      gap: 0.3rem;
-    }
-
-    .form-group label {
-      font-size: 0.78rem;
-      font-weight: 600;
-      color: var(--text-muted);
-    }
-
-    .form-control {
-      background: var(--bg-main);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 0.5rem 0.75rem;
-      color: var(--text-main);
-      font-size: 0.84rem;
-      outline: none;
-    }
-
-    .form-control:focus {
-      border-color: var(--primary);
-    }
-
-    /* NAVIGATION DRAWER */
-    .nav-drawer {
-      position: absolute;
-      top: 1rem;
-      left: 1rem;
-      width: 360px;
-      max-height: calc(100% - 2rem);
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow-xl);
-      z-index: 1000;
-      display: none;
-      flex-direction: column;
-      overflow: hidden;
-      animation: slideIn 0.25s ease-out;
-    }
-
-    .nav-drawer.active {
-      display: flex;
-    }
-
-    @keyframes slideIn {
-      from { transform: translateX(-20px); opacity: 0; }
-      to { transform: translateX(0); opacity: 1; }
-    }
-
-    .nav-drawer-header {
-      padding: 0.85rem 1rem;
-      background: var(--primary);
-      color: #fff;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .nav-mode-selector {
-      display: flex;
-      gap: 0.35rem;
-      padding: 0.6rem 1rem;
-      border-bottom: 1px solid var(--border);
-      background: var(--bg-main);
-    }
-
-    .nav-mode-btn {
-      flex: 1;
-      padding: 0.35rem;
-      font-size: 0.78rem;
-      font-weight: 700;
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      color: var(--text-muted);
-      border-radius: 6px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0.3rem;
-    }
-
-    .nav-mode-btn.active {
-      background: var(--primary);
-      color: #fff;
-      border-color: var(--primary);
-    }
-
-    .nav-steps-list {
-      padding: 0.85rem 1rem;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      gap: 0.75rem;
-      font-size: 0.82rem;
-    }
-
-    .nav-step-item {
-      display: flex;
-      align-items: flex-start;
-      gap: 0.65rem;
-      line-height: 1.35;
-    }
-
-    .nav-step-icon {
-      width: 22px;
-      height: 22px;
-      border-radius: 50%;
-      background: var(--primary-light);
-      color: var(--primary);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.75rem;
-      flex-shrink: 0;
-    }
-
-    .toast {
-      position: fixed;
-      bottom: 2rem;
-      right: 2rem;
-      background: #0f172a;
-      color: #fff;
-      padding: 0.75rem 1.15rem;
-      border-radius: var(--radius-sm);
-      box-shadow: var(--shadow-xl);
-      display: flex;
-      align-items: center;
-      gap: 0.6rem;
-      font-size: 0.84rem;
-      font-weight: 500;
-      z-index: 4000;
-      transform: translateY(100px);
-      opacity: 0;
-      transition: all 0.3s ease;
-    }
-
-    .toast.show {
-      transform: translateY(0);
-      opacity: 1;
-    }
-
-    @keyframes fadeIn {
-      from { opacity: 0; }
-      to { opacity: 1; }
-    }
-
+    .gmaps-popup-card { font-family: 'Plus Jakarta Sans', sans-serif; min-width: 230px; max-width: 270px; display: flex; flex-direction: column; gap: 6px; }
+    .gmaps-popup-card img { width: 100%; height: 105px; object-fit: cover; border-radius: 8px; }
+    .gmaps-popup-title { font-size: 0.95rem; font-weight: 800; color: #0f172a; line-height: 1.25; }
+    .gmaps-popup-hours { font-size: 0.74rem; color: #10b981; font-weight: 700; display: flex; align-items: center; gap: 4px; }
+    .itinerary-container { display: flex; flex: 1; height: 100%; width: 100%; overflow: hidden; }
+    .itinerary-sidebar { width: 520px; min-width: 420px; max-width: 580px; background: var(--bg-card); border-right: 1px solid var(--border); display: flex; flex-direction: column; height: 100%; box-shadow: var(--shadow-md); z-index: 10; overflow: hidden; }
+    .itinerary-header { padding: 1rem; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 0.75rem; flex-shrink: 0; }
+    .trip-meta-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+    .trip-title-input { font-size: 1.15rem; font-weight: 800; color: var(--text-main); background: transparent; border: none; outline: none; flex: 1; border-bottom: 2px solid transparent; }
+    .trip-stats-bar { display: flex; gap: 1rem; background: var(--bg-main); padding: 0.45rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--border); font-size: 0.78rem; }
+    .days-tab-nav { display: flex; gap: 0.4rem; overflow-x: auto; padding-bottom: 0.2rem; scrollbar-width: none; }
+    .day-tab-btn { background: var(--bg-main); border: 1px solid var(--border); color: var(--text-muted); padding: 0.35rem 0.75rem; border-radius: var(--radius-sm); font-size: 0.78rem; font-weight: 700; cursor: pointer; white-space: nowrap; display: flex; align-items: center; gap: 0.3rem; }
+    .day-tab-btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .itinerary-scrollable-content { flex: 1; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.85rem; height: 100%; }
+    .day-notes-card { background: var(--primary-light); border: 1px dashed var(--primary); border-radius: var(--radius-sm); padding: 0.65rem 0.85rem; display: flex; flex-direction: column; gap: 0.25rem; }
+    .day-notes-card textarea { background: transparent; border: none; resize: none; outline: none; font-size: 0.82rem; color: var(--text-main); width: 100%; height: 40px; }
+    .timeline-stops-list { display: flex; flex-direction: column; gap: 0.65rem; }
+    .timeline-stop-item { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.85rem; display: flex; flex-direction: column; gap: 0.55rem; box-shadow: var(--shadow-sm); position: relative; }
+    .stop-top-row { display: flex; align-items: flex-start; gap: 0.65rem; }
+    .stop-number-badge { width: 26px; height: 26px; background: var(--primary); color: #fff; font-weight: 800; font-size: 0.78rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .stop-details { flex: 1; display: flex; flex-direction: column; gap: 0.15rem; }
+    .stop-title { font-size: 0.94rem; font-weight: 700; color: var(--text-main); }
+    .stop-meta { display: flex; align-items: center; gap: 0.55rem; font-size: 0.74rem; color: var(--text-muted); }
+    .stop-controls { display: flex; gap: 0.2rem; }
+    .stop-btn { background: var(--bg-main); border: 1px solid var(--border); color: var(--text-muted); width: 24px; height: 24px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 0.72rem; }
+    .stop-time-row { display: flex; align-items: center; gap: 0.55rem; font-size: 0.76rem; background: var(--bg-main); padding: 0.3rem 0.55rem; border-radius: var(--radius-sm); }
+    .time-input { background: transparent; border: 1px solid var(--border); color: var(--text-main); border-radius: 4px; padding: 0.12rem 0.3rem; font-size: 0.74rem; outline: none; }
+    .transit-indicator { display: flex; align-items: center; gap: 0.45rem; padding: 0.3rem 0.65rem; margin-left: 1.2rem; border-left: 2px dashed var(--border); font-size: 0.72rem; color: var(--text-muted); }
+    .itinerary-map-wrapper { flex: 1; height: 100%; width: 100%; position: relative; background: #e2e8f0; overflow: hidden; }
+    #itinerary-map { width: 100%; height: 100%; position: absolute; top: 0; bottom: 0; left: 0; right: 0; z-index: 1; }
+    .budget-view-container { flex: 1; height: 100%; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; max-width: 1100px; margin: 0 auto; width: 100%; }
+    .budget-dashboard-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem; }
+    .stat-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.15rem; display: flex; flex-direction: column; gap: 0.4rem; box-shadow: var(--shadow-sm); }
+    .stat-card-title { font-size: 0.78rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
+    .stat-card-value { font-size: 1.65rem; font-weight: 800; color: var(--text-main); font-family: 'Space Grotesk', sans-serif; }
+    .budget-progress-bar-bg { height: 8px; background: var(--bg-main); border-radius: 10px; overflow: hidden; margin-top: 0.35rem; }
+    .budget-progress-bar-fill { height: 100%; background: linear-gradient(90deg, #10b981, #f59e0b, #ef4444); width: 45%; border-radius: 10px; }
+    .budget-charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+    .chart-box { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.15rem; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 0.85rem; align-items: center; }
+    .chart-wrapper { position: relative; width: 100%; max-width: 300px; height: 230px; }
+    .expenses-table-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.15rem; box-shadow: var(--shadow-sm); display: flex; flex-direction: column; gap: 0.85rem; }
+    .expenses-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+    .expenses-table th { text-align: left; padding: 0.6rem 0.7rem; border-bottom: 2px solid var(--border); color: var(--text-muted); font-weight: 600; }
+    .expenses-table td { padding: 0.6rem 0.7rem; border-bottom: 1px solid var(--border); }
+    .packing-view-container { flex: 1; height: 100%; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1.25rem; max-width: 900px; margin: 0 auto; width: 100%; }
+    .packing-progress-box { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.15rem; display: flex; flex-direction: column; gap: 0.6rem; box-shadow: var(--shadow-sm); }
+    .packing-categories-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; }
+    .packing-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.1rem; display: flex; flex-direction: column; gap: 0.75rem; box-shadow: var(--shadow-sm); }
+    .checklist-items { display: flex; flex-direction: column; gap: 0.4rem; }
+    .checklist-item-row { display: flex; align-items: center; justify-content: space-between; padding: 0.2rem 0; font-size: 0.84rem; }
+    .checklist-label { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
+    .checklist-label.checked span { text-decoration: line-through; color: var(--text-muted); }
+    .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 2100; padding: 1rem; }
+    .modal-overlay.active { display: flex; }
+    .modal-content { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 100%; max-width: 620px; max-height: 90vh; overflow-y: auto; box-shadow: var(--shadow-xl); display: flex; flex-direction: column; position: relative; }
+    .modal-header { padding: 1.1rem 1.25rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+    .modal-close-btn { background: var(--bg-main); border: 1px solid var(--border); color: var(--text-muted); width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+    .modal-body { padding: 1.25rem; display: flex; flex-direction: column; gap: 1.1rem; }
+    .detail-hero-img { width: 100%; height: 220px; border-radius: var(--radius); object-fit: cover; }
+    .ratings-breakdown-box { background: var(--bg-main); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.85rem; display: flex; align-items: center; gap: 1.25rem; }
+    .big-score { font-size: 2.2rem; font-weight: 800; color: var(--text-main); font-family: 'Space Grotesk', sans-serif; text-align: center; }
+    .rating-bars { flex: 1; display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.74rem; }
+    .rating-bar-row { display: flex; align-items: center; gap: 0.4rem; }
+    .bar-bg { flex: 1; height: 5px; background: var(--border); border-radius: 4px; overflow: hidden; }
+    .bar-fill { height: 100%; background: #f59e0b; border-radius: 4px; }
+    .amenities-list { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.8rem; }
+    .amenity-item { display: flex; align-items: center; gap: 0.4rem; color: var(--text-muted); }
+    .reviews-stream { display: flex; flex-direction: column; gap: 0.75rem; }
+    .review-bubble { background: var(--bg-main); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.35rem; }
+    .reviewer-header { display: flex; align-items: center; justify-content: space-between; }
+    .form-group { display: flex; flex-direction: column; gap: 0.3rem; }
+    .form-control { background: var(--bg-main); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.5rem 0.75rem; color: var(--text-main); font-size: 0.84rem; outline: none; }
+    .nav-drawer { position: absolute; top: 1rem; left: 1rem; width: 360px; max-height: calc(100% - 2rem); background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-xl); z-index: 1000; display: none; flex-direction: column; overflow: hidden; }
+    .nav-drawer.active { display: flex; }
+    .nav-drawer-header { padding: 0.85rem 1rem; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: space-between; }
+    .nav-mode-selector { display: flex; gap: 0.35rem; padding: 0.6rem 1rem; border-bottom: 1px solid var(--border); background: var(--bg-main); }
+    .nav-mode-btn { flex: 1; padding: 0.35rem; font-size: 0.78rem; font-weight: 700; background: var(--bg-card); border: 1px solid var(--border); color: var(--text-muted); border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 0.3rem; }
+    .nav-mode-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .nav-steps-list { padding: 0.85rem 1rem; overflow-y: auto; display: flex; flex-direction: column; gap: 0.75rem; font-size: 0.82rem; }
+    .nav-step-item { display: flex; align-items: flex-start; gap: 0.65rem; line-height: 1.35; }
+    .nav-step-icon { width: 22px; height: 22px; border-radius: 50%; background: var(--primary-light); color: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 0.75rem; flex-shrink: 0; }
+    .toast { position: fixed; bottom: 2rem; right: 2rem; background: #0f172a; color: #fff; padding: 0.75rem 1.15rem; border-radius: var(--radius-sm); box-shadow: var(--shadow-xl); display: flex; align-items: center; gap: 0.6rem; font-size: 0.84rem; font-weight: 500; z-index: 4000; transform: translateY(100px); opacity: 0; transition: all 0.3s ease; }
+    .toast.show { transform: translateY(0); opacity: 1; }
     @media (max-width: 960px) {
-      .explore-container, .itinerary-container {
-        flex-direction: column;
-      }
-      .explore-sidebar, .itinerary-sidebar {
-        width: 100%;
-        max-width: 100%;
-        height: 50%;
-      }
-      .explore-map-wrapper, .itinerary-map-wrapper {
-        height: 50%;
-      }
-      .budget-charts-grid {
-        grid-template-columns: 1fr;
-      }
-      .global-destination-search {
-        order: 3;
-        width: 100%;
-        max-width: 100%;
-      }
-      .nav-drawer {
-        width: calc(100% - 2rem);
-      }
+      .explore-container, .itinerary-container { flex-direction: column; }
+      .explore-sidebar, .itinerary-sidebar { width: 100%; max-width: 100%; height: 50%; }
+      .explore-map-wrapper, .itinerary-map-wrapper { height: 50%; }
+      .global-destination-search { order: 3; width: 100%; max-width: 100%; }
+      .nav-drawer { width: calc(100% - 2rem); }
     }
   </style>
 </head>
 <body>
-
   <div class="app-root">
-
     <header class="navbar">
       <div class="brand-section" onclick="switchTab('explore')">
         <i class="fa-solid fa-compass"></i>
         <span>VoyagePulse</span>
       </div>
 
+      <!-- LIVE GLOBAL SEARCH BAR -->
       <div class="global-destination-search">
         <i class="fa-solid fa-magnifying-glass global-search-icon"></i>
-        <input type="text" id="global-city-input" class="global-search-input" placeholder="Search ANY city (e.g. Las Vegas, Miami, Tokyo, Hawaii, Rome, London)..." onkeydown="if(event.key==='Enter') executeGlobalCitySearch()">
+        <input type="text" id="global-city-input" class="global-search-input" placeholder="Search ANY city (e.g. Rome, Las Vegas, Paris, Tokyo, Miami)..." onkeydown="if(event.key==='Enter') executeGlobalCitySearch()">
         <button class="global-search-submit" onclick="executeGlobalCitySearch()" title="Search City">
           <i class="fa-solid fa-arrow-right"></i>
         </button>
@@ -1691,6 +483,7 @@
       </div>
     </header>
 
+    <!-- QUICK POPULAR DESTINATIONS & TRAVELER SMART TOOLS -->
     <div class="quick-destinations-bar">
       <button class="tool-chip" onclick="openTravelQuizModal()" title="Personalized Quiz to match places to your vibe">
         <i class="fa-solid fa-wand-magic-sparkles"></i> Travel Vibe Quiz
@@ -1704,10 +497,10 @@
 
       <span style="color: var(--text-muted); font-weight: 700; margin-left: 0.5rem;">Popular:</span>
       <button class="quick-dest-chip active" onclick="loadKnownCity('las_vegas', this)">Las Vegas</button>
+      <button class="quick-dest-chip" onclick="loadKnownCity('rome', this)">Rome</button>
       <button class="quick-dest-chip" onclick="loadKnownCity('nyc', this)">New York</button>
       <button class="quick-dest-chip" onclick="loadKnownCity('paris', this)">Paris</button>
       <button class="quick-dest-chip" onclick="loadKnownCity('tokyo', this)">Tokyo</button>
-      <button class="quick-dest-chip" onclick="loadKnownCity('rome', this)">Rome</button>
       <button class="quick-dest-chip" onclick="loadKnownCity('london', this)">London</button>
       <button class="quick-dest-chip" onclick="loadKnownCity('barcelona', this)">Barcelona</button>
       <button class="quick-dest-chip" onclick="loadKnownCity('miami', this)">Miami</button>
@@ -1718,7 +511,7 @@
 
     <main class="main-content">
       
-      <!-- TAB 1: EXPLORE -->
+      <!-- TAB 1: EXPLORE VIEW -->
       <section id="tab-explore" class="tab-panel active">
         <div class="explore-container">
           
@@ -1775,10 +568,10 @@
             
             <div class="map-floating-controls">
               <select class="map-layer-selector" onchange="switchMapLayer(this.value)">
-                <option value="osm">🗺️ Google Road / Street</option>
-                <option value="satellite">🛰️ Satellite Imagery</option>
+                <option value="google_road">🗺️ Google Road / Street</option>
+                <option value="google_hybrid">🛰️ Google Satellite Hybrid</option>
+                <option value="google_terrain">⛰️ Google Terrain</option>
                 <option value="dark">🌙 Dark Mode Map</option>
-                <option value="topo">⛰️ Topographic Map</option>
               </select>
               <button class="map-btn" onclick="locateUser()"><i class="fa-solid fa-location-crosshairs"></i> Locate Me</button>
               <button class="map-btn" onclick="fitExploreBounds()"><i class="fa-solid fa-expand"></i> View All Places</button>
@@ -1826,9 +619,9 @@
               </div>
 
               <div class="trip-stats-bar">
-                <div class="trip-stat-item"><i class="fa-solid fa-calendar"></i> <strong id="itinerary-total-days">3 Days</strong></div>
-                <div class="trip-stat-item"><i class="fa-solid fa-location-dot"></i> <strong id="itinerary-total-stops">6 Stops</strong></div>
-                <div class="trip-stat-item"><i class="fa-solid fa-route"></i> <strong id="itinerary-total-distance">14.2 km</strong></div>
+                <div class="trip-stat-item"><i class="fa-solid fa-calendar"></i> <strong id="itinerary-total-days">2 Days</strong></div>
+                <div class="trip-stat-item"><i class="fa-solid fa-location-dot"></i> <strong id="itinerary-total-stops">7 Stops</strong></div>
+                <div class="trip-stat-item"><i class="fa-solid fa-route"></i> <strong id="itinerary-total-distance">14.7 km</strong></div>
               </div>
 
               <div id="days-nav" class="days-tab-nav"></div>
@@ -1872,14 +665,14 @@
             <div class="stat-card">
               <span class="stat-card-title">Total Budget</span>
               <div style="display: flex; align-items: baseline; gap: 0.5rem;">
-                <span class="stat-card-value" id="budget-total-display">$2,500</span>
+                <span class="stat-card-value" id="budget-total-display">$2,800</span>
                 <button class="btn btn-outline btn-sm" style="padding: 0.15rem 0.45rem; font-size: 0.7rem;" onclick="editTotalBudget()">Edit</button>
               </div>
             </div>
 
             <div class="stat-card">
               <span class="stat-card-title">Total Spent</span>
-              <span class="stat-card-value" id="budget-spent-display" style="color: var(--primary);">$1,140</span>
+              <span class="stat-card-value" id="budget-spent-display" style="color: var(--primary);">$1,340</span>
               <div class="budget-progress-bar-bg">
                 <div id="budget-progress-fill" class="budget-progress-bar-fill"></div>
               </div>
@@ -1887,7 +680,7 @@
 
             <div class="stat-card">
               <span class="stat-card-title">Remaining Balance</span>
-              <span class="stat-card-value" id="budget-remaining-display" style="color: var(--success);">$1,360</span>
+              <span class="stat-card-value" id="budget-remaining-display" style="color: var(--success);">$1,460</span>
             </div>
           </div>
 
@@ -1940,10 +733,10 @@
           <div class="packing-progress-box">
             <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 0.9rem;">
               <span>Packing Completion</span>
-              <span id="packing-progress-text">6 / 12 items packed (50%)</span>
+              <span id="packing-progress-text">5 / 5 items packed (100%)</span>
             </div>
             <div class="budget-progress-bar-bg">
-              <div id="packing-progress-fill" class="budget-progress-bar-fill" style="width: 50%;"></div>
+              <div id="packing-progress-fill" class="budget-progress-bar-fill" style="width: 100%;"></div>
             </div>
           </div>
 
@@ -1972,10 +765,14 @@
 
         <p id="modal-place-desc" style="font-size: 0.86rem; color: var(--text-muted); line-height: 1.45;"></p>
 
-        <div style="display: flex; gap: 0.5rem;">
+        <!-- Quick Action Links -->
+        <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
           <button id="modal-go-now-btn" class="btn btn-primary" style="flex: 1;" onclick="startNavigationFromModal()">
-            <i class="fa-solid fa-location-arrow"></i> 🚀 Go Now (Turn-by-Turn Directions)
+            <i class="fa-solid fa-location-arrow"></i> 🚀 Go Now (Directions)
           </button>
+          <a id="modal-gimages-link" href="#" target="_blank" class="btn btn-outline" style="text-decoration: none;">
+            <i class="fa-regular fa-image"></i> Google Images
+          </a>
           <a id="modal-gmaps-link" href="#" target="_blank" class="btn btn-outline" style="text-decoration: none;">
             <i class="fa-brands fa-google"></i> Google Maps
           </a>
@@ -2003,9 +800,10 @@
           <div id="modal-place-amenities" class="amenities-list"></div>
         </div>
 
-        <div style="background: var(--bg-main); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.7rem; font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.3rem;">
+        <div style="background: var(--bg-main); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.75rem; font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.35rem;">
           <div><i class="fa-solid fa-location-dot" style="color: var(--primary); width: 18px;"></i> <span id="modal-place-address">Location Address</span></div>
-          <div><i class="fa-regular fa-clock" style="color: var(--primary); width: 18px;"></i> <span id="modal-place-hours">Open Daily: 09:00 AM - 08:00 PM</span></div>
+          <div><i class="fa-regular fa-clock" style="color: #10b981; width: 18px;"></i> <strong id="modal-place-hours">Open Daily: 09:00 AM - 08:00 PM</strong></div>
+          <div><i class="fa-solid fa-phone" style="color: var(--primary); width: 18px;"></i> <span id="modal-place-phone">+1 702-000-0000</span></div>
         </div>
 
         <div>
@@ -2261,17 +1059,13 @@
           <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.65rem;">Download all your itinerary stops, expenses, and notes as a JSON file.</p>
           <button class="btn btn-primary btn-sm" onclick="exportTripJSON()"><i class="fa-solid fa-download"></i> Download Trip JSON</button>
         </div>
-        
         <hr style="border: 0; border-top: 1px solid var(--border);">
-        
         <div>
           <h4 style="font-size: 0.92rem; font-weight: 700; margin-bottom: 0.35rem;">Import Trip Data</h4>
           <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.65rem;">Load a previously saved trip JSON file.</p>
           <input type="file" id="import-json-file" accept=".json" class="form-control" onchange="importTripJSON(event)">
         </div>
-
         <hr style="border: 0; border-top: 1px solid var(--border);">
-
         <div>
           <h4 style="font-size: 0.92rem; font-weight: 700; color: var(--danger); margin-bottom: 0.35rem;">Reset Trip</h4>
           <button class="btn btn-danger btn-sm" onclick="resetToSampleData()"><i class="fa-solid fa-rotate-left"></i> Reset to Default Sample Data</button>
@@ -2285,383 +1079,652 @@
     <span id="toast-message">Success!</span>
   </div>
 
-  <!-- JAVASCRIPT ENGINE -->
+  <!-- EMBEDDED CITIES DATABASE -->
   <script>
-    const PRESET_DESTINATIONS = {
-      las_vegas: {
-        name: "Las Vegas, Nevada, USA",
-        lat: 36.1147,
-        lng: -115.1728,
-        zoom: 13,
-        places: [
+    window.EMBEDDED_CITIES = {
+      "las_vegas": {
+        "name": "Las Vegas, Nevada, USA",
+        "lat": 36.1147,
+        "lng": -115.1728,
+        "zoom": 13,
+        "places": [
           {
-            id: "lv1",
-            title: "Bellagio Fountains & Conservatory",
-            category: "attraction",
-            rating: 4.9,
-            reviewsCount: 38400,
-            price: "$",
-            img: "https://images.unsplash.com/photo-1581351123004-757df051db8e?w=600&auto=format&fit=crop",
-            lat: 36.1126,
-            lng: -115.1767,
-            address: "3600 S Las Vegas Blvd, Las Vegas, NV 89109",
-            hours: "Fountain shows every 15-30 mins from 3 PM - Midnight",
-            desc: "Iconic choreographed water show set to music and lights, accompanied by the stunning botanical conservatory.",
-            amenities: ["Free Public Attraction", "Botanical Garden", "Prime Photo Spot"],
-            reviews: [
-              { author: "Marcus B.", rating: 5, text: "Watch at night from across the street for the full musical experience!" },
-              { author: "Jessica T.", rating: 5, text: "The seasonal conservatory displays are world class." }
+            "id": "lv1",
+            "title": "Bellagio Fountains & Conservatory",
+            "category": "attraction",
+            "rating": 4.9,
+            "reviewsCount": 38400,
+            "price": "$",
+            "img": "https://images.unsplash.com/photo-1581351123004-757df051db8e?w=600&auto=format&fit=crop",
+            "lat": 36.1126,
+            "lng": -115.1767,
+            "address": "3600 S Las Vegas Blvd, Las Vegas, NV 89109",
+            "hours": "Daily: 3:00 PM - 12:00 AM",
+            "openStatus": "Open • Closes 12:00 AM",
+            "phone": "+1 702-693-7111",
+            "desc": "Iconic choreographed water show set to music and lights, accompanied by a world-class seasonal botanical conservatory.",
+            "amenities": ["Free Public Attraction", "Botanical Garden", "Fountain Light Show", "Valet Parking"],
+            "reviews": [
+              { "author": "Marcus B.", "rating": 5, "text": "Watch at night from across the street for the full musical & light experience!" },
+              { "author": "Jessica T.", "rating": 5, "text": "The floral conservatory inside the Bellagio changes every season and is absolutely breathtaking." }
             ]
           },
           {
-            id: "lv2",
-            title: "The Sphere at The Venetian",
-            category: "attraction",
-            rating: 4.9,
-            reviewsCount: 22000,
-            price: "$$$",
-            img: "https://images.unsplash.com/photo-1518684079-3c830dcef090?w=600&auto=format&fit=crop",
-            lat: 36.1212,
-            lng: -115.1622,
-            address: "255 Sands Ave, Las Vegas, NV 89169",
-            hours: "09:00 AM - 11:30 PM",
-            desc: "Revolutionary 366-foot spherical immersive entertainment venue with the world's largest 16K wrap-around LED screen.",
-            amenities: ["Immersive Audio", "Haptic Seating", "Exterior Exosphere Show"],
-            reviews: [
-              { author: "Daniel H.", rating: 5, text: "Mind-blowing visuals. Nothing else in the world compares to this." }
+            "id": "lv2",
+            "title": "The Sphere at The Venetian",
+            "category": "attraction",
+            "rating": 4.9,
+            "reviewsCount": 24500,
+            "price": "$$$",
+            "img": "https://images.unsplash.com/photo-1518684079-3c830dcef090?w=600&auto=format&fit=crop",
+            "lat": 36.1212,
+            "lng": -115.1622,
+            "address": "255 Sands Ave, Las Vegas, NV 89169",
+            "hours": "Daily: 10:00 AM - 11:30 PM",
+            "openStatus": "Open • Closes 11:30 PM",
+            "phone": "+1 725-258-6724",
+            "desc": "Revolutionary 366-foot tall spherical venue featuring the world's largest wrap-around 16K LED screen and haptic beamforming audio.",
+            "amenities": ["16K Wrap-Around Screen", "Haptic Seating", "Exterior Exosphere LED Show", "Full Bar"],
+            "reviews": [
+              { "author": "Daniel H.", "rating": 5, "text": "The Postcard from Earth show is unbelievable. You feel the wind and bass in your seat!" }
             ]
           },
           {
-            id: "lv3",
-            title: "Gordon Ramsay Hell's Kitchen",
-            category: "restaurant",
-            rating: 4.7,
-            reviewsCount: 14500,
-            price: "$$$$",
-            img: "https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop",
-            lat: 36.1162,
-            lng: -115.1749,
-            address: "3570 Las Vegas Blvd S, Las Vegas, NV 89109 (Caesars Palace)",
-            hours: "11:00 AM - 11:30 PM",
-            desc: "High-energy dining inspired by the hit TV show. Famous for Gordon Ramsay's Beef Wellington and Sticky Toffee Pudding.",
-            amenities: ["Signature Cocktails", "Open Kitchen Views", "Reservations Recommended"],
-            reviews: [
-              { author: "Samantha K.", rating: 5, text: "The Beef Wellington and Sticky Toffee Pudding were absolutely perfection!" }
+            "id": "lv3",
+            "title": "Gordon Ramsay Hell's Kitchen",
+            "category": "restaurant",
+            "rating": 4.7,
+            "reviewsCount": 16200,
+            "price": "$$$$",
+            "img": "https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop",
+            "lat": 36.1162,
+            "lng": -115.1749,
+            "address": "3570 S Las Vegas Blvd, Las Vegas, NV 89109 (Caesars Palace)",
+            "hours": "Daily: 11:00 AM - 11:30 PM",
+            "openStatus": "Open • Closes 11:30 PM",
+            "phone": "+1 702-731-7373",
+            "desc": "High-energy dining inspired by the hit reality TV show, world-famous for Beef Wellington, pan-seared scallops, and sticky toffee pudding.",
+            "amenities": ["Signature Cocktails", "Open Red/Blue Kitchen", "Reservations Recommended", "Sommelier"],
+            "reviews": [
+              { "author": "Samantha K.", "rating": 5, "text": "The Beef Wellington and Sticky Toffee Pudding lived up to every bit of the hype!" }
             ]
           },
           {
-            id: "lv4",
-            title: "Bacchanal Buffet at Caesars",
-            category: "restaurant",
-            rating: 4.8,
-            reviewsCount: 19800,
-            price: "$$$$",
-            img: "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=600&auto=format&fit=crop",
-            lat: 36.1167,
-            lng: -115.1755,
-            address: "3570 S Las Vegas Blvd, Las Vegas, NV 89109",
-            hours: "09:00 AM - 10:00 PM",
-            desc: "The largest and most lavish buffet in Vegas, featuring 9 open interactive kitchens and over 250 gourmet dishes.",
-            amenities: ["All-You-Can-Eat Crab Legs", "Prime Rib", "Artisan Gelato Bar"],
-            reviews: [
-              { author: "Eric W.", rating: 5, text: "Worth every penny. Unlimited crab legs, wagyu sliders, and desserts." }
+            "id": "lv4",
+            "title": "Bacchanal Buffet at Caesars Palace",
+            "category": "restaurant",
+            "rating": 4.8,
+            "reviewsCount": 21000,
+            "price": "$$$$",
+            "img": "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=600&auto=format&fit=crop",
+            "lat": 36.1167,
+            "lng": -115.1755,
+            "address": "3570 S Las Vegas Blvd, Las Vegas, NV 89109",
+            "hours": "Daily: 09:00 AM - 10:00 PM",
+            "openStatus": "Open • Closes 10:00 PM",
+            "phone": "+1 702-731-7928",
+            "desc": "The benchmark for luxury buffets featuring 9 open kitchens, unlimited steamed crab legs, prime rib, dim sum, and artisan desserts.",
+            "amenities": ["All-You-Can-Eat Crab Legs", "Prime Rib Carving", "Gelato Bar", "Oyster Bar"],
+            "reviews": [
+              { "author": "Eric W.", "rating": 5, "text": "Best buffet in Las Vegas by far. The snow crab legs and truffle scalloped potatoes were amazing." }
             ]
           },
           {
-            id: "lv5",
-            title: "The Venetian Resort & Gondola Rides",
-            category: "hotel",
-            rating: 4.8,
-            reviewsCount: 31000,
-            price: "$$$$",
-            img: "https://images.unsplash.com/photo-1566073771259-6a8506099945?w=600&auto=format&fit=crop",
-            lat: 36.1215,
-            lng: -115.1697,
-            address: "3355 S Las Vegas Blvd, Las Vegas, NV 89109",
-            hours: "24/7 Front Desk & Casino",
-            desc: "Lavish Italian-themed luxury all-suite casino resort featuring indoor and outdoor singing gondola canals.",
-            amenities: ["Indoor Canal Rides", "Grand Canal Shoppes", "Canyon Ranch Spa", "Pool Deck"],
-            reviews: [
-              { author: "Claire P.", rating: 5, text: "The gondolier singing under the painted sky ceiling felt like true Venice." }
+            "id": "lv5",
+            "title": "The Venetian Resort & Gondola Canals",
+            "category": "hotel",
+            "rating": 4.8,
+            "reviewsCount": 32500,
+            "price": "$$$$",
+            "img": "https://images.unsplash.com/photo-1566073771259-6a8506099945?w=600&auto=format&fit=crop",
+            "lat": 36.1215,
+            "lng": -115.1697,
+            "address": "3355 S Las Vegas Blvd, Las Vegas, NV 89109",
+            "hours": "Open 24 Hours",
+            "openStatus": "Open 24/7",
+            "phone": "+1 702-414-1000",
+            "desc": "Opulent Italian-themed casino resort featuring singing gondoliers on indoor and outdoor canal waterways under a painted sky.",
+            "amenities": ["Indoor Gondola Rides", "Grand Canal Shoppes", "Canyon Ranch Spa", "Multiple Pools"],
+            "reviews": [
+              { "author": "Claire P.", "rating": 5, "text": "The singing gondoliers under the painted Italian sky ceiling were charming." }
             ]
           },
           {
-            id: "lv6",
-            title: "High Roller Observation Wheel",
-            category: "activity",
-            rating: 4.7,
-            reviewsCount: 16400,
-            price: "$$",
-            img: "https://images.unsplash.com/photo-1506973035872-a4ec16b8e8d9?w=600&auto=format&fit=crop",
-            lat: 36.1175,
-            lng: -115.1681,
-            address: "3545 S Las Vegas Blvd, Las Vegas, NV 89109 (The LINQ)",
-            hours: "12:00 PM - 12:00 AM",
-            desc: "550-foot tall giant Ferris wheel providing 360-degree views of the entire Las Vegas Strip and valley.",
-            amenities: ["Open Bar Cabin Option", "30-minute Revolution", "Night Light Views"],
-            reviews: [
-              { author: "Brian F.", rating: 5, text: "Take the happy hour cabin at sunset for unlimited drinks with epic views!" }
+            "id": "lv6",
+            "title": "High Roller Observation Wheel",
+            "category": "activity",
+            "rating": 4.7,
+            "reviewsCount": 17800,
+            "price": "$$",
+            "img": "https://images.unsplash.com/photo-1506973035872-a4ec16b8e8d9?w=600&auto=format&fit=crop",
+            "lat": 36.1175,
+            "lng": -115.1681,
+            "address": "3545 S Las Vegas Blvd, Las Vegas, NV 89109 (The LINQ)",
+            "hours": "Daily: 12:00 PM - 12:00 AM",
+            "openStatus": "Open • Closes 12:00 AM",
+            "phone": "+1 702-322-0593",
+            "desc": "550-foot giant Ferris wheel offering 30-minute panoramic rotations with unmatched views of the Strip and desert valley.",
+            "amenities": ["Open Bar Cabin Option", "360-Degree Views", "Wheelchair Accessible", "Sunset Views"],
+            "reviews": [
+              { "author": "Brian F.", "rating": 5, "text": "Book the happy hour cabin at sunset for unlimited drinks and prime views." }
             ]
           },
           {
-            id: "lv7",
-            title: "Omnia Nightclub at Caesars",
-            category: "nightlife",
-            rating: 4.7,
-            reviewsCount: 8900,
-            price: "$$$$",
-            img: "https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?w=600&auto=format&fit=crop",
-            lat: 36.1161,
-            lng: -115.1741,
-            address: "3570 S Las Vegas Blvd, Las Vegas, NV 89109",
-            hours: "10:30 PM - 04:00 AM (Tue, Thu-Sun)",
-            desc: "Multi-level nightlife mega-club featuring a massive kinetic chandelier and world-renowned resident DJs.",
-            amenities: ["Kinetic Chandelier", "Rooftop Terrace", "Top International DJs"],
-            reviews: [
-              { author: "Kevin L.", rating: 5, text: "The chandelier movement when the beat drops is insane!" }
+            "id": "lv7",
+            "title": "Omnia Nightclub at Caesars",
+            "category": "nightlife",
+            "rating": 4.7,
+            "reviewsCount": 9400,
+            "price": "$$$$",
+            "img": "https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?w=600&auto=format&fit=crop",
+            "lat": 36.1161,
+            "lng": -115.1741,
+            "address": "3570 S Las Vegas Blvd, Las Vegas, NV 89109",
+            "hours": "Tue, Thu-Sun: 10:30 PM - 04:00 AM",
+            "openStatus": "Open • Closes 4:00 AM",
+            "phone": "+1 702-785-6200",
+            "desc": "Iconic multi-story nightlife venue famous for its massive kinetic chandelier and world-class resident electronic DJs.",
+            "amenities": ["Kinetic Chandelier", "Outdoor Terrace", "VIP Bottle Service", "Top Tier DJs"],
+            "reviews": [
+              { "author": "Kevin L.", "rating": 5, "text": "The kinetic chandelier show when the beat drops is legendary." }
             ]
           },
           {
-            id: "lv8",
-            title: "Fremont Street Experience",
-            category: "attraction",
-            rating: 4.6,
-            reviewsCount: 27000,
-            price: "$",
-            img: "https://images.unsplash.com/photo-1518684079-3c830dcef090?w=600&auto=format&fit=crop",
-            lat: 36.1707,
-            lng: -115.1438,
-            address: "Fremont St, Downtown Las Vegas, NV 89101",
-            hours: "Open 24/7 (Light shows begin at 6 PM)",
-            desc: "Historic Downtown Vegas pedestrian mall covered by the Viva Vision LED canopy with zip-lines and street performers.",
-            amenities: ["SlotZilla Zipline", "Live Free Concerts", "Vintage Casinos"],
-            reviews: [
-              { author: "Tom R.", rating: 5, text: "Vintage Vegas vibes with cheap drinks and great energy!" }
+            "id": "lv8",
+            "title": "Fremont Street Experience",
+            "category": "attraction",
+            "rating": 4.6,
+            "reviewsCount": 28500,
+            "price": "$",
+            "img": "https://images.unsplash.com/photo-1507676184212-d03ab07a01bf?w=600&auto=format&fit=crop",
+            "lat": 36.1707,
+            "lng": -115.1438,
+            "address": "Fremont St, Downtown Las Vegas, NV 89101",
+            "hours": "Open 24 Hours",
+            "openStatus": "Open 24/7",
+            "phone": "+1 702-678-5600",
+            "desc": "Historic downtown Las Vegas pedestrian mall covered by the Viva Vision LED canopy with zip-lines and street performers.",
+            "amenities": ["SlotZilla Zipline", "Viva Vision LED Canopy", "Free Live Concerts", "Vintage Casinos"],
+            "reviews": [
+              { "author": "Tom R.", "rating": 5, "text": "Vintage Vegas atmosphere with live bands, cheap drinks, and great street energy." }
             ]
           }
         ],
-        itinerary: [
+        "itinerary": [
           {
-            dayNumber: 1,
-            title: "Day 1: Iconic Strip Highlights & The Sphere",
-            notes: "Wear comfortable shoes for walking through the mega-resorts.",
-            stops: [
-              { placeId: "lv1", customTime: "11:00 AM", notes: "Conservatory walk & fountain show" },
-              { placeId: "lv3", customTime: "01:30 PM", notes: "Hell's Kitchen Beef Wellington lunch" },
-              { placeId: "lv6", customTime: "06:00 PM", notes: "High Roller sunset cabin ride" },
-              { placeId: "lv2", customTime: "08:30 PM", notes: "Immersive Sphere show" }
+            "dayNumber": 1,
+            "title": "Day 1: Strip Icons & The Sphere Experience",
+            "notes": "Arrive and check in, explore Bellagio conservatory and evening Sphere show.",
+            "stops": [
+              { "placeId": "lv1", "customTime": "11:00 AM", "notes": "Bellagio fountain show & botanical gardens" },
+              { "placeId": "lv3", "customTime": "01:30 PM", "notes": "Lunch at Hell's Kitchen" },
+              { "placeId": "lv6", "customTime": "06:00 PM", "notes": "High Roller sunset rotation" },
+              { "placeId": "lv2", "customTime": "08:30 PM", "notes": "The Sphere 16K immersive screening" }
             ]
           },
           {
-            dayNumber: 2,
-            title: "Day 2: Grand Buffets, Venice & Nightlife",
-            notes: "Arrive at Bacchanal with appetite ready.",
-            stops: [
-              { placeId: "lv5", customTime: "11:00 AM", notes: "Gondola ride and Italian gelato" },
-              { placeId: "lv4", customTime: "05:30 PM", notes: "Gourmet feast at Bacchanal Buffet" },
-              { placeId: "lv7", customTime: "11:00 PM", notes: "Omnia Nightclub kinetic chandelier" }
-            ]
-          },
-          {
-            dayNumber: 3,
-            title: "Day 3: Downtown Vintage Vegas",
-            notes: "Zipline over Fremont Street.",
-            stops: [
-              { placeId: "lv8", customTime: "07:00 PM", notes: "SlotZilla Zipline & Viva Vision canopy" }
+            "dayNumber": 2,
+            "title": "Day 2: Venice Canals, Grand Buffet & Nightlife",
+            "notes": "Gondola ride and evening Bacchanal buffet feast.",
+            "stops": [
+              { "placeId": "lv5", "customTime": "11:00 AM", "notes": "Venetian indoor gondola ride & gelato" },
+              { "placeId": "lv4", "customTime": "05:30 PM", "notes": "Bacchanal Buffet 9-kitchen dinner" },
+              { "placeId": "lv7", "customTime": "11:00 PM", "notes": "Omnia Nightclub kinetic chandelier" }
             ]
           }
         ],
-        budget: {
-          total: 2800,
-          expenses: [
-            { id: "e_lv1", name: "The Sphere Show Tickets (2x)", amount: 240, category: "Activities", day: 1 },
-            { id: "e_lv2", name: "Hell's Kitchen Lunch", amount: 160, category: "Food", day: 1 },
-            { id: "e_lv3", name: "High Roller Sunset Ride", amount: 75, category: "Activities", day: 1 },
-            { id: "e_lv4", name: "Venetian Resort 2-Night Stay", amount: 680, category: "Accommodation", day: 1 },
-            { id: "e_lv5", name: "Bacchanal Buffet Dinner", amount: 180, category: "Food", day: 2 }
+        "budget": {
+          "total": 2800,
+          "expenses": [
+            { "id": "e1", "name": "The Sphere Tickets (2x)", "amount": 240, "category": "Activities", "day": 1 },
+            { "id": "e2", "name": "Hell's Kitchen Lunch", "amount": 165, "category": "Food", "day": 1 },
+            { "id": "e3", "name": "High Roller Sunset Ride", "amount": 75, "category": "Activities", "day": 1 },
+            { "id": "e4", "name": "Venetian Resort 2-Night Stay", "amount": 680, "category": "Accommodation", "day": 1 },
+            { "id": "e5", "name": "Bacchanal Buffet Dinner", "amount": 180, "category": "Food", "day": 2 }
           ]
         },
-        packing: [
-          { id: "pklv1", name: "ID / Drivers License & Credit Cards", category: "Documents", checked: true },
-          { id: "pklv2", name: "Evening Club & Dinner Attire", category: "Clothing", checked: true },
-          { id: "pklv3", name: "Comfortable Walking Shoes", category: "Clothing", checked: true },
-          { id: "pklv4", name: "Electrolytes & Eye Drops (Desert Air)", category: "Health", checked: true },
-          { id: "pklv5", name: "Portable Phone Charger", category: "Electronics", checked: true }
+        "packing": [
+          { "id": "pk1", "name": "Driver's License / Passport & Cards", "category": "Documents", "checked": true },
+          { "id": "pk2", "name": "Evening Club & Dinner Outfits", "category": "Clothing", "checked": true },
+          { "id": "pk3", "name": "Comfortable Walking Sneakers", "category": "Clothing", "checked": true },
+          { "id": "pk4", "name": "Hydration Packs & Eye Drops", "category": "Health", "checked": true },
+          { "id": "pk5", "name": "High Capacity Phone Charger", "category": "Electronics", "checked": true }
         ]
       },
-      paris: {
-        name: "Paris, France",
-        lat: 48.8566,
-        lng: 2.3522,
-        zoom: 13,
-        places: [
+      "rome": {
+        "name": "Rome, Italy",
+        "lat": 41.9028,
+        "lng": 12.4964,
+        "zoom": 13,
+        "places": [
           {
-            id: "p1",
-            title: "Eiffel Tower & Champ de Mars",
-            category: "attraction",
-            rating: 4.8,
-            reviewsCount: 14250,
-            price: "$$",
-            img: "https://images.unsplash.com/photo-1511739001486-6bfe10ce785f?w=600&auto=format&fit=crop",
-            lat: 48.8584,
-            lng: 2.2945,
-            address: "Champ de Mars, 5 Av. Anatole France, 75007 Paris",
-            hours: "09:00 AM - 11:45 PM",
-            desc: "The iconic iron lattice tower offering unmatched panoramic views of Paris.",
-            amenities: ["Elevator Access", "Guided Tours", "Gift Shop", "Night Lights"],
-            reviews: [{ author: "Sophie L.", rating: 5, text: "Book tickets 2 months ahead for summit access!" }]
+            "id": "r1",
+            "title": "Colosseum & Roman Forum",
+            "category": "attraction",
+            "rating": 4.9,
+            "reviewsCount": 36000,
+            "price": "$$",
+            "img": "https://images.unsplash.com/photo-1552832230-c0197dd311b5?w=600&auto=format&fit=crop",
+            "lat": 41.8902,
+            "lng": 12.4922,
+            "address": "Piazza del Colosseo, 1, 00184 Roma",
+            "hours": "Daily: 08:30 AM - 07:15 PM",
+            "openStatus": "Open • Closes 7:15 PM",
+            "phone": "+39 06 3996 7700",
+            "desc": "The monumental 2,000-year-old amphitheater of gladiatorial combat and the heart of ancient imperial Rome.",
+            "amenities": ["Underground Arena Tours", "Audio Guides", "Historic Landmark"],
+            "reviews": [{ "author": "Marco D.", "rating": 5, "text": "Book the underground gladiator access well in advance!" }]
           },
           {
-            id: "p2",
-            title: "Louvre Museum",
-            category: "attraction",
-            rating: 4.7,
-            reviewsCount: 22100,
-            price: "$$",
-            img: "https://images.unsplash.com/photo-1565099824688-e93eb20fe622?w=600&auto=format&fit=crop",
-            lat: 48.8606,
-            lng: 2.3376,
-            address: "Rue de Rivoli, 75001 Paris",
-            hours: "09:00 AM - 06:00 PM (Closed Tue)",
-            desc: "World's most visited art museum, home to the Mona Lisa and Venus de Milo.",
-            amenities: ["Audio Guides", "Wheelchair Accessible", "On-site Cafe"],
-            reviews: [{ author: "Elena G.", rating: 5, text: "Enter through Carrousel passage to skip pyramid lines." }]
+            "id": "r2",
+            "title": "Trevi Fountain & Piazza di Trevi",
+            "category": "attraction",
+            "rating": 4.8,
+            "reviewsCount": 29000,
+            "price": "$",
+            "img": "https://images.unsplash.com/photo-1525874684015-58379d421a52?w=600&auto=format&fit=crop",
+            "lat": 41.9009,
+            "lng": 12.4833,
+            "address": "Piazza di Trevi, 00187 Roma",
+            "hours": "Open 24 Hours",
+            "openStatus": "Open 24/7",
+            "phone": "+39 06 0608",
+            "desc": "Breathtaking Baroque fountain. Legend says tossing a coin over your left shoulder guarantees a return to the Eternal City.",
+            "amenities": ["Free Public Landmark", "Night Illumination", "Gelaterias Nearby"],
+            "reviews": [{ "author": "Lucia M.", "rating": 5, "text": "Visit at 7 AM or after midnight to experience it without crowds." }]
           },
           {
-            id: "p3",
-            title: "Le Relais de l'Entrecôte",
-            category: "restaurant",
-            rating: 4.6,
-            reviewsCount: 3890,
-            price: "$$$",
-            img: "https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop",
-            lat: 48.8687,
-            lng: 2.3054,
-            address: "15 Rue Marbeuf, 75008 Paris",
-            hours: "12:00 PM - 02:30 PM, 06:45 PM - 11:00 PM",
-            desc: "World-renowned for its single main course: steak frites served with secret herb sauce.",
-            amenities: ["Outdoor Seating", "Full Wine List", "Queue Early"],
-            reviews: [{ author: "David K.", rating: 5, text: "Double serving of fries is unmatched." }]
+            "id": "r3",
+            "title": "Trattoria Da Enzo al 29",
+            "category": "restaurant",
+            "rating": 4.8,
+            "reviewsCount": 6800,
+            "price": "$$",
+            "img": "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=600&auto=format&fit=crop",
+            "lat": 41.8885,
+            "lng": 12.4776,
+            "address": "Via dei Vascellari, 29, 00153 Roma (Trastevere)",
+            "hours": "Mon-Sat: 12:15 PM - 03:00 PM, 07:30 PM - 11:00 PM",
+            "openStatus": "Open • Closes 11:00 PM",
+            "phone": "+39 06 581 2260",
+            "desc": "Authentic Roman trattoria renowned for Carbonara, Cacio e Pepe, fried artichokes, and house tiramisu.",
+            "amenities": ["Outdoor Seating", "Traditional Roman Recipes", "Artisan House Wine"],
+            "reviews": [{ "author": "Gianni F.", "rating": 5, "text": "Best Carbonara in Trastevere hands down. Queue 20 mins before opening!" }]
           },
           {
-            id: "p4",
-            title: "Hôtel Plaza Athénée",
-            category: "hotel",
-            rating: 4.9,
-            reviewsCount: 1420,
-            price: "$$$$",
-            img: "https://images.unsplash.com/photo-1566073771259-6a8506099945?w=600&auto=format&fit=crop",
-            lat: 48.8662,
-            lng: 2.3048,
-            address: "25 Avenue Montaigne, 75008 Paris",
-            hours: "24/7 Front Desk",
-            desc: "Prestigious 5-star palace hotel featuring haute cuisine and iconic red balconies.",
-            amenities: ["Spa & Wellness", "Michelin Dining", "Concierge"],
-            reviews: [{ author: "Chloe B.", rating: 5, text: "Pure Parisian magic." }]
+            "id": "r4",
+            "title": "Vatican Museums & Sistine Chapel",
+            "category": "attraction",
+            "rating": 4.9,
+            "reviewsCount": 42000,
+            "price": "$$$",
+            "img": "https://images.unsplash.com/photo-1531572753322-ad063cecc140?w=600&auto=format&fit=crop",
+            "lat": 41.9065,
+            "lng": 12.4536,
+            "address": "00120 Vatican City",
+            "hours": "Mon-Sat: 08:00 AM - 07:00 PM",
+            "openStatus": "Open • Closes 7:00 PM",
+            "phone": "+39 06 6988 4676",
+            "desc": "Vast collection of classical sculptures and Renaissance masterpieces culminating in Michelangelo's Sistine Chapel ceiling.",
+            "amenities": ["Sistine Chapel Ceiling", "St. Peter's Basilica Access", "Audio Tours"],
+            "reviews": [{ "author": "Matteo R.", "rating": 5, "text": "Michelangelo's ceiling in person will take your breath away." }]
           }
         ],
-        itinerary: [
+        "itinerary": [
           {
-            dayNumber: 1,
-            title: "Day 1: Classic Paris",
-            notes: "Eiffel Tower in morning, Louvre in afternoon.",
-            stops: [
-              { placeId: "p1", customTime: "10:00 AM", notes: "Summit tickets pre-booked" },
-              { placeId: "p2", customTime: "02:00 PM", notes: "Mona Lisa & sculptures" },
-              { placeId: "p3", customTime: "07:30 PM", notes: "Dinner at Entrecôte" }
+            "dayNumber": 1,
+            "title": "Day 1: Ancient Wonders & Trastevere Dining",
+            "notes": "Colosseum in morning, walk to Trevi fountain, dinner in Trastevere.",
+            "stops": [
+              { "placeId": "r1", "customTime": "09:00 AM", "notes": "Colosseum & Roman Forum tour" },
+              { "placeId": "r2", "customTime": "02:30 PM", "notes": "Coin toss at Trevi Fountain" },
+              { "placeId": "r3", "customTime": "07:30 PM", "notes": "Authentic Carbonara at Da Enzo" }
             ]
           }
         ],
-        budget: { total: 2500, expenses: [{ id: "ep1", name: "Eiffel Summit Pass", amount: 72, category: "Activities", day: 1 }] },
-        packing: [{ id: "pkp1", name: "Passport", category: "Documents", checked: true }, { id: "pkp2", name: "EU Power Adapter", category: "Electronics", checked: true }]
+        "budget": {
+          "total": 2400,
+          "expenses": [
+            { "id": "er1", "name": "Colosseum & Arena Pass (2x)", "amount": 64, "category": "Activities", "day": 1 },
+            { "id": "er2", "name": "Trattoria Da Enzo Dinner", "amount": 75, "category": "Food", "day": 1 }
+          ]
+        },
+        "packing": [
+          { "id": "pkr1", "name": "Passport & EU Health Card", "category": "Documents", "checked": true },
+          { "id": "pkr2", "name": "Comfortable Walking Shoes", "category": "Clothing", "checked": true }
+        ]
       },
-      nyc: {
-        name: "New York City, USA",
-        lat: 40.7128,
-        lng: -74.0060,
-        zoom: 13,
-        places: [
+      "nyc": {
+        "name": "New York City, USA",
+        "lat": 40.7128,
+        "lng": -74.0060,
+        "zoom": 13,
+        "places": [
           {
-            id: "n1",
-            title: "Central Park & Bethesda Terrace",
-            category: "attraction",
-            rating: 4.9,
-            reviewsCount: 31000,
-            price: "$",
-            img: "https://images.unsplash.com/photo-1534430480872-3498386e7856?w=600&auto=format&fit=crop",
-            lat: 40.7829,
-            lng: -73.9654,
-            address: "Central Park, Manhattan, NY",
-            hours: "06:00 AM - 01:00 AM Daily",
-            desc: "843-acre lush urban oasis featuring walking trails, boating lake, and film locations.",
-            amenities: ["Bike Rentals", "Rowboats", "Picnic Lawns"],
-            reviews: [{ author: "Sam W.", rating: 5, text: "Rent a CitiBike and explore the loop!" }]
+            "id": "n1",
+            "title": "Central Park & Bethesda Terrace",
+            "category": "attraction",
+            "rating": 4.9,
+            "reviewsCount": 31000,
+            "price": "$",
+            "img": "https://images.unsplash.com/photo-1534430480872-3498386e7856?w=600&auto=format&fit=crop",
+            "lat": 40.7829,
+            "lng": -73.9654,
+            "address": "Central Park, Manhattan, NY",
+            "hours": "Daily: 06:00 AM - 01:00 AM",
+            "openStatus": "Open • Closes 1:00 AM",
+            "phone": "+1 212-310-6600",
+            "desc": "843-acre lush urban oasis featuring walking trails, boating lake, Bow Bridge, and iconic film locations.",
+            "amenities": ["Bike Rentals", "Rowboats", "Picnic Lawns", "Historical Bridges"],
+            "reviews": [{ "author": "Sam W.", "rating": 5, "text": "Rent a CitiBike and explore the loop from south to north!" }]
           },
           {
-            id: "n2",
-            title: "Joe's Pizza Greenwich Village",
-            category: "restaurant",
-            rating: 4.8,
-            reviewsCount: 11200,
-            price: "$",
-            img: "https://images.unsplash.com/photo-1513104890138-7c749659a591?w=600&auto=format&fit=crop",
-            lat: 40.7305,
-            lng: -74.0021,
-            address: "7 Carmine St, New York, NY 10014",
-            hours: "10:00 AM - 04:00 AM",
-            desc: "The quintessential New York slice. Crispy, thin-crust, fresh mozzarella.",
-            amenities: ["Late Night Slices", "Quick Counter Service"],
-            reviews: [{ author: "Rachel F.", rating: 5, text: "Classic cheese slice is perfection." }]
+            "id": "n2",
+            "title": "Joe's Pizza Greenwich Village",
+            "category": "restaurant",
+            "rating": 4.8,
+            "reviewsCount": 11200,
+            "price": "$",
+            "img": "https://images.unsplash.com/photo-1513104890138-7c749659a591?w=600&auto=format&fit=crop",
+            "lat": 40.7305,
+            "lng": -74.0021,
+            "address": "7 Carmine St, New York, NY 10014",
+            "hours": "Daily: 10:00 AM - 04:00 AM",
+            "openStatus": "Open • Closes 4:00 AM",
+            "phone": "+1 212-366-1182",
+            "desc": "The quintessential New York slice. Crispy, thin-crust, fresh mozzarella, and legendary reputation.",
+            "amenities": ["Late Night Slices", "Quick Counter Service"],
+            "reviews": [{ "author": "Rachel F.", "rating": 5, "text": "Classic cheese slice is perfection in every bite." }]
           }
         ],
-        itinerary: [{ dayNumber: 1, title: "Day 1: Manhattan Highlights", notes: "OMNY tap for subway.", stops: [{ placeId: "n1", customTime: "10:00 AM", notes: "Bow bridge walk" }, { placeId: "n2", customTime: "01:00 PM", notes: "Slice in the Village" }] }],
-        budget: { total: 2200, expenses: [{ id: "en1", name: "Joe's Pizza", amount: 18, category: "Food", day: 1 }] },
-        packing: [{ id: "pkn1", name: "MetroCard / NFC", category: "Documents", checked: true }]
-      },
-      tokyo: {
-        name: "Tokyo, Japan",
-        lat: 35.6762,
-        lng: 139.6503,
-        zoom: 13,
-        places: [
+        "itinerary": [
           {
-            id: "t1",
-            title: "Senso-ji Temple & Asakusa",
-            category: "attraction",
-            rating: 4.8,
-            reviewsCount: 18900,
-            price: "$",
-            img: "https://images.unsplash.com/photo-1503899036084-c55cdd92da26?w=600&auto=format&fit=crop",
-            lat: 35.7148,
-            lng: 139.7967,
-            address: "2-3-1 Asakusa, Taito City, Tokyo",
-            hours: "06:00 AM - 05:00 PM Daily",
-            desc: "Tokyo's oldest and most significant Buddhist temple with Kaminarimon lantern.",
-            amenities: ["Souvenir Street", "Omikuji Fortune"],
-            reviews: [{ author: "Kenji S.", rating: 5, text: "Go early around 7 AM!" }]
+            "dayNumber": 1,
+            "title": "Day 1: Manhattan Highlights",
+            "notes": "Central Park morning, lunch in Village.",
+            "stops": [
+              { "placeId": "n1", "customTime": "10:00 AM", "notes": "Central Park walk" },
+              { "placeId": "n2", "customTime": "01:00 PM", "notes": "Joe's Pizza slice" }
+            ]
+          }
+        ],
+        "budget": { "total": 2200, "expenses": [{ "id": "en1", "name": "Joe's Pizza Lunch", "amount": 18, "category": "Food", "day": 1 }] },
+        "packing": [{ "id": "pkn1", "name": "MetroCard / Phone NFC", "category": "Documents", "checked": true }]
+      },
+      "paris": {
+        "name": "Paris, France",
+        "lat": 48.8566,
+        "lng": 2.3522,
+        "zoom": 13,
+        "places": [
+          {
+            "id": "p1",
+            "title": "Eiffel Tower & Champ de Mars",
+            "category": "attraction",
+            "rating": 4.8,
+            "reviewsCount": 14250,
+            "price": "$$",
+            "img": "https://images.unsplash.com/photo-1511739001486-6bfe10ce785f?w=600&auto=format&fit=crop",
+            "lat": 48.8584,
+            "lng": 2.2945,
+            "address": "Champ de Mars, 5 Av. Anatole France, 75007 Paris",
+            "hours": "Daily: 09:00 AM - 11:45 PM",
+            "openStatus": "Open • Closes 11:45 PM",
+            "phone": "+33 892 70 12 39",
+            "desc": "The iconic iron lattice tower offering unmatched panoramic views of Paris.",
+            "amenities": ["Elevator Access", "Guided Tours", "Gift Shop", "Night Light Show"],
+            "reviews": [{ "author": "Sophie L.", "rating": 5, "text": "Book summit tickets in advance!" }]
           },
           {
-            id: "t2",
-            title: "Ichiran Ramen Shibuya",
-            category: "restaurant",
-            rating: 4.8,
-            reviewsCount: 9400,
-            price: "$$",
-            img: "https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=600&auto=format&fit=crop",
-            lat: 35.6619,
-            lng: 139.7003,
-            address: "1-22-7 Jinnan, Shibuya City, Tokyo",
-            hours: "10:00 AM - 06:00 AM",
-            desc: "Famous tonkotsu broth ramen served in solo flavor booths.",
-            amenities: ["Solo Flavor Booths", "Order Vending Machine"],
-            reviews: [{ author: "Chris P.", rating: 5, text: "Best tonkotsu broth ever." }]
+            "id": "p2",
+            "title": "Louvre Museum",
+            "category": "attraction",
+            "rating": 4.7,
+            "reviewsCount": 22100,
+            "price": "$$",
+            "img": "https://images.unsplash.com/photo-1565099824688-e93eb20fe622?w=600&auto=format&fit=crop",
+            "lat": 48.8606,
+            "lng": 2.3376,
+            "address": "Rue de Rivoli, 75001 Paris",
+            "hours": "Wed-Mon: 09:00 AM - 06:00 PM (Closed Tue)",
+            "openStatus": "Open • Closes 6:00 PM",
+            "phone": "+33 1 40 20 50 50",
+            "desc": "World's most visited art museum, home to the Mona Lisa, Winged Victory, and Venus de Milo.",
+            "amenities": ["Audio Guides", "Wheelchair Accessible", "On-site Cafe"],
+            "reviews": [{ "author": "Elena G.", "rating": 5, "text": "Enter through Carrousel passage to skip pyramid lines." }]
           }
         ],
-        itinerary: [{ dayNumber: 1, title: "Day 1: Asakusa & Shibuya", notes: "Suica card for trains.", stops: [{ placeId: "t1", customTime: "09:00 AM", notes: "Temple gates" }, { placeId: "t2", customTime: "06:30 PM", notes: "Ramen dinner" }] }],
-        budget: { total: 3000, expenses: [{ id: "et1", name: "Suica Passes", amount: 50, category: "Transport", day: 1 }] },
-        packing: [{ id: "pkt1", name: "Passport", category: "Documents", checked: true }]
+        "itinerary": [{ "dayNumber": 1, "title": "Day 1: Classic Paris", "notes": "Eiffel Tower & Louvre.", "stops": [{ "placeId": "p1", "customTime": "10:00 AM", "notes": "Summit tickets" }, { "placeId": "p2", "customTime": "02:00 PM", "notes": "Mona Lisa" }] }],
+        "budget": { "total": 2500, "expenses": [{ "id": "ep1", "name": "Eiffel Summit Pass", "amount": 72, "category": "Activities", "day": 1 }] },
+        "packing": [{ "id": "pkp1", "name": "Passport", "category": "Documents", "checked": true }]
+      },
+      "tokyo": {
+        "name": "Tokyo, Japan",
+        "lat": 35.6762,
+        "lng": 139.6503,
+        "zoom": 13,
+        "places": [
+          {
+            "id": "t1",
+            "title": "Senso-ji Temple & Asakusa",
+            "category": "attraction",
+            "rating": 4.8,
+            "reviewsCount": 18900,
+            "price": "$",
+            "img": "https://images.unsplash.com/photo-1503899036084-c55cdd92da26?w=600&auto=format&fit=crop",
+            "lat": 35.7148,
+            "lng": 139.7967,
+            "address": "2-3-1 Asakusa, Taito City, Tokyo",
+            "hours": "Daily: 06:00 AM - 05:00 PM",
+            "openStatus": "Open • Closes 5:00 PM",
+            "phone": "+81 3-3842-0181",
+            "desc": "Tokyo's oldest and most significant Buddhist temple with Kaminarimon lantern.",
+            "amenities": ["Souvenir Street", "Omikuji Fortune"],
+            "reviews": [{ "author": "Kenji S.", "rating": 5, "text": "Go early around 7 AM!" }]
+          },
+          {
+            "id": "t2",
+            "title": "Ichiran Ramen Shibuya",
+            "category": "restaurant",
+            "rating": 4.8,
+            "reviewsCount": 9400,
+            "price": "$$",
+            "img": "https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=600&auto=format&fit=crop",
+            "lat": 35.6619,
+            "lng": 139.7003,
+            "address": "1-22-7 Jinnan, Shibuya City, Tokyo",
+            "hours": "Daily: 10:00 AM - 06:00 AM",
+            "openStatus": "Open • Closes 6:00 AM",
+            "phone": "+81 3-3463-3667",
+            "desc": "Famous tonkotsu broth ramen served in solo flavor booths.",
+            "amenities": ["Solo Flavor Booths", "Order Vending Machine"],
+            "reviews": [{ "author": "Chris P.", "rating": 5, "text": "Best tonkotsu broth ever." }]
+          }
+        ],
+        "itinerary": [{ "dayNumber": 1, "title": "Day 1: Asakusa & Shibuya", "notes": "Suica card for trains.", "stops": [{ "placeId": "t1", "customTime": "09:00 AM", "notes": "Temple gates" }, { "placeId": "t2", "customTime": "06:30 PM", "notes": "Ramen dinner" }] }],
+        "budget": { "total": 3000, "expenses": [{ "id": "et1", "name": "Suica Passes", "amount": 50, "category": "Transport", "day": 1 }] },
+        "packing": [{ "id": "pkt1", "name": "Passport", "category": "Documents", "checked": true }]
+      },
+      "london": {
+        "name": "London, United Kingdom",
+        "lat": 51.5074,
+        "lng": -0.1278,
+        "zoom": 13,
+        "places": [
+          {
+            "id": "l1",
+            "title": "Tower of London & Tower Bridge",
+            "category": "attraction",
+            "rating": 4.8,
+            "reviewsCount": 21000,
+            "price": "$$",
+            "img": "https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=600&auto=format&fit=crop",
+            "lat": 51.5081,
+            "lng": -0.0759,
+            "address": "London EC3N 4AB, UK",
+            "hours": "Daily: 09:00 AM - 05:30 PM",
+            "openStatus": "Open • Closes 5:30 PM",
+            "phone": "+44 20 3166 6000",
+            "desc": "Historic royal fortress on the north bank of the Thames, home to the Crown Jewels.",
+            "amenities": ["Yeoman Warder Tours", "Crown Jewels Exhibition"],
+            "reviews": [{ "author": "Arthur P.", "rating": 5, "text": "Take the Beefeater tour for unforgettable history!" }]
+          }
+        ],
+        "itinerary": [{ "dayNumber": 1, "title": "Day 1: Royal London", "notes": "Contactless card for tube.", "stops": [{ "placeId": "l1", "customTime": "10:00 AM", "notes": "Crown Jewels" }] }],
+        "budget": { "total": 2400, "expenses": [{ "id": "el1", "name": "Tower of London", "amount": 40, "category": "Activities", "day": 1 }] },
+        "packing": [{ "id": "pkl1", "name": "Passport", "category": "Documents", "checked": true }]
+      },
+      "barcelona": {
+        "name": "Barcelona, Spain",
+        "lat": 41.3851,
+        "lng": 2.1734,
+        "zoom": 13,
+        "places": [
+          {
+            "id": "b1",
+            "title": "Basílica de la Sagrada Família",
+            "category": "attraction",
+            "rating": 4.9,
+            "reviewsCount": 38000,
+            "price": "$$",
+            "img": "https://images.unsplash.com/photo-1583422409516-2895a77efded?w=600&auto=format&fit=crop",
+            "lat": 41.4036,
+            "lng": 2.1744,
+            "address": "Carrer de Mallorca, 401, 08013 Barcelona",
+            "hours": "Daily: 09:00 AM - 08:00 PM",
+            "openStatus": "Open • Closes 8:00 PM",
+            "phone": "+34 932 08 04 14",
+            "desc": "Gaudí's unfinished modernist masterpiece with towering spires and stained-glass lighting.",
+            "amenities": ["Tower Access", "Audio Guide"],
+            "reviews": [{ "author": "Carlos M.", "rating": 5, "text": "Book tickets online weeks in advance for morning light!" }]
+          }
+        ],
+        "itinerary": [{ "dayNumber": 1, "title": "Day 1: Gaudí Wonders", "notes": "Sagrada Familia audio tour.", "stops": [{ "placeId": "b1", "customTime": "10:00 AM", "notes": "Basilica tour" }] }],
+        "budget": { "total": 2100, "expenses": [{ "id": "eb1", "name": "Sagrada Familia Entry", "amount": 36, "category": "Activities", "day": 1 }] },
+        "packing": [{ "id": "pkb1", "name": "Passport", "category": "Documents", "checked": true }]
+      },
+      "miami": {
+        "name": "Miami, Florida, USA",
+        "lat": 25.7617,
+        "lng": -80.1918,
+        "zoom": 13,
+        "places": [
+          {
+            "id": "m1",
+            "title": "South Beach Ocean Drive & Art Deco District",
+            "category": "attraction",
+            "rating": 4.8,
+            "reviewsCount": 24000,
+            "price": "$$",
+            "img": "https://images.unsplash.com/photo-1506973035872-a4ec16b8e8d9?w=600&auto=format&fit=crop",
+            "lat": 25.7826,
+            "lng": -80.1341,
+            "address": "Ocean Drive, Miami Beach, FL 33139",
+            "hours": "Open 24 Hours",
+            "openStatus": "Open 24/7",
+            "phone": "+1 305-673-7000",
+            "desc": "Famous pastel-hued Art Deco architecture, sandy Atlantic beaches, and vibrant sidewalk cafes.",
+            "amenities": ["Beachfront Promenade", "Art Deco Tours", "Outdoor Dining"],
+            "reviews": [{ "author": "Alana G.", "rating": 5, "text": "Stroll down Ocean Drive at night to see the neon lights!" }]
+          }
+        ],
+        "itinerary": [{ "dayNumber": 1, "title": "Day 1: South Beach Sun & Art Deco", "notes": "Beach day and dinner on Ocean Drive.", "stops": [{ "placeId": "m1", "customTime": "10:00 AM", "notes": "Beach walk" }] }],
+        "budget": { "total": 2300, "expenses": [{ "id": "em1", "name": "Beach Umbrella & Chairs", "amount": 45, "category": "Activities", "day": 1 }] },
+        "packing": [{ "id": "pkm1", "name": "Swimsuit & Sunscreen", "category": "Clothing", "checked": true }]
+      },
+      "hawaii": {
+        "name": "Honolulu & Oahu, Hawaii, USA",
+        "lat": 21.3069,
+        "lng": -157.8583,
+        "zoom": 12,
+        "places": [
+          {
+            "id": "hw1",
+            "title": "Waikiki Beach & Diamond Head Crater",
+            "category": "attraction",
+            "rating": 4.9,
+            "reviewsCount": 31000,
+            "price": "$",
+            "img": "https://images.unsplash.com/photo-1507676184212-d03ab07a01bf?w=600&auto=format&fit=crop",
+            "lat": 21.2766,
+            "lng": -157.8275,
+            "address": "Kalakaua Ave, Honolulu, HI 96815",
+            "hours": "Open 24 Hours",
+            "openStatus": "Open 24/7",
+            "phone": "+1 808-768-3003",
+            "desc": "Golden crescent beach with calm turquoise surf overlooked by the iconic volcanic Diamond Head tuff cone.",
+            "amenities": ["Surfboard Rentals", "Sunset Catamaran", "Outrigger Canoes"],
+            "reviews": [{ "author": "Kai L.", "rating": 5, "text": "Hike Diamond Head early morning and cool off in Waikiki surf!" }]
+          }
+        ],
+        "itinerary": [{ "dayNumber": 1, "title": "Day 1: Waikiki Surf & Diamond Head Hike", "notes": "Sun protection is essential.", "stops": [{ "placeId": "hw1", "customTime": "08:00 AM", "notes": "Crater hike & beach afternoon" }] }],
+        "budget": { "total": 2900, "expenses": [{ "id": "ehw1", "name": "Diamond Head Entry & Shuttle", "amount": 25, "category": "Activities", "day": 1 }] },
+        "packing": [{ "id": "pkhw1", "name": "Reef-Safe Sunscreen & Rash Guard", "category": "Health", "checked": true }]
+      },
+      "dubai": {
+        "name": "Dubai, United Arab Emirates",
+        "lat": 25.2048,
+        "lng": 55.2708,
+        "zoom": 12,
+        "places": [
+          {
+            "id": "d1",
+            "title": "Burj Khalifa & Dubai Mall Fountain",
+            "category": "attraction",
+            "rating": 4.9,
+            "reviewsCount": 34000,
+            "price": "$$$",
+            "img": "https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=600&auto=format&fit=crop",
+            "lat": 25.1972,
+            "lng": 55.2744,
+            "address": "1 Sheikh Mohammed bin Rashid Blvd, Dubai",
+            "hours": "Daily: 08:30 AM - 11:00 PM",
+            "openStatus": "Open • Closes 11:00 PM",
+            "phone": "+971 4 888 8888",
+            "desc": "The world's tallest building with panoramic observatory decks overlooking the Persian Gulf.",
+            "amenities": ["148th Floor Lounge", "Fountain Light Show"],
+            "reviews": [{ "author": "Zack T.", "rating": 5, "text": "Sunset slot gives you both daytime and sparkling night views!" }]
+          }
+        ],
+        "itinerary": [{ "dayNumber": 1, "title": "Day 1: Downtown Dubai", "notes": "Fountain shows every 30 mins.", "stops": [{ "placeId": "d1", "customTime": "05:00 PM", "notes": "Observatory deck" }] }],
+        "budget": { "total": 3200, "expenses": [{ "id": "ed1", "name": "Burj Khalifa Observation Ticket", "amount": 65, "category": "Activities", "day": 1 }] },
+        "packing": [{ "id": "pkd1", "name": "Passport", "category": "Documents", "checked": true }]
+      },
+      "sf": {
+        "name": "San Francisco, USA",
+        "lat": 37.7749,
+        "lng": -122.4194,
+        "zoom": 13,
+        "places": [
+          {
+            "id": "sf1",
+            "title": "Golden Gate Bridge & Battery Spencer",
+            "category": "attraction",
+            "rating": 4.9,
+            "reviewsCount": 27500,
+            "price": "$",
+            "img": "https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=600&auto=format&fit=crop",
+            "lat": 37.8199,
+            "lng": -122.4783,
+            "address": "Golden Gate Bridge, San Francisco, CA",
+            "hours": "Open 24 Hours",
+            "openStatus": "Open 24/7",
+            "phone": "+1 415-921-5858",
+            "desc": "Iconic orange suspension bridge spanning the Golden Gate strait.",
+            "amenities": ["Pedestrian Walkway", "Bike Path", "Scenic Overlooks"],
+            "reviews": [{ "author": "Erica B.", "rating": 5, "text": "Walk or bike across for incredible bay vistas!" }]
+          }
+        ],
+        "itinerary": [{ "dayNumber": 1, "title": "Day 1: Golden Gate & Bay", "notes": "Bring layers for SF fog.", "stops": [{ "placeId": "sf1", "customTime": "10:00 AM", "notes": "Bridge overlook" }] }],
+        "budget": { "total": 2300, "expenses": [{ "id": "esf1", "name": "Cable Car Tickets", "amount": 16, "category": "Transport", "day": 1 }] },
+        "packing": [{ "id": "pksf1", "name": "Windbreaker / Warm Layers", "category": "Clothing", "checked": true }]
       }
     };
+  </script>
+
+  <!-- SCRIPT LOGIC -->
+  <script>
+    let PRESET_DESTINATIONS = {};
 
     let currentDestinationKey = "las_vegas";
     let appData = {};
@@ -2683,17 +1746,23 @@
     let navigationPolyline = null;
 
     const MAP_LAYERS = {
-      osm: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-      topo: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png'
+      google_road: 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+      google_hybrid: 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+      google_terrain: 'https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',
+      dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
     };
 
-    function loadAppData() {
-      const saved = localStorage.getItem("voyagepulse_trip_data_v2");
+    async function loadDatabase() {
+      PRESET_DESTINATIONS = window.EMBEDDED_CITIES || {};
+      const saved = localStorage.getItem("voyagepulse_trip_data_v3");
       if (saved) {
         try {
           appData = JSON.parse(saved);
+          Object.keys(PRESET_DESTINATIONS).forEach(k => {
+            if (!appData[k]) {
+              appData[k] = JSON.parse(JSON.stringify(PRESET_DESTINATIONS[k]));
+            }
+          });
         } catch (e) {
           appData = JSON.parse(JSON.stringify(PRESET_DESTINATIONS));
         }
@@ -2704,18 +1773,22 @@
     }
 
     function saveToLocalStorage() {
-      localStorage.setItem("voyagepulse_trip_data_v2", JSON.stringify(appData));
+      localStorage.setItem("voyagepulse_trip_data_v3", JSON.stringify(appData));
     }
 
     function getCurrentTrip() {
       if (!appData[currentDestinationKey]) {
-        appData[currentDestinationKey] = JSON.parse(JSON.stringify(PRESET_DESTINATIONS[currentDestinationKey] || PRESET_DESTINATIONS.las_vegas));
+        if (PRESET_DESTINATIONS[currentDestinationKey]) {
+          appData[currentDestinationKey] = JSON.parse(JSON.stringify(PRESET_DESTINATIONS[currentDestinationKey]));
+        } else {
+          appData[currentDestinationKey] = JSON.parse(JSON.stringify(PRESET_DESTINATIONS.las_vegas || {}));
+        }
       }
       return appData[currentDestinationKey];
     }
 
-    window.addEventListener("DOMContentLoaded", () => {
-      loadAppData();
+    window.addEventListener("DOMContentLoaded", async () => {
+      await loadDatabase();
       initExploreMap();
       renderPlacesList();
       renderItinerary();
@@ -2740,11 +1813,11 @@
         exploreMap = L.map('explore-map', {
           zoomControl: true,
           scrollWheelZoom: true
-        }).setView([trip.lat, trip.lng], trip.zoom || 13);
+        }).setView([trip.lat || 36.1147, trip.lng || -115.1728], trip.zoom || 13);
 
-        currentTileLayer = L.tileLayer(MAP_LAYERS.osm, {
-          maxZoom: 19,
-          attribution: '&copy; Map Data'
+        currentTileLayer = L.tileLayer(MAP_LAYERS.google_road, {
+          maxZoom: 20,
+          attribution: '&copy; Google Maps'
         }).addTo(exploreMap);
 
         exploreMarkersGroup = L.layerGroup().addTo(exploreMap);
@@ -2766,8 +1839,8 @@
     function switchMapLayer(layerKey) {
       if (!exploreMap) return;
       if (currentTileLayer) exploreMap.removeLayer(currentTileLayer);
-      const url = MAP_LAYERS[layerKey] || MAP_LAYERS.osm;
-      currentTileLayer = L.tileLayer(url, { maxZoom: 19 }).addTo(exploreMap);
+      const url = MAP_LAYERS[layerKey] || MAP_LAYERS.google_road;
+      currentTileLayer = L.tileLayer(url, { maxZoom: 20, subdomains: ['a','b','c','d'] }).addTo(exploreMap);
       showToast(`Map switched to ${layerKey.toUpperCase()} mode!`);
     }
 
@@ -2781,7 +1854,7 @@
           zoomControl: true
         }).setView([trip.lat, trip.lng], trip.zoom || 13);
 
-        L.tileLayer(MAP_LAYERS.osm, { maxZoom: 19 }).addTo(itineraryMap);
+        L.tileLayer(MAP_LAYERS.google_road, { maxZoom: 20 }).addTo(itineraryMap);
         itineraryMarkersGroup = L.layerGroup().addTo(itineraryMap);
       } else {
         itineraryMap.setView([trip.lat, trip.lng], trip.zoom || 13);
@@ -2802,9 +1875,9 @@
       return L.divIcon({
         className: 'custom-div-icon',
         html: `<div class="custom-map-marker ${conf.class}"><i class="fa-solid ${conf.icon}"></i></div>`,
-        iconSize: [34, 34],
-        iconAnchor: [17, 17],
-        popupAnchor: [0, -17]
+        iconSize: [36, 36],
+        iconAnchor: [18, 18],
+        popupAnchor: [0, -18]
       });
     }
 
@@ -2813,28 +1886,41 @@
       exploreMarkersGroup.clearLayers();
       const trip = getCurrentTrip();
 
-      trip.places.forEach(place => {
+      (trip.places || []).forEach(place => {
         if (!place.lat || !place.lng) return;
 
         const marker = L.marker([place.lat, place.lng], {
           icon: getMarkerIcon(place.category)
         });
 
+        const gImagesUrl = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(place.title + " " + trip.name)}`;
+        const gMapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.title + ", " + (place.address || trip.name))}`;
+
         const popupContent = `
-          <div style="font-family: 'Plus Jakarta Sans', sans-serif; min-width: 190px; max-width: 230px;">
-            <img src="${place.img || 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=600&auto=format&fit=crop'}" style="width:100%; height:85px; object-fit:cover; border-radius:6px; margin-bottom:6px;">
-            <strong style="font-size:0.9rem; display:block; line-height:1.2; margin-bottom:4px;">${place.title}</strong>
-            <div style="display:flex; align-items:center; gap:4px; font-size:0.78rem; color:#f59e0b; margin-bottom:6px;">
+          <div class="gmaps-popup-card">
+            <img src="${place.img || 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=600&auto=format&fit=crop'}" alt="${place.title}">
+            <div class="gmaps-popup-title">${place.title}</div>
+            <div style="display:flex; align-items:center; gap:4px; font-size:0.78rem; color:#f59e0b;">
               <i class="fa-solid fa-star"></i> <strong>${place.rating}</strong>
-              <span style="color:#64748b;">(${place.price || '$$'})</span>
+              <span style="color:#64748b;">(${place.price || '$$'}) • ${place.category.toUpperCase()}</span>
             </div>
-            <div style="display:flex; gap:4px;">
-              <button onclick="startNavigationToPlace('${place.id}')" style="flex:1; background:#10b981; color:#fff; border:none; border-radius:4px; padding:4px 6px; font-size:0.74rem; font-weight:700; cursor:pointer;">
+            <div class="gmaps-popup-hours"><i class="fa-solid fa-clock"></i> ${place.openStatus || 'Open Daily'}</div>
+            <div style="font-size:0.72rem; color:#64748b;"><i class="fa-solid fa-location-dot"></i> ${place.address || trip.name}</div>
+            <div style="display:flex; gap:4px; margin-top:4px;">
+              <button onclick="startNavigationToPlace('${place.id}')" style="flex:1; background:#10b981; color:#fff; border:none; border-radius:6px; padding:5px 6px; font-size:0.74rem; font-weight:700; cursor:pointer;">
                 🚀 Go Now
               </button>
-              <button onclick="openPlaceDetailModal('${place.id}')" style="flex:1; background:#2563eb; color:#fff; border:none; border-radius:4px; padding:4px 6px; font-size:0.74rem; font-weight:600; cursor:pointer;">
+              <button onclick="openPlaceDetailModal('${place.id}')" style="flex:1; background:#2563eb; color:#fff; border:none; border-radius:6px; padding:5px 6px; font-size:0.74rem; font-weight:600; cursor:pointer;">
                 Details
               </button>
+            </div>
+            <div style="display:flex; gap:4px; margin-top:2px;">
+              <a href="${gImagesUrl}" target="_blank" style="flex:1; background:#f1f5f9; color:#0f172a; text-decoration:none; text-align:center; border-radius:4px; padding:3px 4px; font-size:0.7rem; font-weight:600;">
+                <i class="fa-regular fa-image"></i> Photos
+              </a>
+              <a href="${gMapsUrl}" target="_blank" style="flex:1; background:#f1f5f9; color:#0f172a; text-decoration:none; text-align:center; border-radius:4px; padding:3px 4px; font-size:0.7rem; font-weight:600;">
+                <i class="fa-brands fa-google"></i> Maps
+              </a>
             </div>
           </div>
         `;
@@ -2859,7 +1945,7 @@
         showToast("Geolocation is not supported by your browser.");
         return;
       }
-      showToast("Finding your current location...");
+      showToast("Finding your location...");
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           const { latitude, longitude } = pos.coords;
@@ -2917,11 +2003,11 @@
       stepsContainer.innerHTML = `
         <div class="nav-step-item">
           <div class="nav-step-icon"><i class="fa-solid fa-arrow-up"></i></div>
-          <div>Head north toward destination strip (0.8 mi)</div>
+          <div>Head north toward ${place.address || 'main destination avenue'} (0.8 mi)</div>
         </div>
         <div class="nav-step-item">
           <div class="nav-step-icon"><i class="fa-solid fa-arrow-right"></i></div>
-          <div>Turn right onto main avenue (0.6 mi)</div>
+          <div>Turn right onto central avenue (0.5 mi)</div>
         </div>
         <div class="nav-step-item">
           <div class="nav-step-icon"><i class="fa-solid fa-flag-checkered" style="color:#10b981;"></i></div>
@@ -2930,7 +2016,7 @@
       `;
 
       document.getElementById("nav-drawer").classList.add("active");
-      showToast(`🚗 Routing to ${place.title}...`);
+      showToast(`🚗 Routing turn-by-turn to ${place.title}...`);
     }
 
     function setNavMode(mode, btn) {
@@ -3000,7 +2086,7 @@
           const generatedPlaces = [
             {
               id: "gp1",
-              title: `${displayName} Historic Landmark & Square`,
+              title: `${displayName} Historic Central Square`,
               category: "attraction",
               rating: 4.9,
               reviewsCount: 14200,
@@ -3009,14 +2095,16 @@
               lat: lat + 0.004,
               lng: lng + 0.005,
               address: `${displayName} City Center`,
-              hours: "Open 24/7",
+              hours: "Open 24 Hours",
+              openStatus: "Open 24/7",
+              phone: "+1 800-555-0199",
               desc: `The iconic gathering square and historic architecture center of ${displayName}.`,
               amenities: ["Scenic Views", "Walking Tours", "Historic Site"],
               reviews: [{ author: "Traveler", rating: 5, text: "A must-visit centerpiece of the city!" }]
             },
             {
               id: "gp2",
-              title: `Grand Culinary Bistro & Wine Bar`,
+              title: `${displayName} Grand Culinary Bistro`,
               category: "restaurant",
               rating: 4.8,
               reviewsCount: 4500,
@@ -3025,7 +2113,9 @@
               lat: lat - 0.005,
               lng: lng + 0.003,
               address: `Main Boulevard, ${displayName}`,
-              hours: "11:30 AM - 11:00 PM",
+              hours: "Daily: 11:30 AM - 11:00 PM",
+              openStatus: "Open • Closes 11:00 PM",
+              phone: "+1 800-555-0144",
               desc: `Top-rated regional dining serving authentic specialties and curated wines.`,
               amenities: ["Outdoor Terrace", "Full Bar", "Chef Specials"],
               reviews: [{ author: "Food Lover", rating: 5, text: "Incredible flavors and warm hospitality." }]
@@ -3041,14 +2131,16 @@
               lat: lat + 0.002,
               lng: lng - 0.006,
               address: `Central Plaza, ${displayName}`,
-              hours: "24/7 Front Desk",
+              hours: "Open 24 Hours",
+              openStatus: "Open 24/7",
+              phone: "+1 800-555-0177",
               desc: "Luxury 5-star hotel featuring panoramic suites, rooftop pool, and fine dining.",
               amenities: ["Rooftop Pool", "Spa & Wellness", "Concierge"],
               reviews: [{ author: "Guest", rating: 5, text: "Impeccable service and prime location." }]
             },
             {
               id: "gp4",
-              title: `${displayName} Scenic Harbor & Waterfront Walk`,
+              title: `${displayName} Scenic Waterfront Promenade`,
               category: "activity",
               rating: 4.7,
               reviewsCount: 8900,
@@ -3056,43 +2148,13 @@
               img: "https://images.unsplash.com/photo-1506973035872-a4ec16b8e8d9?w=600&auto=format&fit=crop",
               lat: lat - 0.008,
               lng: lng - 0.007,
-              address: `Waterfront Promenade, ${displayName}`,
-              hours: "08:00 AM - 10:00 PM",
+              address: `Waterfront Boardwalk, ${displayName}`,
+              hours: "Daily: 08:00 AM - 10:00 PM",
+              openStatus: "Open • Closes 10:00 PM",
+              phone: "+1 800-555-0122",
               desc: "Breathtaking pedestrian boardwalk lined with cafes, boat tours, and sunset vistas.",
               amenities: ["Boat Charters", "Bike Paths", "Sunset Views"],
               reviews: [{ author: "Explorer", rating: 5, text: "Best sunset spot in the city." }]
-            },
-            {
-              id: "gp5",
-              title: `The Velvet Lounge & Rooftop Bar`,
-              category: "nightlife",
-              rating: 4.8,
-              reviewsCount: 3600,
-              price: "$$$",
-              img: "https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?w=600&auto=format&fit=crop",
-              lat: lat + 0.006,
-              lng: lng + 0.002,
-              address: `Downtown Arts District, ${displayName}`,
-              hours: "06:00 PM - 02:00 AM",
-              desc: "Chic speakeasy cocktail lounge featuring craft cocktails and skyline views.",
-              amenities: ["Signature Drinks", "DJ Music", "Skyline Terrace"],
-              reviews: [{ author: "Night Owl", rating: 5, text: "Best cocktails in town." }]
-            },
-            {
-              id: "gp6",
-              title: `Artisan Bakery & Espresso House`,
-              category: "restaurant",
-              rating: 4.9,
-              reviewsCount: 2200,
-              price: "$",
-              img: "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=600&auto=format&fit=crop",
-              lat: lat + 0.001,
-              lng: lng + 0.004,
-              address: `Old Town Alley, ${displayName}`,
-              hours: "07:00 AM - 05:00 PM",
-              desc: "Fresh morning pastries, sourdough breads, and specialty roasted pour-over coffee.",
-              amenities: ["Fresh Pastries", "Free Wi-Fi", "Specialty Coffee"],
-              reviews: [{ author: "Coffee Fan", rating: 5, text: "The croissants and flat whites are divine." }]
             }
           ];
 
@@ -3106,13 +2168,11 @@
               {
                 dayNumber: 1,
                 title: `Day 1: ${displayName} Explorer`,
-                notes: "Morning coffee, historic square tour, and evening rooftop drinks.",
+                notes: "Morning square tour, lunch at bistro, sunset walk.",
                 stops: [
-                  { placeId: "gp6", customTime: "09:00 AM", notes: "Artisan coffee and breakfast" },
-                  { placeId: "gp1", customTime: "11:00 AM", notes: "Historic landmark tour" },
+                  { placeId: "gp1", customTime: "10:00 AM", notes: "Historic landmark tour" },
                   { placeId: "gp2", customTime: "01:30 PM", notes: "Lunch tasting menu" },
-                  { placeId: "gp4", customTime: "05:30 PM", notes: "Sunset waterfront walk" },
-                  { placeId: "gp5", customTime: "08:30 PM", notes: "Cocktails at Velvet Lounge" }
+                  { placeId: "gp4", customTime: "05:30 PM", notes: "Sunset waterfront walk" }
                 ]
               }
             ],
@@ -3125,8 +2185,7 @@
             },
             packing: [
               { id: "pk_g1", name: "Passport & Identity Documents", category: "Documents", checked: true },
-              { id: "pk_g2", name: "Phone Charger & Power Bank", category: "Electronics", checked: true },
-              { id: "pk_g3", name: "Comfortable Walking Shoes", category: "Clothing", checked: true }
+              { id: "pk_g2", name: "Phone Charger & Power Bank", category: "Electronics", checked: true }
             ]
           };
 
@@ -3161,9 +2220,12 @@
       activeDayIndex = 0;
       const trip = getCurrentTrip();
 
+      document.querySelectorAll(".quick-dest-chip").forEach(c => c.classList.remove("active"));
       if (btn) {
-        document.querySelectorAll(".quick-dest-chip").forEach(c => c.classList.remove("active"));
         btn.classList.add("active");
+      } else {
+        const matched = Array.from(document.querySelectorAll(".quick-dest-chip")).find(c => c.getAttribute("onclick") && c.getAttribute("onclick").includes(key));
+        if (matched) matched.classList.add("active");
       }
 
       if (exploreMap) {
@@ -3182,15 +2244,15 @@
 
     function randomizeDayItinerary() {
       const trip = getCurrentTrip();
-      if (!trip.places || trip.places.length < 3) {
+      if (!trip.places || trip.places.length < 2) {
         showToast("Not enough places to randomize.");
         return;
       }
 
       const shuffled = [...trip.places].sort(() => 0.5 - Math.random());
-      const selected = shuffled.slice(0, Math.min(5, shuffled.length));
+      const selected = shuffled.slice(0, Math.min(4, shuffled.length));
 
-      const timeSlots = ["09:30 AM", "12:30 PM", "03:30 PM", "06:30 PM", "09:00 PM"];
+      const timeSlots = ["09:30 AM", "01:00 PM", "05:00 PM", "08:00 PM"];
 
       const targetDay = trip.itinerary[activeDayIndex] || trip.itinerary[0];
       targetDay.stops = selected.map((p, idx) => ({
@@ -3212,7 +2274,6 @@
     function applyQuizResults() {
       const vibe = document.getElementById("quiz-vibe").value;
       const budget = document.getElementById("quiz-budget").value;
-      const trip = getCurrentTrip();
 
       selectedCategoryFilter = vibe;
       selectedPriceFilters.clear();
@@ -3286,7 +2347,7 @@
           <div style="text-align: center; padding: 2.5rem 1rem; color: var(--text-muted);">
             <i class="fa-regular fa-compass" style="font-size: 2.5rem; margin-bottom: 0.75rem; color: var(--border);"></i>
             <p style="font-weight: 700; font-size: 0.92rem;">No places match current filters.</p>
-            <p style="font-size: 0.78rem; margin-top: 0.25rem;">Try clearing price tags or click "Add Place" to pin a new spot!</p>
+            <p style="font-size: 0.78rem; margin-top: 0.25rem;">Try clearing filters or click "Add Place" to pin a new spot!</p>
           </div>
         `;
         return;
@@ -3296,11 +2357,11 @@
         const card = document.createElement("div");
         card.className = "place-card";
         card.onclick = (e) => {
-          if (!e.target.closest("button") && !e.target.closest("select")) {
-            openPlaceDetailModal(place.id);
+          if (!e.target.closest("button") && !e.target.closest("select") && !e.target.closest("a")) {
             if (exploreMap && place.lat && place.lng) {
-              exploreMap.panTo([place.lat, place.lng]);
+              exploreMap.flyTo([place.lat, place.lng], 15, { duration: 0.8 });
             }
+            openPlaceDetailModal(place.id);
           }
         };
 
@@ -3309,6 +2370,8 @@
         let dayOptionsHtml = (trip.itinerary || []).map((day, idx) => 
           `<option value="${idx}">+ Add to Day ${day.dayNumber}</option>`
         ).join("");
+
+        const gImagesUrl = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(place.title + " " + trip.name)}`;
 
         card.innerHTML = `
           <div class="place-card-img-wrapper">
@@ -3332,6 +2395,10 @@
               <span class="review-count">(${Number(place.reviewsCount || 0).toLocaleString()} reviews)</span>
             </div>
 
+            <div style="font-size:0.75rem; color:#10b981; font-weight:700;">
+              <i class="fa-solid fa-clock"></i> ${place.openStatus || 'Open Daily'}
+            </div>
+
             <p style="font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
               ${place.desc || "Top-rated traveler favorite."}
             </p>
@@ -3345,11 +2412,14 @@
                 🚀 Go Now
               </button>
               <div style="display: flex; gap: 0.35rem; align-items: center;">
+                <a href="${gImagesUrl}" target="_blank" class="btn btn-outline btn-sm" onclick="event.stopPropagation();" title="Search Photos on Google">
+                  <i class="fa-regular fa-image"></i> Photos
+                </a>
                 <select class="filter-select" style="padding: 0.2rem 0.4rem; font-size: 0.72rem;" onchange="quickAddPlaceToDay('${place.id}', this.value); this.value='';">
-                  <option value="" disabled selected>+ Add to Plan</option>
+                  <option value="" disabled selected>+ Plan</option>
                   ${dayOptionsHtml}
                 </select>
-                <button class="btn btn-outline btn-sm" onclick="openPlaceDetailModal('${place.id}')" title="View details & reviews">
+                <button class="btn btn-outline btn-sm" onclick="openPlaceDetailModal('${place.id}')" title="View details">
                   Details
                 </button>
               </div>
@@ -3655,8 +2725,8 @@
             icon: L.divIcon({
               className: 'custom-div-icon',
               html: `<div class="custom-map-marker marker-attraction" style="background:#2563eb; font-weight:800;">${idx + 1}</div>`,
-              iconSize: [32, 32],
-              iconAnchor: [16, 16]
+              iconSize: [34, 34],
+              iconAnchor: [17, 17]
             })
           });
 
@@ -3728,7 +2798,7 @@
             <td>Day ${exp.day || 1}</td>
             <td style="font-weight:700; color:var(--text-main);">$${Number(exp.amount).toFixed(2)}</td>
             <td>
-              <button class="delete-item-btn" onclick="deleteExpense(${expIdx})" title="Delete Expense"><i class="fa-solid fa-trash"></i></button>
+              <button class="stop-btn" onclick="deleteExpense(${expIdx})" style="color:var(--danger);" title="Delete Expense"><i class="fa-solid fa-trash"></i></button>
             </td>
           `;
           tbody.appendChild(tr);
@@ -3887,7 +2957,7 @@
               <input type="checkbox" ${item.checked ? 'checked' : ''} onchange="togglePackingItem('${item.id}')">
               <span>${item.name}</span>
             </label>
-            <button class="delete-item-btn" onclick="deletePackingItem('${item.id}')"><i class="fa-solid fa-trash"></i></button>
+            <button class="stop-btn" onclick="deletePackingItem('${item.id}')" style="color:var(--danger);" title="Delete item"><i class="fa-solid fa-trash"></i></button>
           </div>
         `).join("");
 
@@ -3967,9 +3037,13 @@
       document.getElementById("modal-place-review-count").innerText = `${Number(place.reviewsCount || 0).toLocaleString()} reviews`;
       document.getElementById("modal-place-address").innerText = place.address || "Centrally located";
       document.getElementById("modal-place-hours").innerText = place.hours || "Open Daily: 09:00 AM - 08:00 PM";
+      document.getElementById("modal-place-phone").innerText = place.phone || "+1 800-555-0100";
 
       const gmapsLink = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(place.title + ', ' + (place.address || trip.name))}`;
       document.getElementById("modal-gmaps-link").href = gmapsLink;
+
+      const gImagesLink = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(place.title + ' ' + trip.name)}`;
+      document.getElementById("modal-gimages-link").href = gImagesLink;
 
       const amenitiesContainer = document.getElementById("modal-place-amenities");
       amenitiesContainer.innerHTML = (place.amenities || ["Wheelchair Accessible", "Wi-Fi", "Credit Cards Accepted", "Family Friendly"])
@@ -4066,6 +3140,10 @@
         desc,
         lat: trip.lat + (Math.random() - 0.5) * 0.02,
         lng: trip.lng + (Math.random() - 0.5) * 0.02,
+        address: `${name}, ${trip.name}`,
+        hours: "Open Daily: 09:00 AM - 09:00 PM",
+        openStatus: "Open • Closes 9:00 PM",
+        phone: "+1 800-555-0100",
         amenities: ["Custom Place", "Recommended"],
         reviews: [{ author: "You", rating, text: desc || "Added to custom places." }]
       };
@@ -4093,6 +3171,10 @@
         desc: "Custom spot pinned on interactive map.",
         lat: lat,
         lng: lng,
+        address: `Map Pin, ${trip.name}`,
+        hours: "Open 24 Hours",
+        openStatus: "Open 24/7",
+        phone: "+1 800-555-0100",
         amenities: ["Custom Location", "Map Pinned"],
         reviews: [{ author: "You", rating: 5.0, text: "Pinned on interactive map." }]
       };
@@ -4198,14 +3280,15 @@
 
     function resetToSampleData() {
       if (confirm("Reset all trips, itinerary stops, and expenses back to default demo data?")) {
-        localStorage.removeItem("voyagepulse_trip_data_v2");
-        loadAppData();
-        renderPlacesList();
-        renderItinerary();
-        renderBudgetView();
-        renderPackingList();
-        closeModal('export-modal');
-        showToast("Reset to sample data.");
+        localStorage.removeItem("voyagepulse_trip_data_v3");
+        loadDatabase().then(() => {
+          renderPlacesList();
+          renderItinerary();
+          renderBudgetView();
+          renderPackingList();
+          closeModal('export-modal');
+          showToast("Reset to default data.");
+        });
       }
     }
   </script>
