@@ -12,31 +12,50 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 
 <style>
-:root{--ink:#14231f;--muted:#71817a;--line:#e5eeea;--soft:#f4f8f6;--mint:#def7ed;--green:#11795c;--green2:#0d654c;--dark:#10251e;--orange:#ff845d;--yellow:#fff3c9;--white:#fff;--danger:#c94c4c;--shadow:0 18px 60px rgba(14,45,35,.08)}
+:root{--ink:#14231f;--muted:#5c6b65;--line:#e5eeea;--soft:#f4f8f6;--mint:#def7ed;--green:#0d6e53;--green2:#0d654c;--dark:#10251e;--orange:#ff845d;--yellow:#fff3c9;--white:#fff;--danger:#c94c4c;--focus:#1a56db;--shadow:0 18px 60px rgba(14,45,35,.08)}
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:'DM Sans',sans-serif;color:var(--ink);background:#fbfcfb;overflow-x:hidden;}button,input,select,textarea{font:inherit}button{cursor:pointer;border:0}
 .app{min-height:100vh}
 
+/* Accessibility helpers */
+.skip-link{position:absolute;left:12px;top:-60px;background:var(--dark);color:#fff;padding:12px 18px;border-radius:10px;z-index:3000;font-weight:700;text-decoration:none;transition:top .15s}
+.skip-link:focus{top:12px}
+.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+:is(button,a,input,select,textarea,[tabindex]):focus-visible{outline:3px solid var(--focus);outline-offset:2px;border-radius:6px}
+.map:focus-visible{outline:3px solid var(--focus);outline-offset:-3px}
+@media (prefers-reduced-motion: reduce){*{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}
+
+/* Mobile menu button */
+.menuBtn{display:none;width:40px;height:40px;border-radius:10px;background:var(--soft);align-items:center;justify-content:center;font-size:18px;color:var(--ink);}
+.menuBtn:hover{background:var(--mint)}
+.drawerBackdrop{display:none;position:fixed;inset:0;background:rgba(10,30,24,.45);z-index:1050}
+.drawerBackdrop.show{display:block}
+
 /* Top Navigation */
-.topbar{height:74px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 28px;position:sticky;top:0;z-index:1100}
-.brand{display:flex;align-items:center;gap:10px;font-family:'Plus Jakarta Sans';font-weight:800;font-size:21px;cursor:pointer;}
+.topbar{height:74px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 28px;position:sticky;top:0;z-index:1100;gap:12px}
+.topbarLeft{display:flex;align-items:center;gap:12px;min-width:0}
+.brand{display:flex;align-items:center;gap:10px;font-family:'Plus Jakarta Sans';font-weight:800;font-size:21px;cursor:pointer;background:transparent;color:var(--ink);}
 .brandmark{width:34px;height:34px;border-radius:11px;background:linear-gradient(135deg,#11795c,#51c59f);display:grid;place-items:center;color:#fff}
 .topnav{display:flex;gap:6px}
-.navbtn{background:transparent;padding:10px 14px;border-radius:10px;color:#53635d;font-weight:600;}
+.navbtn{background:transparent;padding:10px 14px;border-radius:10px;color:#3c4a45;font-weight:600;}
 .navbtn.active,.navbtn:hover{background:var(--soft);color:var(--ink)}
+.navbtn.active{box-shadow:inset 0 0 0 1.5px var(--green)}
 .profile{display:flex;align-items:center;gap:12px}
 .avatar{width:38px;height:38px;border-radius:50%;background:#20342e;color:#fff;display:grid;place-items:center;font-weight:700}
 
 /* Layout */
 .layout{display:grid;grid-template-columns:275px minmax(0,1fr);height:calc(100vh - 74px)}
 .sidebar{border-right:1px solid var(--line);background:#fff;padding:24px 18px;position:sticky;top:74px;height:100%;overflow:auto}
+.sidebarHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.closeDrawerBtn{display:none;width:34px;height:34px;border-radius:9px;background:var(--soft);align-items:center;justify-content:center;color:var(--muted);}
 .sideTitle{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:#94a19c;margin:10px 10px 12px;font-weight:700;}
 .tripCard{border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:10px;transition:.2s;width:100%;text-align:left;background:#fff;}
 .tripCard:hover{transform:translateY(-1px);box-shadow:0 10px 30px rgba(10,40,30,.05)}
 .tripCard.active{background:var(--soft);border-color:#cfe5dc}
 .tripName{font-weight:700;font-size:15px;}
 .small{font-size:12px;color:var(--muted)}
-.sideItem{width:100%;display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:12px;color:#52615c;margin:3px 0;background:transparent;text-align:left;font-weight:600;}
+.sideItem{width:100%;display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:12px;color:#3c4a45;margin:3px 0;background:transparent;text-align:left;font-weight:600;}
 .sideItem.active,.sideItem:hover{background:var(--soft);color:var(--ink)}
+.sideItem.active{box-shadow:inset 0 0 0 1.5px var(--green)}
 
 /* Main Content Area */
 .main{padding:24px 26px 60px;min-width:0;height:100%;overflow-y:auto;position:relative;}
@@ -128,6 +147,8 @@
 .place img{display:block;width:100%;height:140px;object-fit:cover;background:#e5eeea;}
 .placeBody{padding:11px;flex:1;display:flex;flex-direction:column;}
 .place h4{margin:0 0 4px;font-size:15px}
+button.linkish{background:transparent;border:0;padding:0;font:inherit;font-weight:700;color:inherit;text-align:left;cursor:pointer;display:inline;}
+button.linkish:hover,button.linkish:focus-visible{text-decoration:underline}
 .place p{margin:0;color:var(--muted);font-size:12px;flex:1;}
 .placeFoot{display:flex;justify-content:space-between;align-items:center;margin-top:10px;gap:6px;}
 .add{background:var(--soft);padding:8px 12px;border-radius:9px;color:var(--green);font-weight:700;font-size:12px;flex:1;}
@@ -203,52 +224,79 @@
 .leaflet-routing-container{display:none!important}
 
 @media(max-width:1200px){.dashboard{grid-template-columns:1fr}.mapPanel{min-height:500px}.sectionGrid{grid-template-columns:1fr 1fr}.savedGrid{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:900px){.layout{grid-template-columns:1fr}.sidebar{display:none}.topnav{display:none}.controlRow{grid-template-columns:1fr 1fr}.sectionGrid,.savedGrid{grid-template-columns:1fr 1fr}.packingGrid{grid-template-columns:1fr}}
-@media(max-width:650px){.main{padding:16px}.hero{display:block}.actions{margin-top:14px}.controlRow{grid-template-columns:1fr}.savedGrid{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr 1fr}.preferenceGrid{grid-template-columns:1fr 1fr}.modalGrid{grid-template-columns:1fr}.ai{right:10px;bottom:10px;width:calc(100vw - 20px)}.aiLauncher{right:10px;bottom:10px}.stop{grid-template-columns:30px 1fr}.stop>div:last-child{grid-column:2}}
+@media(max-width:900px){
+  .layout{grid-template-columns:1fr}
+  .topnav{display:none}
+  .menuBtn{display:flex}
+  .brand span{display:none}
+  .sidebar{
+    display:block;position:fixed;top:0;left:0;bottom:0;height:100%;width:min(300px,84vw);
+    transform:translateX(-100%);transition:transform .22s ease;z-index:1150;box-shadow:0 0 0 rgba(0,0,0,0);
+  }
+  .sidebar.open{transform:translateX(0);box-shadow:24px 0 60px rgba(0,0,0,.18)}
+  .closeDrawerBtn{display:flex}
+  .controlRow{grid-template-columns:1fr 1fr}
+  .sectionGrid,.savedGrid{grid-template-columns:1fr 1fr}
+  .packingGrid{grid-template-columns:1fr}
+}
+@media(min-width:901px){.menuBtn{display:none}.drawerBackdrop{display:none!important}}
+@media(max-width:650px){.main{padding:16px}.hero{display:block}.actions{margin-top:14px}.controlRow{grid-template-columns:1fr}.savedGrid{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr 1fr}.preferenceGrid{grid-template-columns:1fr 1fr}.modalGrid{grid-template-columns:1fr}.ai{right:10px;bottom:10px;width:calc(100vw - 20px)}.aiLauncher{right:10px;bottom:10px}.stop{grid-template-columns:30px 1fr}.stop>div:last-child{grid-column:2}.recGrid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
 
+<a class="skip-link" href="#main">Skip to main content</a>
+
 <div class="app">
   <header class="topbar">
-    <div class="brand"><div class="brandmark">✦</div>TripShuffle</div>
-    <nav class="topnav" id="topnav">
-      <button class="navbtn active" data-view="plan">Plan</button>
+    <div class="topbarLeft">
+      <button class="menuBtn" id="menuBtn" aria-label="Open navigation menu" aria-expanded="false" aria-controls="sidebar"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>
+      <button class="brand" id="brandBtn" type="button" aria-label="TripShuffle home, go to trip plan"><div class="brandmark" aria-hidden="true">✦</div><span>TripShuffle</span></button>
+    </div>
+    <nav class="topnav" id="topnav" aria-label="Primary">
+      <button class="navbtn active" data-view="plan" aria-current="page">Plan</button>
       <button class="navbtn" data-view="explore">Explore</button>
       <button class="navbtn" data-view="saved">Saved</button>
       <button class="navbtn" data-view="budget">Budget</button>
     </nav>
-    <div class="profile"><button class="btn" id="newTripBtn">＋ New trip</button><div class="avatar">JW</div></div>
+    <div class="profile"><button class="btn" id="newTripBtn">＋ New trip</button><div class="avatar" aria-hidden="true">JW</div></div>
   </header>
 
+  <div class="drawerBackdrop" id="drawerBackdrop"></div>
+
   <div class="layout">
-    <aside class="sidebar">
-      <div class="sideTitle">Your trips</div>
-      <div id="tripList"></div>
+    <aside class="sidebar" id="sidebar" aria-label="Trips and workspace navigation">
+      <div class="sidebarHead">
+        <div class="sideTitle" style="margin:10px 0 12px">Your trips</div>
+        <button class="closeDrawerBtn" id="closeDrawerBtn" aria-label="Close navigation menu"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
+      </div>
+      <div id="tripList" role="list" aria-label="Your trips"></div>
 
       <div class="sideTitle" style="margin-top:24px">Workspace</div>
-      <button class="sideItem active" data-view="plan">🗺️ <span>Trip plan</span></button>
-      <button class="sideItem" data-view="explore">🔎 <span>Discover places</span></button>
-      <button class="sideItem" data-view="saved">❤️ <span>Saved places</span></button>
-      <button class="sideItem" data-view="budget">💸 <span>Budget</span></button>
-      <button class="sideItem" data-view="packing">🎒 <span>Packing list</span></button>
-      <button class="sideItem" data-view="bookings">✈️ <span>Bookings</span></button>
+      <nav aria-label="Workspace">
+        <button class="sideItem active" data-view="plan" aria-current="page"><span aria-hidden="true">🗺️</span> <span>Trip plan</span></button>
+        <button class="sideItem" data-view="explore"><span aria-hidden="true">🔎</span> <span>Discover places</span></button>
+        <button class="sideItem" data-view="saved"><span aria-hidden="true">❤️</span> <span>Saved places</span></button>
+        <button class="sideItem" data-view="budget"><span aria-hidden="true">💸</span> <span>Budget</span></button>
+        <button class="sideItem" data-view="packing"><span aria-hidden="true">🎒</span> <span>Packing list</span></button>
+        <button class="sideItem" data-view="bookings"><span aria-hidden="true">✈️</span> <span>Bookings</span></button>
+      </nav>
     </aside>
 
-    <main class="main">
+    <main class="main" id="main" tabindex="-1">
       <section class="view active" id="view-plan">
         <section class="hero">
           <div><div class="eyebrow">AI-powered trip workspace</div><h1 id="heroTitle">Tokyo, your way.</h1><p id="heroSub">Plan it yourself, ask the copilot, or let TripShuffle build a day around your taste.</p></div>
           <div class="actions">
-            <button class="btn" id="optBtn"><i class="fa-solid fa-arrow-trend-up"></i> Optimize route</button>
-            <button class="btn magic" id="surpriseBtn">✦ Surprise Me</button>
+            <button class="btn" id="optBtn"><i class="fa-solid fa-arrow-trend-up" aria-hidden="true"></i> Optimize route</button>
+            <button class="btn magic" id="surpriseBtn"><span aria-hidden="true">✦</span> Surprise Me</button>
           </div>
         </section>
 
         <div class="controlRow">
-          <div class="control"><label>Destination</label><input id="destination" value="Tokyo, Japan"/></div>
-          <div class="control"><label>Dates</label><input id="dates" value="Oct 4 – Oct 10, 2026"/></div>
-          <div class="control"><label>Pace</label><select id="pace"><option>Relaxed</option><option selected>Balanced</option><option>Packed</option></select></div>
+          <div class="control"><label for="destination">Destination</label><input id="destination" value="Tokyo, Japan"/></div>
+          <div class="control"><label for="dates">Dates</label><input id="dates" value="Oct 4 – Oct 10, 2026"/></div>
+          <div class="control"><label for="pace">Pace</label><select id="pace"><option>Relaxed</option><option selected>Balanced</option><option>Packed</option></select></div>
           <button class="btn primary" id="buildBtn">Build plan</button>
         </div>
         
@@ -257,48 +305,49 @@
         <div class="dashboard">
           <section class="panel">
             <div class="panelHead">
-              <h3>Itinerary</h3>
+              <h2 style="margin:0;font:700 17px 'Plus Jakarta Sans'">Itinerary</h2>
               <div style="display:flex;gap:7px"><button class="btn" id="addStopBtn">＋ Add place</button></div>
             </div>
-            <div class="dayTabs" id="dayTabs"></div>
-            <div class="timeline" id="timeline"></div>
+            <div class="dayTabs" id="dayTabs" role="tablist" aria-label="Trip days"></div>
+            <div class="timeline" id="timeline" role="tabpanel" aria-label="Day itinerary"></div>
             <div class="panelHead" style="border-top:1px solid var(--line)">
-              <h3 style="font-size:15px">Recommended nearby</h3>
+              <h3 style="font-size:15px;margin:0">Recommended nearby</h3>
             </div>
             <div class="recGrid" id="recommendations"></div>
           </section>
 
           <section class="panel mapPanel">
             <div class="panelHead">
-              <h3>Map & route</h3>
-              <div style="display:flex;gap:7px"><button class="btn" id="locateBtn" title="Use my location"><i class="fa-solid fa-location-crosshairs"></i></button><button class="btn" id="centerBtn">◎ Center</button></div>
+              <h2 style="margin:0;font:700 17px 'Plus Jakarta Sans'">Map & route</h2>
+              <div style="display:flex;gap:7px"><button class="btn" id="locateBtn" aria-label="Use my current location"><i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i></button><button class="btn" id="centerBtn"><span aria-hidden="true">◎</span> Center</button></div>
             </div>
-            <div class="mapSearch">
+            <form class="mapSearch" id="mapSearchForm" role="search">
+              <label for="mapSearchInput" class="visually-hidden">Search a place or address on the map</label>
               <input id="mapSearchInput" placeholder="Search a place or address, or click the map..."/>
-              <button class="btn primary" id="mapSearchBtn"><i class="fa-solid fa-magnifying-glass"></i></button>
-            </div>
-            <div class="mapLegend"><span class="legend">• Planned</span><span class="legend">★ Top rated</span><span class="legend">✦ Local Discovery</span></div>
+              <button class="btn primary" type="submit" id="mapSearchBtn" aria-label="Search the map"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i></button>
+            </form>
+            <div class="mapLegend"><span class="legend"><span aria-hidden="true">•</span> Planned</span><span class="legend"><span aria-hidden="true">★</span> Top rated</span><span class="legend"><span aria-hidden="true">✦</span> Local Discovery</span></div>
 
-            <div class="turn-hud" id="turnHud">
+            <div class="turn-hud" id="turnHud" role="region" aria-label="Turn-by-turn navigation">
               <div class="turn-header">
-                <span><i class="fa-solid fa-location-arrow"></i> LIVE NAVIGATION</span>
+                <span><i class="fa-solid fa-location-arrow" aria-hidden="true"></i> LIVE NAVIGATION</span>
                 <span id="turn-dist-total">0.0 km</span>
               </div>
               <div class="turn-body">
-                <div class="turn-icon-box" id="turn-icon"><i class="fa-solid fa-arrow-up"></i></div>
+                <div class="turn-icon-box" id="turn-icon" aria-hidden="true"><i class="fa-solid fa-arrow-up"></i></div>
                 <div>
                   <div style="font-size:13px; font-weight:700;" id="turn-text">Follow route</div>
                   <div style="font-size:11px; opacity:0.8;" id="turn-sub">Step 1</div>
                 </div>
               </div>
               <div class="turn-controls">
-                <button class="turn-btn" onclick="prevTurn()"><i class="fa-solid fa-backward-step"></i> Prev</button>
-                <button class="turn-btn" onclick="nextTurn()">Next <i class="fa-solid fa-forward-step"></i></button>
-                <button class="turn-btn" style="background:var(--danger);" onclick="stopTurnNav()">Exit</button>
+                <button class="turn-btn" onclick="prevTurn()"><i class="fa-solid fa-backward-step" aria-hidden="true"></i> Prev</button>
+                <button class="turn-btn" onclick="nextTurn()">Next <i class="fa-solid fa-forward-step" aria-hidden="true"></i></button>
+                <button class="turn-btn" style="background:var(--danger);" onclick="stopTurnNav()"><span aria-hidden="true">✕</span> Exit</button>
               </div>
             </div>
 
-            <div class="map" id="map"></div>
+            <div class="map" id="map" role="application" aria-label="Trip map. Use the search box or route buttons on each place to navigate; click the map to drop a pin." tabindex="0"></div>
           </section>
         </div>
 
@@ -313,26 +362,27 @@
         <div class="hero">
           <div><div class="eyebrow">Discover</div><h1>Find somewhere you'll love.</h1><p>Search the live map for cafes, temples, ramen, and shopping.</p></div>
         </div>
-        <div class="searchBar">
+        <form class="searchBar" id="exploreSearchForm" role="search">
+          <label for="exploreSearch" class="visually-hidden">Search places to discover</label>
           <input id="exploreSearch" placeholder="Search ramen, temples, shopping, nightlife..."/>
-          <button class="btn primary" id="exploreSearchBtn"><i class="fa-solid fa-magnifying-glass"></i> Search Map</button>
-        </div>
-        <div class="toolbar" id="exploreFilters"></div>
-        <div class="savedGrid" id="exploreGrid"></div>
+          <button class="btn primary" type="submit" id="exploreSearchBtn"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Search Map</button>
+        </form>
+        <div class="toolbar" id="exploreFilters" role="group" aria-label="Filter by category"></div>
+        <div class="savedGrid" id="exploreGrid" aria-live="polite"></div>
       </section>
 
       <section class="view" id="view-saved">
         <div class="hero">
           <div><div class="eyebrow">Your collection</div><h1>Saved places.</h1><p>Keep your favorites here and add them to any day.</p></div>
-          <button class="btn" id="clearSavedBtn"><i class="fa-solid fa-trash-can"></i> Clear saved</button>
+          <button class="btn" id="clearSavedBtn"><i class="fa-solid fa-trash-can" aria-hidden="true"></i> Clear saved</button>
         </div>
-        <div class="savedGrid" id="savedGrid"></div>
+        <div class="savedGrid" id="savedGrid" aria-live="polite"></div>
       </section>
 
       <section class="view" id="view-budget">
         <div class="hero">
           <div><div class="eyebrow">Trip finance</div><h1>Budget at a glance.</h1><p>Track the whole trip and see where the money is going.</p></div>
-          <button class="btn primary" id="budgetAdjustBtn"><i class="fa-solid fa-coins"></i> Adjust budget</button>
+          <button class="btn primary" id="budgetAdjustBtn"><i class="fa-solid fa-coins" aria-hidden="true"></i> Adjust budget</button>
         </div>
         <div class="sectionGrid">
           <div class="card"><div class="small">Trip budget</div><div class="metric" id="budgetTotal">¥120,000</div><div class="small">Target for this trip</div></div>
@@ -348,14 +398,14 @@
       <section class="view" id="view-packing">
         <div class="hero">
           <div><div class="eyebrow">Packing</div><h1>Don't forget a thing.</h1><p>Tap each item as you pack it.</p></div>
-          <button class="btn primary" id="addPackingBtn"><i class="fa-solid fa-plus"></i> Add item</button>
+          <button class="btn primary" id="addPackingBtn"><i class="fa-solid fa-plus" aria-hidden="true"></i> Add item</button>
         </div>
         <div class="card">
           <div style="display:flex;justify-content:space-between;gap:12px;align-items:center">
             <strong id="packingProgress">0 / 0 packed</strong>
             <span class="small" id="packingPercent">0%</span>
           </div>
-          <div class="progress" style="margin-top:10px"><div id="packingBar"></div></div>
+          <div class="progress" style="margin-top:10px" role="progressbar" aria-labelledby="packingProgress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="packingBarWrap"><div id="packingBar"></div></div>
           <div class="list" id="packingList" style="margin-top:18px;"></div>
         </div>
       </section>
@@ -363,40 +413,40 @@
       <section class="view" id="view-bookings">
         <div class="hero">
           <div><div class="eyebrow">Bookings</div><h1>Your trip, confirmed.</h1><p>Search flights and stays, then keep every reservation together.</p></div>
-          <button class="btn primary" id="addBookingBtn"><i class="fa-solid fa-plane-up"></i> Add manual booking</button>
+          <button class="btn primary" id="addBookingBtn"><i class="fa-solid fa-plane-up" aria-hidden="true"></i> Add manual booking</button>
         </div>
-        <div class="toolbar">
-          <button class="pill active" data-btab="mine">My bookings</button>
-          <button class="pill" data-btab="flights"><i class="fa-solid fa-plane"></i> Flights</button>
-          <button class="pill" data-btab="hotels"><i class="fa-solid fa-bed"></i> Hotels</button>
+        <div class="toolbar" role="tablist" aria-label="Bookings sections">
+          <button class="pill active" role="tab" id="btab-mine" aria-selected="true" aria-controls="bpane-mine" data-btab="mine">My bookings</button>
+          <button class="pill" role="tab" id="btab-flights" aria-selected="false" aria-controls="bpane-flights" data-btab="flights"><i class="fa-solid fa-plane" aria-hidden="true"></i> Flights</button>
+          <button class="pill" role="tab" id="btab-hotels" aria-selected="false" aria-controls="bpane-hotels" data-btab="hotels"><i class="fa-solid fa-bed" aria-hidden="true"></i> Hotels</button>
         </div>
 
-        <div class="bpane active" id="bpane-mine">
+        <div class="bpane active" id="bpane-mine" role="tabpanel" aria-labelledby="btab-mine">
           <div class="list" id="bookingList"></div>
         </div>
 
-        <div class="bpane" id="bpane-flights">
-          <div class="card">
+        <div class="bpane" id="bpane-flights" role="tabpanel" aria-labelledby="btab-flights">
+          <form class="card" id="flightSearchForm">
             <div class="modalGrid">
-              <div class="field"><label>From</label><input id="flightFrom" value="Home"/></div>
-              <div class="field"><label>To</label><input id="flightTo" value="Tokyo"/></div>
-              <div class="field"><label>Depart</label><input id="flightDate" value="Oct 4, 2026"/></div>
+              <div class="field"><label for="flightFrom">From</label><input id="flightFrom" value="Home"/></div>
+              <div class="field"><label for="flightTo">To</label><input id="flightTo" value="Tokyo"/></div>
+              <div class="field"><label for="flightDate">Depart</label><input id="flightDate" value="Oct 4, 2026"/></div>
             </div>
-            <button class="btn primary" style="margin-top:12px" id="searchFlightsBtn"><i class="fa-solid fa-magnifying-glass"></i> Search flights</button>
-          </div>
-          <div class="list" id="flightResults" style="margin-top:14px"></div>
+            <button class="btn primary" style="margin-top:12px" type="submit" id="searchFlightsBtn"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Search flights</button>
+          </form>
+          <div class="list" id="flightResults" style="margin-top:14px" aria-live="polite"></div>
         </div>
 
-        <div class="bpane" id="bpane-hotels">
-          <div class="card">
+        <div class="bpane" id="bpane-hotels" role="tabpanel" aria-labelledby="btab-hotels">
+          <form class="card" id="hotelSearchForm">
             <div class="modalGrid">
-              <div class="field"><label>Destination</label><input id="hotelDest" value="Tokyo"/></div>
-              <div class="field"><label>Check-in</label><input id="hotelCheckin" value="Oct 4, 2026"/></div>
-              <div class="field"><label>Nights</label><input id="hotelNights" type="number" min="1" value="6"/></div>
+              <div class="field"><label for="hotelDest">Destination</label><input id="hotelDest" value="Tokyo"/></div>
+              <div class="field"><label for="hotelCheckin">Check-in</label><input id="hotelCheckin" value="Oct 4, 2026"/></div>
+              <div class="field"><label for="hotelNights">Nights</label><input id="hotelNights" type="number" min="1" value="6"/></div>
             </div>
-            <button class="btn primary" style="margin-top:12px" id="searchHotelsBtn"><i class="fa-solid fa-magnifying-glass"></i> Search hotels</button>
-          </div>
-          <div class="savedGrid" id="hotelResults" style="margin-top:14px"></div>
+            <button class="btn primary" style="margin-top:12px" type="submit" id="searchHotelsBtn"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Search hotels</button>
+          </form>
+          <div class="savedGrid" id="hotelResults" style="margin-top:14px" aria-live="polite"></div>
         </div>
       </section>
 
@@ -404,21 +454,21 @@
   </div>
 </div>
 
-<button class="aiLauncher" id="aiLauncher"><i class="fa-solid fa-wand-magic-sparkles"></i> Ask TripShuffle</button>
-<div class="ai hidden" id="ai">
+<button class="aiLauncher" id="aiLauncher" aria-haspopup="dialog" aria-expanded="false" aria-controls="ai"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> Ask TripShuffle</button>
+<div class="ai hidden" id="ai" role="dialog" aria-modal="false" aria-labelledby="aiTitle">
   <div class="aiHead">
     <div>
-      <div class="aiTitle">✦ TripShuffle Copilot (Gemini)</div>
+      <div class="aiTitle" id="aiTitle"><span aria-hidden="true">✦</span> TripShuffle Copilot (Gemini)</div>
       <div class="aiSub">Ask about places, food, routes, budgets.</div>
     </div>
     <div class="aiBtns">
-      <button class="aiIcon" id="apiSetupBtn" title="Setup API Key"><i class="fa-solid fa-key"></i></button>
-      <button class="aiIcon" id="minAI" title="Minimize">−</button>
-      <button class="aiIcon" id="closeAI" title="Close">×</button>
+      <button class="aiIcon" id="apiSetupBtn" aria-label="Set up Gemini API key"><i class="fa-solid fa-key" aria-hidden="true"></i></button>
+      <button class="aiIcon" id="minAI" aria-label="Minimize chat">−</button>
+      <button class="aiIcon" id="closeAI" aria-label="Close chat">×</button>
     </div>
   </div>
   <div class="aiBody">
-    <div class="messages" id="messages">
+    <div class="messages" id="messages" role="log" aria-live="polite" aria-label="Chat messages">
       <div class="msg bot">Hey! I’m your Gemini-powered travel copilot. Ask me to build a foodie day, find hidden gems, or review your budget!</div>
     </div>
     <div class="suggestions">
@@ -427,51 +477,52 @@
       <button class="suggestion">What should I pack?</button>
       <button class="suggestion">Is this budget realistic?</button>
     </div>
-    <div class="aiInput">
+    <form class="aiInput" id="aiForm">
+      <label for="aiText" class="visually-hidden">Ask your trip copilot anything</label>
       <textarea id="aiText" placeholder="Ask your trip copilot anything..."></textarea>
-      <button class="send" id="sendAI"><i class="fa-solid fa-paper-plane"></i></button>
-    </div>
+      <button class="send" type="submit" id="sendAI" aria-label="Send message"><i class="fa-solid fa-paper-plane" aria-hidden="true"></i></button>
+    </form>
   </div>
 </div>
 
 <div class="modalBack" id="surpriseModal">
-  <div class="modal">
-    <div class="modalHeader"><div><h2>✨ Build my trip</h2><p class="small">Choose preferences. Every day will be generated with variety, pace, and logic.</p></div><button class="xbtn" data-close="surpriseModal">×</button></div>
-    <div class="preferenceGrid" id="prefGrid"></div>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="surpriseModalTitle">
+    <div class="modalHeader"><div><h2 id="surpriseModalTitle"><span aria-hidden="true">✨</span> Build my trip</h2><p class="small">Choose preferences. Every day will be generated with variety, pace, and logic.</p></div><button class="xbtn" data-close="surpriseModal" aria-label="Close dialog">×</button></div>
+    <div class="preferenceGrid" id="prefGrid" role="group" aria-label="Trip preferences"></div>
     <div class="modalGrid">
-      <div class="field"><label>Trip vibe</label><select id="modalPace"><option>Relaxed</option><option selected>Balanced</option><option>Packed</option></select></div>
-      <div class="field"><label>Budget</label><select id="modalBudget"><option>Value</option><option selected>Balanced</option><option>Treat myself</option></select></div>
-      <div class="field"><label>Walking</label><select id="modalWalk"><option>Low</option><option selected>Medium</option><option>High</option></select></div>
+      <div class="field"><label for="modalPace">Trip vibe</label><select id="modalPace"><option>Relaxed</option><option selected>Balanced</option><option>Packed</option></select></div>
+      <div class="field"><label for="modalBudget">Budget</label><select id="modalBudget"><option>Value</option><option selected>Balanced</option><option>Treat myself</option></select></div>
+      <div class="field"><label for="modalWalk">Walking</label><select id="modalWalk"><option>Low</option><option selected>Medium</option><option>High</option></select></div>
     </div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" data-close="surpriseModal">Cancel</button><button class="btn primary" id="generateBtn">Generate my full trip</button></div>
   </div>
 </div>
 
 <div class="modalBack" id="newTripModal">
-  <div class="modal">
-    <div class="modalHeader"><div><h2>＋ Create a new trip</h2><p class="small">Set the basics and TripShuffle will create a fresh draft.</p></div><button class="xbtn" data-close="newTripModal">×</button></div>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="newTripModalTitle">
+    <div class="modalHeader"><div><h2 id="newTripModalTitle">＋ Create a new trip</h2><p class="small">Set the basics and TripShuffle will create a fresh draft.</p></div><button class="xbtn" data-close="newTripModal" aria-label="Close dialog">×</button></div>
     <div class="modalGrid" style="margin-top:16px">
-      <div class="field"><label>Destination</label><input id="newDestination" value="Kyoto, Japan"/></div>
-      <div class="field"><label>Dates</label><input id="newDates" value="Nov 1 – Nov 6, 2026"/></div>
-      <div class="field"><label>Days</label><select id="newDays"><option>3</option><option>4</option><option selected>6</option><option>7</option></select></div>
+      <div class="field"><label for="newDestination">Destination</label><input id="newDestination" value="Kyoto, Japan"/></div>
+      <div class="field"><label for="newDates">Dates</label><input id="newDates" value="Nov 1 – Nov 6, 2026"/></div>
+      <div class="field"><label for="newDays">Days</label><select id="newDays"><option>3</option><option>4</option><option selected>6</option><option>7</option></select></div>
     </div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" data-close="newTripModal">Cancel</button><button class="btn primary" id="createTripBtn">Create trip</button></div>
   </div>
 </div>
 
 <div class="modalBack" id="budgetModal">
-  <div class="modal">
-    <div class="modalHeader"><div><h2>Adjust trip budget</h2><p class="small">Set the tracking number for your dashboard.</p></div><button class="xbtn" data-close="budgetModal">×</button></div>
-    <div class="field" style="margin-top:16px"><label>Budget Target (JPY)</label><input id="budgetInput" type="number" min="0" value="120000" style="font-size:20px;font-weight:800;"/></div>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="budgetModalTitle">
+    <div class="modalHeader"><div><h2 id="budgetModalTitle">Adjust trip budget</h2><p class="small">Set the tracking number for your dashboard.</p></div><button class="xbtn" data-close="budgetModal" aria-label="Close dialog">×</button></div>
+    <div class="field" style="margin-top:16px"><label for="budgetInput">Budget target (JPY)</label><input id="budgetInput" type="number" min="0" value="120000" style="font-size:20px;font-weight:800;"/></div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" data-close="budgetModal">Cancel</button><button class="btn primary" id="saveBudgetBtn">Save budget</button></div>
   </div>
 </div>
 
 <div class="modalBack" id="placeModal">
-  <div class="modal" id="placeModalBody"></div>
+  <div class="modal" id="placeModalBody" role="dialog" aria-modal="true" aria-labelledby="placeModalTitle"></div>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
@@ -580,11 +631,11 @@ function recalcIdCounter() {
 }
 
 // --- VIEWS ---
-function showView(view) {
+function showView(view, opts={}) {
   document.querySelectorAll('.view').forEach(x => x.classList.remove('active'));
   $('view-'+view).classList.add('active');
-  document.querySelectorAll('.navbtn, .sideItem').forEach(x => x.classList.remove('active'));
-  document.querySelectorAll(`[data-view="${view}"]`).forEach(x => x.classList.add('active'));
+  document.querySelectorAll('.navbtn, .sideItem').forEach(x => { x.classList.remove('active'); x.removeAttribute('aria-current'); });
+  document.querySelectorAll(`[data-view="${view}"]`).forEach(x => { x.classList.add('active'); x.setAttribute('aria-current','page'); });
 
   if(view === 'plan' && map) setTimeout(()=>map.invalidateSize(), 200);
   if(view === 'explore') renderExplore();
@@ -593,18 +644,62 @@ function showView(view) {
   if(view === 'packing') renderPacking();
   if(view === 'bookings') renderBookings();
   window.scrollTo(0,0);
+  closeDrawer();
+  if(!opts.silent) {
+    const heading = document.querySelector('#view-'+view+' h1');
+    if(heading) { heading.setAttribute('tabindex','-1'); heading.focus({preventScroll:true}); }
+  }
 }
 function wireNav() {
   document.querySelectorAll('.navbtn[data-view], .sideItem[data-view]').forEach(b => { b.onclick = () => showView(b.dataset.view); });
 }
 
+// --- MOBILE DRAWER ---
+function openDrawer() {
+  $('sidebar').classList.add('open');
+  $('drawerBackdrop').classList.add('show');
+  $('menuBtn').setAttribute('aria-expanded','true');
+  document.body.style.overflow = 'hidden';
+  $('closeDrawerBtn').focus();
+}
+function closeDrawer() {
+  if(!$('sidebar').classList.contains('open')) return;
+  $('sidebar').classList.remove('open');
+  $('drawerBackdrop').classList.remove('show');
+  $('menuBtn').setAttribute('aria-expanded','false');
+  document.body.style.overflow = '';
+  if(document.activeElement && $('sidebar').contains(document.activeElement)) $('menuBtn').focus();
+}
+$('menuBtn').onclick = openDrawer;
+$('closeDrawerBtn').onclick = closeDrawer;
+$('drawerBackdrop').onclick = closeDrawer;
+$('brandBtn').onclick = () => showView('plan');
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape' && $('sidebar').classList.contains('open')) closeDrawer();
+});
+trapFocusWithin('sidebar', () => $('sidebar').classList.contains('open'));
+
+function trapFocusWithin(elId, isActiveFn) {
+  document.addEventListener('keydown', e => {
+    if(e.key !== 'Tab' || !isActiveFn()) return;
+    const el = $(elId);
+    const focusables = [...el.querySelectorAll('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter(x=>x.offsetParent!==null);
+    if(!focusables.length) return;
+    const first = focusables[0], last = focusables[focusables.length-1];
+    if(e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if(!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
+}
+
 // --- TRIPS ---
 function renderTripList() {
   $('tripList').innerHTML = trips.map(t => `
-    <button class="tripCard ${t.id===currentTripId?'active':''}" data-trip="${t.id}">
+    <div role="listitem">
+    <button class="tripCard ${t.id===currentTripId?'active':''}" data-trip="${t.id}" ${t.id===currentTripId?'aria-current="true"':''}>
       <div class="tripName">${escapeHtml(t.name)}</div>
       <div class="small">${escapeHtml(t.dates)} · ${t.days} day${t.days===1?'':'s'}</div>
-    </button>`).join('');
+    </button>
+    </div>`).join('');
   $('tripList').querySelectorAll('.tripCard').forEach(b => b.onclick = () => switchTrip(Number(b.dataset.trip)));
 }
 
@@ -678,15 +773,16 @@ function overpassToPlace(el) {
 // --- SETUP PREFS ---
 function setupPrefs() {
   const t = ct();
-  $('quickChips').innerHTML = PREFS.map(([key,icon,label])=>`<button class="chip ${t.selectedPrefs.has(key)?'selected':''}" data-pref="${key}">${icon} ${label}</button>`).join('');
+  $('quickChips').innerHTML = PREFS.map(([key,icon,label])=>`<button class="chip ${t.selectedPrefs.has(key)?'selected':''}" type="button" aria-pressed="${t.selectedPrefs.has(key)}" data-pref="${key}"><span aria-hidden="true">${icon}</span> ${label}</button>`).join('');
   $('quickChips').querySelectorAll('.chip').forEach(b=>b.onclick=()=>{
     b.classList.toggle('selected');
+    b.setAttribute('aria-pressed', b.classList.contains('selected'));
     t.selectedPrefs = new Set([...document.querySelectorAll('#quickChips .chip.selected')].map(x=>x.dataset.pref));
     saveState(); renderStats();
   });
 
-  $('prefGrid').innerHTML = PREFS.map(([key,icon,label,sub])=>`<button class="pref ${t.selectedPrefs.has(key)?'active':''}" type="button" data-pref="${key}"><b>${icon} ${label}</b><span>${sub}</span></button>`).join('');
-  $('prefGrid').querySelectorAll('.pref').forEach(b=>b.onclick=()=>{ b.classList.toggle('active'); });
+  $('prefGrid').innerHTML = PREFS.map(([key,icon,label,sub])=>`<button class="pref ${t.selectedPrefs.has(key)?'active':''}" type="button" aria-pressed="${t.selectedPrefs.has(key)}" data-pref="${key}"><b><span aria-hidden="true">${icon}</span> ${label}</b><span>${sub}</span></button>`).join('');
+  $('prefGrid').querySelectorAll('.pref').forEach(b=>b.onclick=()=>{ b.classList.toggle('active'); b.setAttribute('aria-pressed', b.classList.contains('active')); });
 }
 
 // --- GENERATE ITINERARY ---
@@ -715,13 +811,24 @@ async function generateDayPlans() {
 
 function renderDays() {
   const t = ct();
-  $('dayTabs').innerHTML = Array.from({length:t.days}, (_,i)=>`<button class="dayTab ${i===t.currentDay?'active':''}" data-day="${i}"><strong>Day ${i+1}</strong></button>`).join('');
-  $('dayTabs').querySelectorAll('.dayTab').forEach(b=>b.onclick=()=> {
-    t.currentDay = Number(b.dataset.day);
-    document.querySelectorAll('.dayTab').forEach(x=>x.classList.remove('active'));
-    b.classList.add('active');
+  $('dayTabs').innerHTML = Array.from({length:t.days}, (_,i)=>`<button class="dayTab ${i===t.currentDay?'active':''}" role="tab" id="dayTab-${i}" aria-selected="${i===t.currentDay}" aria-controls="timeline" tabindex="${i===t.currentDay?'0':'-1'}" data-day="${i}"><strong>Day ${i+1}</strong></button>`).join('');
+  const tabs = [...$('dayTabs').querySelectorAll('.dayTab')];
+  function selectDay(i) {
+    t.currentDay = i;
+    tabs.forEach(x=>{ const on = Number(x.dataset.day)===i; x.classList.toggle('active',on); x.setAttribute('aria-selected', on); x.tabIndex = on?0:-1; });
     saveState();
     renderTimeline(); renderRecommendations(); renderMap(); renderStats();
+  }
+  tabs.forEach((b,i)=>{
+    b.onclick = () => selectDay(i);
+    b.onkeydown = e => {
+      if(e.key==='ArrowRight' || e.key==='ArrowLeft') {
+        e.preventDefault();
+        const next = tabs[(i + (e.key==='ArrowRight'?1:-1) + tabs.length) % tabs.length];
+        next.focus(); selectDay(Number(next.dataset.day));
+      } else if(e.key==='Home') { e.preventDefault(); tabs[0].focus(); selectDay(0); }
+      else if(e.key==='End') { e.preventDefault(); tabs[tabs.length-1].focus(); selectDay(tabs.length-1); }
+    };
   });
 }
 
@@ -729,18 +836,19 @@ function renderDays() {
 function renderTimeline() {
   const t = ct();
   const list = t.dayPlans[t.currentDay] || [];
+  $('timeline').setAttribute('aria-labelledby', 'dayTab-'+t.currentDay);
   $('timeline').innerHTML = list.length ? list.map((p,i)=>`
     <div class="stop">
-      <div class="num">${i+1}</div>
+      <div class="num" aria-hidden="true">${i+1}</div>
       <div>
-        <h4 style="cursor:pointer" onclick="openPlaceDetails(${p.id})">${escapeHtml(p.name)}</h4><p>${escapeHtml(p.desc)}</p>
-        <div class="meta"><span>🕒 ${['9:00 AM','11:30 AM','2:30 PM','5:45 PM'][i]||'10:00 AM'}</span><span>📍 ${escapeHtml(p.area)}</span><span>¥${p.cost.toLocaleString()}</span></div>
+        <h4><button type="button" class="linkish" onclick="openPlaceDetails(${p.id})">${escapeHtml(p.name)}</button></h4><p>${escapeHtml(p.desc)}</p>
+        <div class="meta"><span><span aria-hidden="true">🕒</span> ${['9:00 AM','11:30 AM','2:30 PM','5:45 PM'][i]||'10:00 AM'}</span><span><span aria-hidden="true">📍</span> ${escapeHtml(p.area)}</span><span>¥${p.cost.toLocaleString()}</span></div>
         <div style="display:flex; gap:6px; margin-top:8px;">
-          <button class="btn primary" style="padding:5px 10px; font-size:11px;" onclick="startTurnNav(${p.id})"><i class="fa-solid fa-location-arrow"></i> Route</button>
-          <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.name + ' ' + t.destination)}" target="_blank" class="btn" style="padding:5px 10px; font-size:11px;"><i class="fa-solid fa-map-pin"></i> Google Maps</a>
+          <button class="btn primary" style="padding:5px 10px; font-size:11px;" onclick="startTurnNav(${p.id})"><i class="fa-solid fa-location-arrow" aria-hidden="true"></i> Route</button>
+          <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.name + ' ' + t.destination)}" target="_blank" rel="noopener" class="btn" style="padding:5px 10px; font-size:11px;"><i class="fa-solid fa-map-pin" aria-hidden="true"></i> Google Maps <span class="visually-hidden">(opens in a new tab)</span></a>
         </div>
       </div>
-      <div><div class="score">★ ${p.rating}</div><button class="btn danger" style="margin-top:8px;padding:6px 8px;font-size:11px" onclick="removeStop(${i})">Remove</button></div>
+      <div><div class="score"><span aria-hidden="true">★</span> ${p.rating}</div><button class="btn danger" style="margin-top:8px;padding:6px 8px;font-size:11px" onclick="removeStop(${i})" aria-label="Remove ${escapeHtml(p.name)} from Day ${t.currentDay+1}">Remove</button></div>
     </div>
   `).join('') : '<div class="empty">No stops yet. Use "Add place" or "Surprise Me".</div>';
 }
@@ -749,16 +857,16 @@ function placeCard(p, opts={}) {
   const t = ct();
   const saved = t.savedIds.has(p.id);
   const secondBtn = opts.removeMode
-    ? `<button class="add" onclick="toggleSave(${p.id})">Remove</button>`
-    : `<button class="add" onclick="toggleSave(${p.id})">${saved?'♥ Saved':'♡ Save'}</button>`;
+    ? `<button class="add" onclick="toggleSave(${p.id})">Remove <span class="visually-hidden">${escapeHtml(p.name)} from saved</span></button>`
+    : `<button class="add" onclick="toggleSave(${p.id})" aria-pressed="${saved}">${saved?'♥ Saved':'♡ Save'} <span class="visually-hidden">${escapeHtml(p.name)}</span></button>`;
   const addLabel = opts.addLabel || '＋ Add';
   return `<div class="place">
-    <img src="${p.img}" alt="" style="cursor:pointer" onclick="openPlaceDetails(${p.id})"/>
+    <img src="${p.img}" alt="${escapeHtml(p.name)}"/>
     <div class="placeBody">
-      <h4 style="cursor:pointer" onclick="openPlaceDetails(${p.id})">${escapeHtml(p.name)}</h4>
-      <p>${escapeHtml(p.area)}${p.type?' · '+escapeHtml(p.type):''} · ★ ${p.rating}</p>
+      <h4><button type="button" class="linkish" onclick="openPlaceDetails(${p.id})">${escapeHtml(p.name)}</button></h4>
+      <p>${escapeHtml(p.area)}${p.type?' · '+escapeHtml(p.type):''} · <span aria-hidden="true">★</span> ${p.rating}</p>
       <div class="placeFoot">
-        <button class="add" onclick="addStop(${p.id})">${addLabel}</button>
+        <button class="add" onclick="addStop(${p.id})">${addLabel} <span class="visually-hidden">${escapeHtml(p.name)} to itinerary</span></button>
         ${secondBtn}
       </div>
     </div>
@@ -890,8 +998,12 @@ async function renderExplore() {
 
 function setupExploreFilters() {
   const filters = [['all','All'], ...PREFS.map(x=>[x[0],x[2]])];
-  $('exploreFilters').innerHTML = filters.map(([k,l],i)=>`<button class="pill ${i===0?'active':''}" data-filter="${k}">${l}</button>`).join('');
-  $('exploreFilters').querySelectorAll('.pill').forEach(b=>b.onclick=()=>{ $('exploreFilters').querySelectorAll('.pill').forEach(x=>x.classList.remove('active')); b.classList.add('active'); renderExplore(); });
+  $('exploreFilters').innerHTML = filters.map(([k,l],i)=>`<button class="pill ${i===0?'active':''}" type="button" aria-pressed="${i===0}" data-filter="${k}">${l}</button>`).join('');
+  $('exploreFilters').querySelectorAll('.pill').forEach(b=>b.onclick=()=>{
+    $('exploreFilters').querySelectorAll('.pill').forEach(x=>{ x.classList.remove('active'); x.setAttribute('aria-pressed','false'); });
+    b.classList.add('active'); b.setAttribute('aria-pressed','true');
+    renderExplore();
+  });
 }
 
 // --- PLACE DETAILS (TRIPADVISOR STYLE) ---
@@ -903,8 +1015,8 @@ function openPlaceDetails(id) {
   const saved = t.savedIds.has(p.id);
   const stars = '★'.repeat(Math.round(p.rating)) + '☆'.repeat(5-Math.round(p.rating));
   $('placeModalBody').innerHTML = `
-    <div class="modalHeader"><div><h2>${escapeHtml(p.name)}</h2><p class="small">${escapeHtml(p.area)}${p.type?' · '+escapeHtml(p.type):''} · <span class="stars">${stars}</span> ${p.rating}</p></div><button class="xbtn" data-close="placeModal">×</button></div>
-    <img class="detailImg" src="${p.img}" alt=""/>
+    <div class="modalHeader"><div><h2 id="placeModalTitle">${escapeHtml(p.name)}</h2><p class="small">${escapeHtml(p.area)}${p.type?' · '+escapeHtml(p.type):''} · <span class="stars" aria-hidden="true">${stars}</span> <span class="visually-hidden">Rating</span> ${p.rating} out of 5</p></div><button class="xbtn" data-close="placeModal" aria-label="Close dialog">×</button></div>
+    <img class="detailImg" src="${p.img}" alt="${escapeHtml(p.name)}"/>
     <p>${escapeHtml(p.desc)}</p>
     <div class="detailTags">${(p.tags||[]).map(tg=>`<span>${escapeHtml(tg)}</span>`).join('')}</div>
     <div class="stats" style="grid-template-columns:repeat(3,1fr)">
@@ -913,15 +1025,15 @@ function openPlaceDetails(id) {
       <div class="stat"><div class="v">${p.rating}</div><div class="k">Rating</div></div>
     </div>
     <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
-      <button class="btn primary" onclick="addStop(${p.id})"><i class="fa-solid fa-plus"></i> Add to Day ${t.currentDay+1}</button>
-      <button class="btn" onclick="toggleSave(${p.id});openPlaceDetails(${p.id})">${saved?'♥ Saved':'♡ Save'}</button>
-      <button class="btn" onclick="startTurnNav(${p.id});closeModal('placeModal')"><i class="fa-solid fa-location-arrow"></i> Route</button>
-      <a class="btn" target="_blank" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.name + ' ' + t.destination)}"><i class="fa-solid fa-map-pin"></i> Google Maps</a>
+      <button class="btn primary" onclick="addStop(${p.id})"><i class="fa-solid fa-plus" aria-hidden="true"></i> Add to Day ${t.currentDay+1}</button>
+      <button class="btn" onclick="toggleSave(${p.id});openPlaceDetails(${p.id})" aria-pressed="${saved}">${saved?'♥ Saved':'♡ Save'}</button>
+      <button class="btn" onclick="startTurnNav(${p.id});closeModal('placeModal')"><i class="fa-solid fa-location-arrow" aria-hidden="true"></i> Route</button>
+      <a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.name + ' ' + t.destination)}"><i class="fa-solid fa-map-pin" aria-hidden="true"></i> Google Maps <span class="visually-hidden">(opens in a new tab)</span></a>
     </div>
     <h3 style="margin-top:20px">Traveler reviews</h3>
-    ${reviews.map(r=>`<div class="reviewCard"><div class="ru"><span>${escapeHtml(r.user)}</span><span class="stars">${'★'.repeat(r.rating)}</span></div><p>${escapeHtml(r.text)}</p></div>`).join('')}
+    ${reviews.map(r=>`<div class="reviewCard"><div class="ru"><span>${escapeHtml(r.user)}</span><span class="stars" aria-hidden="true">${'★'.repeat(r.rating)}</span><span class="visually-hidden">${r.rating} out of 5</span></div><p>${escapeHtml(r.text)}</p></div>`).join('')}
   `;
-  openModal('placeModal');
+  openModal('placeModal', $('placeModalBody').querySelector('.xbtn'));
 }
 
 // --- TURN BY TURN NAVIGATION ---
@@ -986,13 +1098,14 @@ function renderPacking() {
   const t = ct();
   const packed = t.packing.filter(x=>x[1]).length; const total = t.packing.length; const pct = total ? Math.round(packed/total*100) : 0;
   $('packingProgress').textContent = `${packed} / ${total} packed`; $('packingPercent').textContent = pct+'%'; $('packingBar').style.width = pct+'%';
+  $('packingBarWrap').setAttribute('aria-valuenow', String(pct));
   $('packingList').innerHTML = t.packing.map((x,i)=>`<label class="listRow" style="cursor:pointer;"><div class="left"><input class="check" type="checkbox" ${x[1]?'checked':''} data-pack="${i}"><span>${escapeHtml(x[0])}</span></div><span class="small">${x[1]?'Packed':'To pack'}</span></label>`).join('');
   $('packingList').querySelectorAll('[data-pack]').forEach(c=>c.onchange=()=>{ t.packing[Number(c.dataset.pack)][1]=c.checked; saveState(); renderPacking(); });
 }
 
 function renderBookings() {
   const t = ct();
-  $('bookingList').innerHTML = t.bookings.map((b,i)=>`<div class="card booking"><div><div class="small" style="color:var(--green); font-weight:700;">${escapeHtml(b.type)}</div><h3 style="margin:3px 0">${escapeHtml(b.name)}</h3><div class="small">${escapeHtml(b.date)}</div></div><div style="display:flex;align-items:center;gap:10px"><strong>¥${b.cost.toLocaleString()}</strong><button class="btn danger" onclick="removeBooking(${i})">Remove</button></div></div>`).join('') || '<div class="empty">No bookings yet.</div>';
+  $('bookingList').innerHTML = t.bookings.map((b,i)=>`<div class="card booking"><div><div class="small" style="color:var(--green); font-weight:700;">${escapeHtml(b.type)}</div><h3 style="margin:3px 0">${escapeHtml(b.name)}</h3><div class="small">${escapeHtml(b.date)}</div></div><div style="display:flex;align-items:center;gap:10px"><strong>¥${b.cost.toLocaleString()}</strong><button class="btn danger" onclick="removeBooking(${i})" aria-label="Remove booking: ${escapeHtml(b.name)}">Remove</button></div></div>`).join('') || '<div class="empty">No bookings yet.</div>';
 }
 function removeBooking(i) { ct().bookings.splice(i,1); saveState(); renderBookings(); renderBudget(); toast('Booking removed.'); }
 
@@ -1021,8 +1134,9 @@ function renderFlightResults(list) {
     <div class="flightRow">
       <div><strong>${escapeHtml(f.airline)}</strong><div class="small">${escapeHtml(f.from)} → ${escapeHtml(f.to)} · ${escapeHtml(f.date)}</div></div>
       <div class="fmid"><div>${f.depart}</div><div>${f.duration} · ${f.stops}</div></div>
-      <div style="text-align:right"><div class="priceTag">¥${f.price.toLocaleString()}</div><button class="btn primary" style="margin-top:6px;padding:6px 10px;font-size:12px" onclick="bookFlight(${f.id})">Book</button></div>
-    </div>`).join('');
+      <div style="text-align:right"><div class="priceTag">¥${f.price.toLocaleString()}</div><button class="btn primary" style="margin-top:6px;padding:6px 10px;font-size:12px" onclick="bookFlight(${f.id})">Book <span class="visually-hidden">${escapeHtml(f.airline)} for ¥${f.price.toLocaleString()}</span></button></div>
+    </div>`).join('') || '<div class="empty">No flights found.</div>';
+  toast(`Found ${list.length} flights.`);
 }
 function bookFlight(id) {
   const f = flightCache[id]; if(!f) return;
@@ -1032,8 +1146,9 @@ function bookFlight(id) {
 function renderHotelResults(list) {
   hotelCache = Object.fromEntries(list.map(h=>[h.id,h]));
   $('hotelResults').innerHTML = list.map(h=>`
-    <div class="place"><img src="${h.img}" alt=""/><div class="placeBody"><h4>${escapeHtml(h.name)}</h4><p>${escapeHtml(h.area)} · ★ ${h.rating} · ¥${h.perNight.toLocaleString()}/night</p>
-    <div class="placeFoot"><strong>¥${(h.perNight*h.nights).toLocaleString()}</strong><button class="add" onclick="bookHotel(${h.id})">Book ${h.nights}n</button></div></div></div>`).join('');
+    <div class="place"><img src="${h.img}" alt="${escapeHtml(h.name)}"/><div class="placeBody"><h4>${escapeHtml(h.name)}</h4><p>${escapeHtml(h.area)} · <span aria-hidden="true">★</span> ${h.rating} · ¥${h.perNight.toLocaleString()}/night</p>
+    <div class="placeFoot"><strong>¥${(h.perNight*h.nights).toLocaleString()}</strong><button class="add" onclick="bookHotel(${h.id})">Book ${h.nights}n <span class="visually-hidden">at ${escapeHtml(h.name)}</span></button></div></div></div>`).join('') || '<div class="empty">No hotels found.</div>';
+  toast(`Found ${list.length} hotels.`);
 }
 function bookHotel(id) {
   const h = hotelCache[id]; if(!h) return;
@@ -1088,10 +1203,36 @@ async function sendAI() {
 }
 
 // --- MODALS ---
-function openModal(id) { $(id).classList.add('show'); }
-function closeModal(id) { $(id).classList.remove('show'); }
+let lastFocusedBeforeModal = null;
+function openModal(id, focusEl) {
+  const back = $(id);
+  lastFocusedBeforeModal = document.activeElement;
+  back.classList.add('show');
+  document.body.style.overflow = 'hidden';
+  const target = focusEl || back.querySelector('.modal [autofocus]') || back.querySelector('input, select, textarea, button');
+  if(target) target.focus();
+}
+function closeModal(id) {
+  const back = $(id);
+  if(!back.classList.contains('show')) return;
+  back.classList.remove('show');
+  if(![...document.querySelectorAll('.modalBack')].some(m=>m.classList.contains('show'))) document.body.style.overflow = '';
+  if(lastFocusedBeforeModal && document.contains(lastFocusedBeforeModal)) lastFocusedBeforeModal.focus();
+  lastFocusedBeforeModal = null;
+}
 document.addEventListener('click', e => { const b = e.target.closest('[data-close]'); if(b) closeModal(b.dataset.close); });
-document.querySelectorAll('.modalBack').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.classList.remove('show'); }));
+document.querySelectorAll('.modalBack').forEach(m=>{
+  m.addEventListener('click',e=>{ if(e.target===m) closeModal(m.id); });
+  m.addEventListener('keydown', e => {
+    if(e.key === 'Escape') { closeModal(m.id); return; }
+    if(e.key !== 'Tab') return;
+    const focusables = [...m.querySelectorAll('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter(x=>x.offsetParent!==null);
+    if(!focusables.length) return;
+    const first = focusables[0], last = focusables[focusables.length-1];
+    if(e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if(!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
+});
 
 // --- UI EVENT LISTENERS ---
 wireNav();
@@ -1102,8 +1243,7 @@ $('budgetAdjustBtn').onclick = () => { $('budgetInput').value = ct().tripBudget;
 $('saveBudgetBtn').onclick = () => { ct().tripBudget = Math.max(0, Number($('budgetInput').value)||0); saveState(); closeModal('budgetModal'); renderBudget(); toast('Budget updated.'); };
 $('addPackingBtn').onclick = () => { const item=prompt('Add a packing item'); if(item){ ct().packing.push([item,false]); saveState(); renderPacking(); toast('Item added.'); } };
 $('addBookingBtn').onclick = () => { const name=prompt('Booking name (e.g. Kyoto Flight)'); if(name){ ct().bookings.push({type:'Booking',name,date:$('dates').value,cost:Math.floor(Math.random()*15000)+5000}); saveState(); renderBookings(); renderBudget(); toast('Booking added.'); } };
-$('exploreSearchBtn').onclick = renderExplore;
-$('exploreSearch').addEventListener('keydown', e => { if(e.key==='Enter') renderExplore(); });
+$('exploreSearchForm').addEventListener('submit', e => { e.preventDefault(); renderExplore(); });
 
 $('newTripBtn').onclick = () => openModal('newTripModal');
 $('createTripBtn').onclick = async () => {
@@ -1138,24 +1278,46 @@ $('locateBtn').onclick = () => {
     L.marker([latitude,longitude], {icon:L.divIcon({className:'custom-map-pin', html:'<div><i class="fa-solid fa-person"></i></div>', iconSize:[26,26], iconAnchor:[13,13]})}).addTo(map).bindPopup('You are here').openPopup();
   }, () => toast('Could not get your location.'));
 };
-$('mapSearchBtn').onclick = mapSearchGo;
-$('mapSearchInput').addEventListener('keydown', e => { if(e.key==='Enter') mapSearchGo(); });
+$('mapSearchForm').addEventListener('submit', e => { e.preventDefault(); mapSearchGo(); });
 $('apiSetupBtn').onclick = promptApiKey;
 
-document.querySelectorAll('#view-bookings .toolbar .pill').forEach(b=>b.onclick=()=>{
-  document.querySelectorAll('#view-bookings .toolbar .pill').forEach(x=>x.classList.remove('active'));
-  b.classList.add('active');
+const bookingTabs = [...document.querySelectorAll('#view-bookings .toolbar .pill')];
+function selectBookingTab(b) {
+  bookingTabs.forEach(x=>{ const on = x===b; x.classList.toggle('active',on); x.setAttribute('aria-selected', on); x.tabIndex = on?0:-1; });
   document.querySelectorAll('.bpane').forEach(x=>x.classList.remove('active'));
   $('bpane-'+b.dataset.btab).classList.add('active');
+}
+bookingTabs.forEach((b,i)=>{
+  b.tabIndex = b.classList.contains('active') ? 0 : -1;
+  b.onclick = () => selectBookingTab(b);
+  b.onkeydown = e => {
+    if(e.key!=='ArrowRight' && e.key!=='ArrowLeft') return;
+    e.preventDefault();
+    const next = bookingTabs[(i + (e.key==='ArrowRight'?1:-1) + bookingTabs.length) % bookingTabs.length];
+    next.focus(); selectBookingTab(next);
+  };
 });
-$('searchFlightsBtn').onclick = () => renderFlightResults(searchFlights($('flightFrom').value, $('flightTo').value, $('flightDate').value));
-$('searchHotelsBtn').onclick = () => renderHotelResults(searchHotels($('hotelDest').value, $('hotelNights').value));
+$('flightSearchForm').addEventListener('submit', e => { e.preventDefault(); renderFlightResults(searchFlights($('flightFrom').value, $('flightTo').value, $('flightDate').value)); });
+$('hotelSearchForm').addEventListener('submit', e => { e.preventDefault(); renderHotelResults(searchHotels($('hotelDest').value, $('hotelNights').value)); });
 
 // AI Chat
-$('aiLauncher').onclick = () => { $('ai').classList.remove('hidden'); $('aiLauncher').style.display='none'; $('aiText').focus(); };
-$('minAI').onclick = $('closeAI').onclick = () => { $('ai').classList.add('hidden'); $('aiLauncher').style.display='flex'; };
-$('sendAI').onclick = sendAI;
+function openAI() {
+  $('ai').classList.remove('hidden');
+  $('aiLauncher').style.display='none';
+  $('aiLauncher').setAttribute('aria-expanded','true');
+  $('aiText').focus();
+}
+function closeAI() {
+  $('ai').classList.add('hidden');
+  $('aiLauncher').style.display='flex';
+  $('aiLauncher').setAttribute('aria-expanded','false');
+  $('aiLauncher').focus();
+}
+$('aiLauncher').onclick = openAI;
+$('minAI').onclick = $('closeAI').onclick = closeAI;
+$('aiForm').addEventListener('submit', e => { e.preventDefault(); sendAI(); });
 $('aiText').addEventListener('keydown', e => { if(e.key==='Enter' && !e.shiftKey) { e.preventDefault(); sendAI(); } });
+$('ai').addEventListener('keydown', e => { if(e.key==='Escape') closeAI(); });
 document.querySelectorAll('.suggestion').forEach(s => s.onclick = () => { $('aiText').value=s.textContent; sendAI(); });
 
 // --- INIT ---
