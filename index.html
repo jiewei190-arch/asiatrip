@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>RoamLogic • Plan Your Next Trip</title>
+  <title>RoamLogic • Intelligent Trip Planner & AI Companion</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -42,7 +42,6 @@
       background: #ffffff;
     }
 
-    /* Header Nav */
     .home-nav {
       height: 64px;
       padding: 0 32px;
@@ -50,6 +49,10 @@
       align-items: center;
       justify-content: space-between;
       border-bottom: 1px solid #f1f3f5;
+      background: #ffffff;
+      position: sticky;
+      top: 0;
+      z-index: 100;
     }
     .home-nav-left {
       display: flex;
@@ -66,7 +69,6 @@
       text-decoration: none;
       cursor: pointer;
     }
-    .logo-brand i { font-size: 1.4rem; }
     .nav-links {
       display: flex;
       gap: 20px;
@@ -125,24 +127,24 @@
     }
     .btn-signup:hover { background: var(--primary-hover); }
 
-    /* Hero Center Plan Form */
+    /* Hero Form */
     .hero-plan-section {
       flex: 1;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 60px 20px 80px 20px;
+      padding: 50px 20px 70px 20px;
       max-width: 620px;
       margin: 0 auto;
       width: 100%;
       text-align: center;
     }
     .hero-heading {
-      font-size: 2.2rem;
+      font-size: 2.25rem;
       font-weight: 800;
       color: #111827;
-      margin-bottom: 28px;
+      margin-bottom: 26px;
       letter-spacing: -0.5px;
     }
     .plan-card {
@@ -151,9 +153,9 @@
       border: 1px solid #e5e7eb;
       border-radius: 16px;
       box-shadow: 0 4px 20px rgba(0,0,0,0.06);
-      overflow: hidden;
       margin-bottom: 20px;
       text-align: left;
+      position: relative;
     }
     .input-row {
       padding: 14px 18px;
@@ -162,7 +164,6 @@
       flex-direction: column;
       position: relative;
     }
-    .input-row:last-child { border-bottom: none; }
     .input-row label {
       font-size: 0.78rem;
       font-weight: 800;
@@ -180,13 +181,54 @@
       width: 100%;
       background: transparent;
     }
-    .date-row {
+
+    /* WANDERLOG-ACCURATE AUTOCOMPLETE DROPDOWN */
+    .autocomplete-dropdown {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      box-shadow: 0 12px 32px rgba(0,0,0,0.14);
+      z-index: 1000;
+      max-height: 320px;
+      overflow-y: auto;
+      display: none;
+    }
+    .autocomplete-item {
       display: flex;
-    }
-    .date-col {
-      flex: 1;
+      align-items: center;
+      justify-content: space-between;
       padding: 12px 18px;
+      cursor: pointer;
+      border-bottom: 1px solid #f8fafc;
+      transition: background 0.12s;
     }
+    .autocomplete-item:hover { background: #f8fafc; }
+    .autocomplete-main {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #111827;
+    }
+    .autocomplete-sub {
+      font-size: 0.76rem;
+      color: #9ca3af;
+      margin-top: 1px;
+    }
+    .autocomplete-badge {
+      background: #f1f5f9;
+      color: #475569;
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 6px;
+      text-transform: capitalize;
+    }
+
+    .date-row { display: flex; }
+    .date-col { flex: 1; padding: 12px 18px; }
     .date-col:first-child { border-right: 1px solid #e5e7eb; }
     .date-col input {
       border: none;
@@ -234,7 +276,7 @@
       transform: translateY(-1px);
     }
 
-    /* Home Footer */
+    /* Footer */
     .home-footer {
       background: #f9fafb;
       border-top: 1px solid #e5e7eb;
@@ -271,7 +313,6 @@
       position: relative;
     }
 
-    /* Sidebar */
     .sidebar {
       width: var(--sidebar-width);
       height: 100%;
@@ -285,7 +326,6 @@
       scroll-behavior: smooth;
     }
 
-    /* Workspace Top Nav */
     .workspace-top-bar {
       padding: 10px 16px;
       display: flex;
@@ -310,7 +350,6 @@
     }
     .btn-back-home:hover { background: #e5e7eb; }
 
-    /* Map Viewport */
     .map-section {
       flex: 1;
       height: 100%;
@@ -319,7 +358,6 @@
     }
     #map { height: 100%; width: 100%; }
 
-    /* Trip Header Banner in Workspace */
     .workspace-hero {
       position: relative;
       height: 155px;
@@ -347,7 +385,6 @@
       margin-bottom: 2px;
     }
 
-    /* Day Navigator */
     .day-navigator {
       padding: 10px 14px;
       border-bottom: 1px solid var(--border-color);
@@ -381,7 +418,6 @@
       cursor: pointer;
     }
 
-    /* Feed & Place Cards */
     .itinerary-feed { padding: 14px; flex: 1; }
     .place-card {
       background: white;
@@ -436,7 +472,6 @@
     .btn-wander.primary-btn { background: #fff1f2; color: var(--primary); border-color: #fecdd3; }
     .btn-wander.delete-btn { background: #fef2f2; color: #ef4444; border-color: #fecaca; }
 
-    /* Map Search & Adventure Header */
     .map-floating-bar {
       position: absolute;
       top: 14px; left: 14px; right: 14px;
@@ -517,7 +552,6 @@
       flex-shrink: 0;
     }
 
-    /* Adventure Drawer */
     .adventure-drawer {
       position: absolute;
       bottom: 20px; left: 20px; right: 20px;
@@ -530,13 +564,120 @@
       display: none;
     }
 
+    /* ==========================================================================
+       GEMINI AI CHATBOT WIDGET
+       ========================================================================== */
+    .gemini-fab {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: linear-gradient(135deg, #2563eb, #8b5cf6);
+      color: white;
+      border: none;
+      border-radius: 50px;
+      padding: 12px 20px;
+      font-size: 0.92rem;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4);
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+    .gemini-fab:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 26px rgba(37, 99, 235, 0.5);
+    }
+
+    .gemini-modal {
+      position: fixed;
+      bottom: 80px;
+      right: 24px;
+      width: 380px;
+      height: 520px;
+      background: #ffffff;
+      border-radius: 18px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.2);
+      border: 1px solid #e2e8f0;
+      display: none;
+      flex-direction: column;
+      z-index: 2000;
+      overflow: hidden;
+      animation: popIn 0.2s ease-out;
+    }
+    @keyframes popIn {
+      from { opacity: 0; transform: scale(0.95) translateY(10px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    .gemini-header {
+      background: #0f172a;
+      color: white;
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .gemini-chat-body {
+      flex: 1;
+      padding: 14px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      font-size: 0.88rem;
+      background: #f8fafc;
+    }
+    .chat-bubble {
+      padding: 10px 14px;
+      border-radius: 14px;
+      max-width: 82%;
+      line-height: 1.45;
+    }
+    .chat-bubble.bot {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      color: #1e293b;
+      align-self: flex-start;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .chat-bubble.user {
+      background: var(--primary);
+      color: white;
+      align-self: flex-end;
+    }
+    .gemini-input-bar {
+      padding: 10px;
+      background: #ffffff;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      gap: 6px;
+    }
+    .gemini-input-bar input {
+      flex: 1;
+      border: 1px solid #cbd5e1;
+      padding: 8px 12px;
+      border-radius: 20px;
+      outline: none;
+      font-size: 0.86rem;
+    }
+    .gemini-input-bar button {
+      background: #0f172a;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 34px; height: 34px;
+      cursor: pointer;
+    }
+
     /* Modals */
     .modal-overlay {
       position: fixed;
       top: 0; left: 0; right: 0; bottom: 0;
       background: rgba(0,0,0,0.5);
       backdrop-filter: blur(4px);
-      z-index: 2000;
+      z-index: 2500;
       display: none;
       align-items: center;
       justify-content: center;
@@ -570,6 +711,7 @@
       .map-section { height: 48vh; }
       .turn-hud { top: 10px; left: 10px; right: 10px; width: auto; }
       .footer-grid { grid-template-columns: 1fr 1fr; }
+      .gemini-modal { width: calc(100vw - 32px); right: 16px; bottom: 76px; }
     }
   </style>
 </head>
@@ -591,7 +733,7 @@
       <div class="home-nav-right">
         <div class="nav-search-bar">
           <i class="fa-solid fa-magnifying-glass" style="color:#9ca3af;"></i>
-          <input type="text" id="quickDestInput" placeholder="Explore by destination" onkeypress="if(event.key==='Enter') startPlanningFromQuickSearch()">
+          <input type="text" id="quickDestInput" placeholder="Explore by destination" oninput="handleAutocomplete(this.value, 'quick-dropdown')" onkeypress="if(event.key==='Enter') startPlanningFromQuickSearch()">
         </div>
         <button class="btn-login">Log in</button>
         <button class="btn-signup">Sign up</button>
@@ -607,7 +749,9 @@
             <span>Where to?</span>
             <span style="color:var(--primary); cursor:pointer;" onclick="rollRandomCity()"><i class="fa-solid fa-dice"></i> Random City</span>
           </label>
-          <input type="text" id="heroDestInput" placeholder="e.g. Paris, Tokyo, Hawaii, Seoul" onkeypress="if(event.key==='Enter') startPlanning()">
+          <input type="text" id="heroDestInput" placeholder="e.g. Paris, Tokyo, Hawaii, Spain" autocomplete="off" oninput="handleAutocomplete(this.value, 'hero-dropdown')" onkeypress="if(event.key==='Enter') startPlanning()">
+          
+          <div class="autocomplete-dropdown" id="hero-dropdown"></div>
         </div>
 
         <div class="date-row">
@@ -669,7 +813,6 @@
   <div id="workspace-view">
     
     <div class="sidebar">
-      
       <div class="workspace-top-bar">
         <button class="btn-back-home" onclick="showHome()"><i class="fa-solid fa-house"></i> Home</button>
         <div style="font-size:0.85rem; font-weight:700; color:#6b7280;"><span id="ws-date-range">Apr 3 – Apr 29</span></div>
@@ -691,7 +834,6 @@
     </div>
 
     <div class="map-section">
-      
       <div class="map-floating-bar">
         <div class="search-pill-box">
           <i class="fa-solid fa-magnifying-glass" style="color:#94a3b8; margin-left:4px;"></i>
@@ -738,6 +880,32 @@
     </div>
   </div>
 
+  <button class="gemini-fab" onclick="toggleGeminiChat()">
+    <i class="fa-solid fa-wand-magic-sparkles"></i>
+    <span>Gemini AI Travel Guide</span>
+  </button>
+
+  <div class="gemini-modal" id="geminiModal">
+    <div class="gemini-header">
+      <div style="display:flex; align-items:center; gap:8px; font-weight:800; font-size:0.92rem;">
+        <i class="fa-solid fa-robot" style="color:#60a5fa;"></i> Gemini Travel AI
+      </div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <i class="fa-solid fa-gear" style="cursor:pointer; font-size:0.85rem;" title="API Key Settings" onclick="promptApiKey()"></i>
+        <button style="background:none; border:none; color:white; font-size:1.1rem; cursor:pointer;" onclick="toggleGeminiChat()">✕</button>
+      </div>
+    </div>
+    <div class="gemini-chat-body" id="geminiChatBody">
+      <div class="chat-bubble bot">
+        👋 Hey! I'm your <b>Gemini Travel Guide</b>. Ask me anything about local foods, secret hidden gems, train tips, or budget estimates!
+      </div>
+    </div>
+    <div class="gemini-input-bar">
+      <input type="text" id="geminiInput" placeholder="Ask e.g. 'Top 3 hidden cafes in Shibuya?'" onkeypress="if(event.key==='Enter') sendGeminiMessage()">
+      <button onclick="sendGeminiMessage()"><i class="fa-solid fa-paper-plane"></i></button>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="modal-add-spot">
     <div class="modal-card">
       <button class="modal-close" onclick="closeModal('add-spot')">✕</button>
@@ -766,7 +934,6 @@
   <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
 
   <script>
-    // Universal App State
     let currentTrip = {
       destination: "Seoul, South Korea",
       startDate: "",
@@ -795,6 +962,8 @@
 
     let map = null, markerLayer, lineLayer, adventureLayer, searchLayer;
     let routingControl = null, routeInstructions = [], currentStepIndex = 0;
+    let geminiApiKey = localStorage.getItem('roamlogic_gemini_key') || '';
+    let autocompleteTimeout = null;
 
     // View Switching
     function showHome() {
@@ -819,6 +988,63 @@
       const city = randomDestinations[Math.floor(Math.random() * randomDestinations.length)];
       document.getElementById('heroDestInput').value = city;
     }
+
+    // LIVE WANDERLOG-STYLE AUTOCOMPLETE
+    function handleAutocomplete(query, dropdownId) {
+      const dropdown = document.getElementById(dropdownId);
+      clearTimeout(autocompleteTimeout);
+
+      if (!query || query.trim().length < 1) {
+        dropdown.style.display = 'none';
+        dropdown.innerHTML = '';
+        return;
+      }
+
+      autocompleteTimeout = setTimeout(async () => {
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&addressdetails=1&limit=8`);
+          const data = await res.json();
+
+          if (!data || data.length === 0) {
+            dropdown.innerHTML = `<div style="padding:12px 18px; font-size:0.85rem; color:#9ca3af;"><i class="fa-solid fa-triangle-exclamation" style="color:#f59e0b;"></i> Enter a city, region, or country</div>`;
+            dropdown.style.display = 'block';
+            return;
+          }
+
+          dropdown.innerHTML = '';
+          data.forEach(item => {
+            const name = item.name || item.display_name.split(',')[0];
+            const parts = item.display_name.split(',');
+            const sub = parts.slice(1, 3).join(', ');
+            let type = item.addresstype || item.type || "City";
+            if (type === "administrative" || type === "state") type = "Region";
+
+            const div = document.createElement('div');
+            div.className = 'autocomplete-item';
+            div.innerHTML = `
+              <div>
+                <div class="autocomplete-main">${name}</div>
+                <div class="autocomplete-sub">${sub}</div>
+              </div>
+              <div class="autocomplete-badge">${type}</div>
+            `;
+            div.onclick = () => {
+              document.getElementById('heroDestInput').value = `${name}, ${parts[parts.length - 1].trim()}`;
+              dropdown.style.display = 'none';
+            };
+            dropdown.appendChild(div);
+          });
+          dropdown.style.display = 'block';
+        } catch (e) {}
+      }, 200);
+    }
+
+    // Close autocomplete on click outside
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.input-row')) {
+        document.querySelectorAll('.autocomplete-dropdown').forEach(d => d.style.display = 'none');
+      }
+    });
 
     function startPlanningFromQuickSearch() {
       const dest = document.getElementById('quickDestInput').value.trim();
@@ -848,7 +1074,6 @@
         document.getElementById('ws-date-range').innerText = `${start} – ${end}`;
       }
 
-      // Geocode destination center
       try {
         const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(dest)}&limit=1`);
         const data = await res.json();
@@ -863,7 +1088,7 @@
       }
     }
 
-    // Leaflet Initialization
+    // Map Init
     function initMap() {
       map = L.map('map', { zoomControl: false }).setView(currentTrip.center, 13);
       L.control.zoom({ position: 'topright' }).addTo(map);
@@ -877,8 +1102,6 @@
       lineLayer = L.layerGroup().addTo(map);
       adventureLayer = L.layerGroup().addTo(map);
       searchLayer = L.layerGroup().addTo(map);
-
-      map.on('click', onMapClick);
 
       populateDayDropdown();
     }
@@ -963,7 +1186,7 @@
       }
     }
 
-    // 🎲 SPONTANEOUS ADVENTURE ENGINE
+    // 🎲 SPONTANEOUS ADVENTURE
     async function triggerSpontaneousAdventure() {
       const center = map.getCenter();
       adventureLayer.clearLayers();
@@ -988,7 +1211,7 @@
 
         if (!data.elements || data.elements.length === 0) {
           title.innerText = "No extra spots found nearby";
-          content.innerHTML = "<div>Try zooming out or moving the map to another neighborhood.</div>";
+          content.innerHTML = "<div>Try zooming out or panning the map.</div>";
           return;
         }
 
@@ -1046,32 +1269,48 @@
       }
     }
 
-    function closeAdventureDrawer() {
-      document.getElementById('adventureDrawer').style.display = 'none';
+    function closeAdventureDrawer() { document.getElementById('adventureDrawer').style.display = 'none'; }
+
+    // Navigation
+    function startTurnNav(destLat, destLng, destName) {
+      if (routingControl) map.removeControl(routingControl);
+      const day = currentTrip.days[currentTrip.currentDay];
+      const origin = day.stops[0] ? day.stops[0].coords : map.getCenter();
+
+      routingControl = L.Routing.control({
+        waypoints: [L.latLng(origin[0], origin[1]), L.latLng(destLat, destLng)],
+        lineOptions: { styles: [{ color: '#10b981', opacity: 0.95, weight: 6 }] }
+      }).addTo(map);
+
+      routingControl.on('routesfound', function(e) {
+        const routes = e.routes;
+        routeInstructions = routes[0].instructions || [];
+        currentStepIndex = 0;
+        document.getElementById('turn-stat').innerText = `${(routes[0].summary.totalDistance / 1000).toFixed(1)} km`;
+        document.getElementById('turnHud').style.display = 'block';
+        updateTurnDisplay();
+      });
+      map.flyTo([destLat, destLng], 15);
     }
 
-    // Map Reverse Lookup on Click
-    async function onMapClick(e) {
-      const lat = e.latlng.lat, lon = e.latlng.lng;
-      try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`);
-        const data = await res.json();
-        if (data && data.display_name) {
-          const name = data.name || data.display_name.split(',')[0];
-          L.popup().setLatLng(e.latlng).setContent(`
-            <b style="font-size:0.95rem;">🏢 ${name}</b><br>
-            <div style="margin-top:6px; display:flex; gap:4px;">
-              <button class="btn-wander primary-btn" onclick="addCustomSpotDirect('${name}', '', [${lat}, ${lon}])">+ Add to Plan</button>
-              <button class="btn-wander" onclick="startTurnNav(${lat}, ${lon}, '${name}')">Route</button>
-            </div>
-          `).openOn(map);
-        }
-      } catch (err) {}
+    function updateTurnDisplay() {
+      if (!routeInstructions.length) return;
+      const step = routeInstructions[currentStepIndex];
+      document.getElementById('turn-text').innerText = step.text || "Continue along route";
+      document.getElementById('turn-sub').innerText = `Step ${currentStepIndex + 1} of ${routeInstructions.length} • in ${Math.round(step.distance)}m`;
+    }
+
+    function nextTurn() { if (currentStepIndex < routeInstructions.length - 1) { currentStepIndex++; updateTurnDisplay(); } }
+    function prevTurn() { if (currentStepIndex > 0) { currentStepIndex--; updateTurnDisplay(); } }
+    function stopTurnNav() {
+      if (routingControl) { map.removeControl(routingControl); routingControl = null; }
+      document.getElementById('turnHud').style.display = 'none';
+      routeInstructions = [];
     }
 
     function addCustomSpotDirect(name, native, coords) {
       const day = currentTrip.days[currentTrip.currentDay];
-      day.stops.push({ name: name, native: native || '', desc: "Added to your itinerary.", coords: coords });
+      day.stops.push({ name: name, native: native || '', desc: "Added to itinerary", coords: coords });
       renderCurrentDay();
       alert(`✅ Added "${name}" to ${day.title}!`);
     }
@@ -1087,10 +1326,6 @@
 
       const center = map.getCenter();
       addCustomSpotDirect(name, native, [center.lat, center.lng]);
-
-      document.getElementById('new-spot-name').value = '';
-      document.getElementById('new-spot-native').value = '';
-      document.getElementById('new-spot-desc').value = '';
       closeModal('add-spot');
     }
 
@@ -1128,44 +1363,80 @@
       } catch (e) {}
     }
 
-    // Turn Navigation
-    function startTurnNav(destLat, destLng, destName) {
-      if (routingControl) map.removeControl(routingControl);
-      const day = currentTrip.days[currentTrip.currentDay];
-      const origin = day.stops[0] ? day.stops[0].coords : map.getCenter();
-
-      routingControl = L.Routing.control({
-        waypoints: [L.latLng(origin[0], origin[1]), L.latLng(destLat, destLng)],
-        lineOptions: { styles: [{ color: '#10b981', opacity: 0.95, weight: 6 }] }
-      }).addTo(map);
-
-      routingControl.on('routesfound', function(e) {
-        const routes = e.routes;
-        routeInstructions = routes[0].instructions || [];
-        currentStepIndex = 0;
-        document.getElementById('turn-stat').innerText = `${(routes[0].summary.totalDistance / 1000).toFixed(1)} km`;
-        document.getElementById('turnHud').style.display = 'block';
-        updateTurnDisplay();
-      });
-      map.flyTo([destLat, destLng], 15);
+    // ==========================================================================
+    // GEMINI AI INTEGRATION
+    // ==========================================================================
+    function toggleGeminiChat() {
+      const modal = document.getElementById('geminiModal');
+      modal.style.display = modal.style.display === 'flex' ? 'none' : 'flex';
     }
 
-    function updateTurnDisplay() {
-      if (!routeInstructions.length) return;
-      const step = routeInstructions[currentStepIndex];
-      document.getElementById('turn-text').innerText = step.text || "Continue along route";
-      document.getElementById('turn-sub').innerText = `Step ${currentStepIndex + 1} of ${routeInstructions.length} • in ${Math.round(step.distance)}m`;
+    function promptApiKey() {
+      const key = prompt("Enter your free Google Gemini API Key (get it from aistudio.google.com):", geminiApiKey);
+      if (key !== null) {
+        geminiApiKey = key.trim();
+        localStorage.setItem('roamlogic_gemini_key', geminiApiKey);
+        alert(geminiApiKey ? "Gemini API Key Saved!" : "API Key Cleared.");
+      }
     }
 
-    function nextTurn() { if (currentStepIndex < routeInstructions.length - 1) { currentStepIndex++; updateTurnDisplay(); } }
-    function prevTurn() { if (currentStepIndex > 0) { currentStepIndex--; updateTurnDisplay(); } }
-    function stopTurnNav() {
-      if (routingControl) { map.removeControl(routingControl); routingControl = null; }
-      document.getElementById('turnHud').style.display = 'none';
-      routeInstructions = [];
+    async function sendGeminiMessage() {
+      const input = document.getElementById('geminiInput');
+      const text = input.value.trim();
+      if (!text) return;
+
+      const chatBody = document.getElementById('geminiChatBody');
+      
+      // Add User Message
+      const userBubble = document.createElement('div');
+      userBubble.className = 'chat-bubble user';
+      userBubble.innerText = text;
+      chatBody.appendChild(userBubble);
+      input.value = '';
+      chatBody.scrollTop = chatBody.scrollHeight;
+
+      // Add Loading Bot Bubble
+      const botBubble = document.createElement('div');
+      botBubble.className = 'chat-bubble bot';
+      botBubble.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Thinking with Gemini...';
+      chatBody.appendChild(botBubble);
+      chatBody.scrollTop = chatBody.scrollHeight;
+
+      // Context
+      const currentDay = currentTrip.days[currentTrip.currentDay];
+      const stopsSummary = currentDay.stops.map(s => s.name).join(', ');
+      const systemPrompt = `You are a savvy, local travel guide. The user is planning a trip to ${currentTrip.destination}. Current day plan: "${currentDay.title}" with stops: [${stopsSummary}]. Keep answers concise, actionable, and fun.`;
+
+      if (geminiApiKey) {
+        try {
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                parts: [{ text: `${systemPrompt}\n\nUser Question: ${text}` }]
+              }]
+            })
+          });
+          const data = await res.json();
+          if (data.candidates && data.candidates[0].content) {
+            botBubble.innerHTML = data.candidates[0].content.parts[0].text.replace(/\n/g, '<br>');
+          } else {
+            botBubble.innerHTML = "Gemini API returned an error. Please check your API key.";
+          }
+        } catch (err) {
+          botBubble.innerHTML = "Connection error. Make sure your Gemini API key is valid.";
+        }
+      } else {
+        // Built-in intelligent travel responses if API key is not yet set
+        setTimeout(() => {
+          let reply = `In **${currentTrip.destination.split(',')[0]}**, you definitely should check out local side-alley eateries and vibrant street spots near ${currentDay.title}! <br><br>💡 *Tip: Tap the ⚙️ gear icon in the chat header to add your free Gemini API key from Google AI Studio for live AI answers.*`;
+          botBubble.innerHTML = reply;
+          chatBody.scrollTop = chatBody.scrollHeight;
+        }, 600);
+      }
     }
 
-    // On Load: Default to Home Landing Page
     window.onload = () => {
       showHome();
     };
