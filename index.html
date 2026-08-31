@@ -2,26 +2,26 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>East Asia Grand Tour • Wanderlog Planner & Navigation Suite</title>
+  <title>RoamLogic • Intelligent Trip Planner & Adventure Engine</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  
+
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
-  
+
   <style>
     :root {
       --primary: #ff4a5a;
       --primary-hover: #e03b4a;
-      --secondary: #1e293b;
-      --accent-blue: #1a73e8;
+      --secondary: #0f172a;
       --accent-purple: #8b5cf6;
+      --accent-green: #10b981;
       --bg: #f8fafc;
       --card-bg: #ffffff;
       --text-main: #0f172a;
       --text-muted: #64748b;
       --border-color: #e2e8f0;
-      --sidebar-width: 460px;
+      --sidebar-width: 490px;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -32,7 +32,6 @@
       overflow-x: hidden;
     }
 
-    /* Main Split Layout */
     .app-layout {
       display: flex;
       height: 100vh;
@@ -41,7 +40,7 @@
       position: relative;
     }
 
-    /* Sidebar */
+    /* Left Sidebar */
     .sidebar {
       width: var(--sidebar-width);
       height: 100%;
@@ -55,7 +54,7 @@
       scroll-behavior: smooth;
     }
 
-    /* Right Map Viewport */
+    /* Map Section */
     .map-section {
       flex: 1;
       height: 100%;
@@ -64,68 +63,51 @@
     }
     #map { height: 100%; width: 100%; }
 
-    /* Hero Banner */
-    .hero-banner {
-      position: relative;
-      height: 170px;
-      background: linear-gradient(rgba(0,0,0,0.35), rgba(0,0,0,0.78)), url('https://images.unsplash.com/photo-1503899036084-c55cdd92da26?auto=format&fit=crop&w=1200&q=80') center/cover;
+    /* Top Trip Setup Header */
+    .trip-header {
+      background: linear-gradient(rgba(15, 23, 42, 0.65), rgba(15, 23, 42, 0.9)), url('https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=1200&q=80') center/cover;
       color: white;
-      padding: 16px;
-      display: flex;
-      flex-direction: column;
-      justify-content: flex-end;
+      padding: 20px;
     }
-    .hero-badge {
-      position: absolute;
-      top: 14px;
-      left: 14px;
-      background: rgba(0,0,0,0.65);
-      backdrop-filter: blur(8px);
+    .trip-dest-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 74, 90, 0.85);
       padding: 4px 10px;
       border-radius: 20px;
-      font-size: 0.72rem;
+      font-size: 0.75rem;
       font-weight: 700;
-      letter-spacing: 0.5px;
       text-transform: uppercase;
+      margin-bottom: 8px;
     }
-    .hero-title {
+    .trip-title-input {
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid rgba(255,255,255,0.3);
+      color: white;
       font-size: 1.4rem;
       font-weight: 800;
-      margin-bottom: 2px;
-      letter-spacing: -0.5px;
+      width: 100%;
+      outline: none;
+      padding-bottom: 4px;
+      margin-bottom: 8px;
     }
-    .hero-meta {
-      font-size: 0.8rem;
-      opacity: 0.9;
-      display: flex;
-      gap: 12px;
-    }
+    .trip-title-input:focus { border-bottom-color: var(--primary); }
 
-    /* Time Ribbon */
-    .time-ribbon {
-      background: #0f172a;
-      color: #94a3b8;
-      padding: 8px 16px;
+    /* Controls Bar */
+    .trip-controls {
       display: flex;
-      justify-content: space-between;
-      font-size: 0.78rem;
-      font-weight: 500;
-    }
-    .time-ribbon b { color: #ffffff; }
-
-    /* Sticky Day Selector & Add Button */
-    .day-navigator {
-      padding: 10px 14px;
+      gap: 8px;
+      align-items: center;
+      padding: 12px 16px;
       border-bottom: 1px solid var(--border-color);
       background: white;
       position: sticky;
       top: 0;
       z-index: 10;
-      display: flex;
-      gap: 8px;
-      align-items: center;
     }
-    .day-select-styled {
+    .day-pill-select {
       flex: 1;
       padding: 8px 12px;
       border-radius: 8px;
@@ -135,103 +117,70 @@
       font-size: 0.88rem;
       color: var(--secondary);
       outline: none;
-      cursor: pointer;
     }
-    .btn-add-spot-main {
+    .btn-action-icon {
       background: #f1f5f9;
-      color: var(--primary);
-      border: 1px solid #fecdd3;
+      color: var(--secondary);
+      border: 1px solid var(--border-color);
       padding: 8px 12px;
       border-radius: 8px;
       font-size: 0.82rem;
       font-weight: 700;
       cursor: pointer;
-      display: flex;
+      display: inline-flex;
       align-items: center;
-      gap: 4px;
+      gap: 5px;
+      transition: background 0.15s;
     }
-    .btn-add-spot-main:hover { background: #fee2e2; }
+    .btn-action-icon:hover { background: #e2e8f0; }
 
     /* Itinerary Feed */
     .itinerary-feed {
-      padding: 14px;
+      padding: 16px;
       flex: 1;
     }
 
-    /* Transit Info Box */
-    .transit-card {
-      background: #f0f7ff;
-      border: 1px solid #c7e0ff;
-      border-radius: 12px;
-      padding: 12px;
-      margin-bottom: 14px;
-    }
-    .transit-header {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      color: var(--accent-blue);
-      font-weight: 700;
-      font-size: 0.86rem;
-      margin-bottom: 4px;
-    }
-    .transit-freq {
-      font-size: 0.82rem;
-      color: #334155;
-      line-height: 1.4;
-      margin-bottom: 8px;
-    }
-
-    /* Place Cards */
+    /* Wanderlog Place Card */
     .place-card {
       background: white;
       border: 1px solid var(--border-color);
       border-radius: 12px;
-      padding: 12px;
-      margin-bottom: 10px;
+      padding: 14px;
+      margin-bottom: 12px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.03);
-      transition: transform 0.15s, box-shadow 0.15s;
+      transition: all 0.15s;
+      position: relative;
     }
     .place-card:hover {
-      box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
       border-color: #cbd5e1;
     }
     .place-header {
       display: flex;
-      gap: 10px;
+      gap: 12px;
       align-items: flex-start;
     }
     .place-num {
       background: var(--secondary);
       color: white;
-      width: 24px;
-      height: 24px;
+      width: 26px;
+      height: 26px;
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 0.78rem;
+      font-size: 0.8rem;
       font-weight: 800;
       flex-shrink: 0;
       margin-top: 2px;
     }
-    .place-num.hotel { background: #f59e0b; }
     .place-details { flex: 1; }
-    .place-time {
-      font-size: 0.72rem;
-      font-weight: 700;
-      color: var(--primary);
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
     .place-title {
-      font-size: 0.96rem;
+      font-size: 1rem;
       font-weight: 700;
       color: var(--text-main);
-      margin: 2px 0;
     }
     .place-native-tag {
-      display: inline-block;
       background: #f1f5f9;
       color: #475569;
       padding: 1px 6px;
@@ -241,17 +190,16 @@
       margin-left: 4px;
     }
     .place-desc {
-      font-size: 0.84rem;
+      font-size: 0.85rem;
       color: var(--text-muted);
+      margin: 4px 0 8px 0;
       line-height: 1.4;
     }
 
-    /* Buttons inside cards */
     .card-actions {
       display: flex;
       flex-wrap: wrap;
       gap: 6px;
-      margin-top: 8px;
     }
     .btn-wander {
       display: inline-flex;
@@ -266,34 +214,26 @@
       border: 1px solid var(--border-color);
       background: #f8fafc;
       color: #334155;
-      transition: all 0.15s;
     }
-    .btn-wander:hover { background: #f1f5f9; }
     .btn-wander.primary-btn {
       background: #fff1f2;
       color: var(--primary);
       border-color: #fecdd3;
     }
-    .btn-wander.adventure-btn {
-      background: linear-gradient(135deg, #8b5cf6, #6366f1);
-      color: white;
-      border: none;
-      box-shadow: 0 2px 6px rgba(139, 92, 246, 0.3);
-    }
-    .btn-wander.ticket-btn {
-      background: #ecfdf5;
-      color: #059669;
-      border-color: #a7f3d0;
+    .btn-wander.delete-btn {
+      background: #fef2f2;
+      color: #ef4444;
+      border-color: #fecaca;
     }
 
-    /* Floating Search Bar */
+    /* Floating Map Search & Spontaneous Adventure HUD */
     .map-floating-bar {
       position: absolute;
       top: 14px;
       left: 14px;
       right: 14px;
       z-index: 1000;
-      max-width: 520px;
+      max-width: 540px;
       display: flex;
       flex-direction: column;
       gap: 8px;
@@ -302,7 +242,7 @@
       display: flex;
       background: white;
       border-radius: 30px;
-      box-shadow: 0 4px 18px rgba(0,0,0,0.18);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.18);
       padding: 4px 6px 4px 14px;
       align-items: center;
       gap: 6px;
@@ -311,46 +251,35 @@
       flex: 1;
       border: none;
       outline: none;
-      font-size: 0.88rem;
+      font-size: 0.9rem;
       background: transparent;
-    }
-    .search-actions { display: flex; gap: 4px; }
-    .btn-search-go {
-      background: #f1f5f9;
-      color: var(--text-main);
-      border: none;
-      border-radius: 20px;
-      padding: 6px 12px;
-      font-size: 0.78rem;
-      font-weight: 700;
-      cursor: pointer;
     }
     .btn-search-adventure {
       background: linear-gradient(135deg, #ff4a5a, #8b5cf6);
       color: white;
       border: none;
       border-radius: 20px;
-      padding: 6px 12px;
-      font-size: 0.78rem;
+      padding: 8px 16px;
+      font-size: 0.82rem;
       font-weight: 700;
       cursor: pointer;
       display: flex;
       align-items: center;
-      gap: 4px;
+      gap: 6px;
+      box-shadow: 0 3px 10px rgba(255, 74, 90, 0.4);
     }
     .category-chips {
       display: flex;
       gap: 6px;
       overflow-x: auto;
-      padding-bottom: 2px;
       scrollbar-width: none;
     }
     .chip {
       background: rgba(255, 255, 255, 0.95);
       backdrop-filter: blur(8px);
-      padding: 5px 10px;
+      padding: 5px 12px;
       border-radius: 20px;
-      font-size: 0.74rem;
+      font-size: 0.76rem;
       font-weight: 700;
       color: #334155;
       box-shadow: 0 2px 6px rgba(0,0,0,0.1);
@@ -360,7 +289,22 @@
     }
     .chip:hover { background: white; color: var(--primary); }
 
-    /* GOOGLE MAPS STYLE LIVE TURN-BY-TURN NAVIGATION HUD */
+    /* Adventure Drawer */
+    .adventure-drawer {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      right: 20px;
+      max-width: 500px;
+      background: white;
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+      z-index: 1001;
+      display: none;
+    }
+
+    /* Turn-by-Turn HUD */
     .turn-hud {
       position: absolute;
       top: 14px;
@@ -373,107 +317,26 @@
       z-index: 1005;
       padding: 14px;
       display: none;
-      animation: fadeIn 0.2s ease-out;
-    }
-    @keyframes fadeIn {
-      from { opacity: 0; transform: scale(0.95); }
-      to { opacity: 1; transform: scale(1); }
     }
     .turn-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
       border-bottom: 1px solid #334155;
-      padding-bottom: 8px;
-      margin-bottom: 10px;
-    }
-    .turn-instruction-box {
-      display: flex;
-      gap: 12px;
-      align-items: center;
+      padding-bottom: 6px;
+      margin-bottom: 8px;
     }
     .turn-icon-big {
       background: #10b981;
       color: white;
-      width: 44px;
-      height: 44px;
-      border-radius: 12px;
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 1.4rem;
+      font-size: 1.3rem;
       flex-shrink: 0;
-    }
-    .turn-details { flex: 1; }
-    .turn-text { font-size: 0.92rem; font-weight: 700; line-height: 1.3; }
-    .turn-dist { font-size: 0.78rem; color: #94a3b8; margin-top: 2px; }
-    .turn-controls {
-      display: flex;
-      gap: 6px;
-      margin-top: 12px;
-    }
-    .turn-nav-btn {
-      flex: 1;
-      padding: 8px;
-      border-radius: 8px;
-      border: 1px solid #334155;
-      background: #1e293b;
-      color: white;
-      font-weight: 700;
-      font-size: 0.78rem;
-      cursor: pointer;
-    }
-    .turn-nav-btn:hover { background: #334155; }
-    .turn-exit-btn {
-      background: #ef4444;
-      border-color: #ef4444;
-    }
-
-    /* Floating Adventure Drawer */
-    .adventure-drawer {
-      position: absolute;
-      bottom: 20px;
-      left: 20px;
-      right: 20px;
-      max-width: 500px;
-      background: white;
-      border-radius: 16px;
-      padding: 14px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
-      z-index: 1001;
-      display: none;
-    }
-
-    /* Floating Bottom Dock */
-    .bottom-dock {
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      z-index: 1000;
-      display: flex;
-      gap: 8px;
-      background: rgba(15, 23, 42, 0.92);
-      backdrop-filter: blur(12px);
-      padding: 6px 10px;
-      border-radius: 30px;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.25);
-    }
-    .dock-btn {
-      background: transparent;
-      border: none;
-      color: #e2e8f0;
-      font-size: 0.8rem;
-      font-weight: 600;
-      padding: 8px 12px;
-      border-radius: 20px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .dock-btn:hover, .dock-btn.active {
-      background: var(--primary);
-      color: white;
     }
 
     /* Modals */
@@ -493,9 +356,7 @@
       background: white;
       border-radius: 16px;
       width: 100%;
-      max-width: 460px;
-      max-height: 85vh;
-      overflow-y: auto;
+      max-width: 440px;
       padding: 20px;
       box-shadow: 0 10px 30px rgba(0,0,0,0.2);
       position: relative;
@@ -507,64 +368,17 @@
       border: none;
       width: 28px; height: 28px;
       border-radius: 50%;
-      font-weight: bold;
       cursor: pointer;
     }
 
-    /* Currency Grid */
-    .curr-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      margin: 14px 0;
-    }
-    .curr-box {
-      background: #f8fafc;
-      padding: 10px;
-      border-radius: 10px;
-      border: 1px solid var(--border-color);
-      text-align: center;
-    }
-    .curr-box .c-val { font-size: 1.2rem; font-weight: 800; color: var(--primary); margin: 3px 0; }
-    .curr-box .c-lbl { font-size: 0.72rem; font-weight: 700; color: var(--text-muted); }
-
-    /* Compass Heading Cone */
-    .user-heading-container { position: relative; width: 40px; height: 40px; }
-    .user-cone {
-      position: absolute;
-      top: -30px; left: -20px;
-      width: 80px; height: 60px;
-      background: radial-gradient(circle at 50% 100%, rgba(255, 74, 90, 0.45) 0%, rgba(255, 74, 90, 0) 75%);
-      clip-path: polygon(50% 100%, 0% 0%, 100% 0%);
-      transform-origin: 50% 100%;
-      pointer-events: none;
-      transition: transform 0.08s ease-out;
-    }
-    .user-dot {
-      position: absolute;
-      top: 13px; left: 13px;
-      width: 14px; height: 14px;
-      background: var(--primary);
-      border: 3px solid white;
-      border-radius: 50%;
-      box-shadow: 0 0 10px rgba(0,0,0,0.5);
-    }
-
-    /* Hide Raw Leaflet Machine Box */
     .leaflet-routing-container { display: none !important; }
 
-    /* Mobile Responsive */
     @media (max-width: 850px) {
       .app-layout { flex-direction: column-reverse; }
       .sidebar { width: 100%; height: 52vh; }
       .map-section { height: 48vh; }
-      .turn-hud {
-        top: 10px; left: 10px; right: 10px;
-        width: auto;
-      }
-      .bottom-dock { bottom: 12px; right: 12px; left: 12px; justify-content: space-around; }
-      .dock-btn span { display: none; }
-      .adventure-drawer { bottom: 70px; left: 10px; right: 10px; }
+      .turn-hud { top: 10px; left: 10px; right: 10px; width: auto; }
+      .adventure-drawer { bottom: 20px; left: 10px; right: 10px; }
     }
   </style>
 </head>
@@ -574,28 +388,19 @@
     
     <div class="sidebar">
       
-      <div class="hero-banner">
-        <div class="hero-badge"><i class="fa-solid fa-plane-departure"></i> 1-Month Grand Trip</div>
-        <div class="hero-title">East Asia Grand Tour</div>
-        <div class="hero-meta">
-          <span><i class="fa-regular fa-calendar"></i> Apr 3 – Apr 29</span>
-          <span><i class="fa-solid fa-location-dot"></i> Seoul • Tokyo • Shanghai</span>
-        </div>
+      <div class="trip-header">
+        <div class="trip-dest-badge"><i class="fa-solid fa-earth-americas"></i> <span id="trip-dest-label">Tokyo, Japan</span></div>
+        <input type="text" class="trip-title-input" id="tripTitleInput" value="My Dream Adventure" onchange="saveTripData()">
+        <div style="font-size:0.8rem; opacity:0.9;">Universal Multi-Day Itinerary & Adventure Map</div>
       </div>
 
-      <div class="time-ribbon">
-        <div>🗽 NYC Home: <b id="time-nyc">--:--:--</b></div>
-        <div>🌏 Local City: <b id="time-local" style="color:#60a5fa;">--:--:--</b></div>
+      <div class="trip-controls">
+        <select id="daySelector" class="day-pill-select" onchange="switchDay(this.value)"></select>
+        <button class="btn-action-icon" onclick="openAddDayModal()"><i class="fa-solid fa-calendar-plus"></i> + Day</button>
+        <button class="btn-action-icon" onclick="openAddSpotModal()"><i class="fa-solid fa-plus"></i> + Spot</button>
       </div>
 
-      <div class="day-navigator">
-        <select id="daySelector" class="day-select-styled" onchange="renderDay(this.value)">
-          </select>
-        <button class="btn-add-spot-main" onclick="openAddSpotModal()"><i class="fa-solid fa-plus"></i> Add Spot</button>
-      </div>
-
-      <div class="itinerary-feed" id="day-summary">
-        </div>
+      <div class="itinerary-feed" id="itineraryFeed"></div>
     </div>
 
     <div class="map-section">
@@ -603,44 +408,40 @@
       <div class="map-floating-bar">
         <div class="search-pill-box">
           <i class="fa-solid fa-magnifying-glass" style="color:#94a3b8; margin-left:4px;"></i>
-          <input type="text" id="searchInput" placeholder="Search places, ramen, boba, cafes..." onkeypress="if(event.key==='Enter') searchNearby()">
-          <div class="search-actions">
-            <button class="btn-search-go" onclick="searchNearby()">Find</button>
-            <button class="btn-search-adventure" onclick="triggerRandomAdventure()">🎲 Surprise Me</button>
-          </div>
+          <input type="text" id="searchInput" placeholder="Search any city (e.g. Kyoto, Seoul, Paris) or spot..." onkeypress="if(event.key==='Enter') searchLocation()">
+          <button class="btn-search-adventure" onclick="triggerSpontaneousAdventure()"><i class="fa-solid fa-dice"></i> 🎲 Surprise Me</button>
         </div>
         <div class="category-chips">
-          <div class="chip" onclick="quickSearch('coffee')">☕ Cafes (카페/カフェ)</div>
-          <div class="chip" onclick="quickSearch('ramen')">🍜 Ramen & Eats (라멘/ラーメン)</div>
-          <div class="chip" onclick="quickSearch('boba')">🧋 Boba & Tea (밀크티/奶茶)</div>
-          <div class="chip" onclick="quickSearch('viewpoint')">🌆 Viewpoints (전망대/展望台)</div>
-          <div class="chip" onclick="quickSearch('convenience')">🏪 Convenience (편의점/コンビニ)</div>
-          <div class="chip" onclick="quickSearch('bar')">🍺 Izakayas (술집/居酒屋)</div>
+          <div class="chip" onclick="quickCategory('cafe')">☕ Top Cafes</div>
+          <div class="chip" onclick="quickCategory('restaurant')">🍜 Local Food</div>
+          <div class="chip" onclick="quickCategory('viewpoint')">🌆 Viewpoints</div>
+          <div class="chip" onclick="quickCategory('attraction')">🎡 Attractions</div>
+          <div class="chip" onclick="quickCategory('bar')">🍺 Nightlife</div>
         </div>
       </div>
 
       <div class="turn-hud" id="turnHud">
         <div class="turn-header">
-          <span style="font-size:0.75rem; font-weight:700; color:#10b981; letter-spacing:0.5px;"><i class="fa-solid fa-location-arrow"></i> LIVE NAVIGATION</span>
-          <span style="font-size:0.75rem; color:#94a3b8;" id="turn-total-stat">Calculating...</span>
+          <span style="font-size:0.75rem; font-weight:700; color:#10b981;"><i class="fa-solid fa-location-arrow"></i> LIVE NAVIGATION</span>
+          <span style="font-size:0.75rem; color:#94a3b8;" id="turn-stat">Calculating...</span>
         </div>
-        <div class="turn-instruction-box">
+        <div style="display:flex; gap:10px; align-items:center;">
           <div class="turn-icon-big" id="turn-icon"><i class="fa-solid fa-arrow-up"></i></div>
-          <div class="turn-details">
-            <div class="turn-text" id="turn-text">Starting route...</div>
-            <div class="turn-dist" id="turn-sub">Follow route on map</div>
+          <div>
+            <div style="font-size:0.9rem; font-weight:700;" id="turn-text">Follow route</div>
+            <div style="font-size:0.75rem; color:#94a3b8;" id="turn-sub">Step 1</div>
           </div>
         </div>
-        <div class="turn-controls">
-          <button class="turn-nav-btn" onclick="prevStep()"><i class="fa-solid fa-backward-step"></i> Prev</button>
-          <button class="turn-nav-btn" onclick="nextStep()">Next <i class="fa-solid fa-forward-step"></i></button>
-          <button class="turn-nav-btn turn-exit-btn" onclick="stopNavigation()"><i class="fa-solid fa-xmark"></i> Exit</button>
+        <div style="display:flex; gap:6px; margin-top:10px;">
+          <button class="btn-wander" style="flex:1; justify-content:center;" onclick="prevTurn()"><i class="fa-solid fa-backward-step"></i> Prev</button>
+          <button class="btn-wander" style="flex:1; justify-content:center;" onclick="nextTurn()">Next <i class="fa-solid fa-forward-step"></i></button>
+          <button class="btn-wander delete-btn" style="flex:1; justify-content:center;" onclick="stopTurnNav()">Exit</button>
         </div>
       </div>
 
       <div class="adventure-drawer" id="adventureDrawer">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-          <b style="font-size:0.92rem; color:var(--text-main);"><i class="fa-solid fa-wand-magic-sparkles" style="color:var(--accent-purple);"></i> <span id="adv-title">Top Adventure Spots</span></b>
+          <b style="font-size:0.95rem; color:var(--text-main);"><i class="fa-solid fa-wand-magic-sparkles" style="color:var(--accent-purple);"></i> <span id="adv-title">Top Fun Spots</span></b>
           <button onclick="closeAdventureDrawer()" style="background:none; border:none; font-size:1.1rem; cursor:pointer; color:#94a3b8;">✕</button>
         </div>
         <div id="adv-content" style="max-height:180px; overflow-y:auto; font-size:0.84rem; color:var(--text-muted); display:flex; flex-direction:column; gap:8px;"></div>
@@ -650,97 +451,31 @@
     </div>
   </div>
 
-  <div class="bottom-dock">
-    <button class="dock-btn" id="gpsBtn" onclick="toggleGPS()"><i class="fa-solid fa-location-crosshairs"></i> <span>Compass GPS</span></button>
-    <button class="dock-btn" onclick="openModal('currency')"><i class="fa-solid fa-coins"></i> <span>Currency</span></button>
-    <button class="dock-btn" onclick="openModal('phrases')"><i class="fa-solid fa-language"></i> <span>Phrases</span></button>
-    <button class="dock-btn" onclick="openModal('budget')"><i class="fa-solid fa-wallet"></i> <span>Budget</span></button>
-  </div>
-
-  <div class="modal-overlay" id="modal-currency">
-    <div class="modal-card">
-      <button class="modal-close" onclick="closeModal('currency')">✕</button>
-      <h3 style="margin-bottom:12px; font-weight:800;"><i class="fa-solid fa-coins" style="color:var(--primary);"></i> Instant Currency Math</h3>
-      <label style="font-size:0.82rem; font-weight:700; color:var(--text-muted);">ENTER AMOUNT (USD $):</label>
-      <input type="number" id="usdInput" value="20" style="width:100%; padding:10px 12px; font-size:1.2rem; font-weight:700; border:1px solid var(--border-color); border-radius:8px; margin:6px 0 10px 0;" oninput="updateCurrency(this.value)">
-      
-      <div style="display:flex; gap:6px; margin-bottom:12px;">
-        <button class="btn-wander" onclick="setUSD(5)">$5</button>
-        <button class="btn-wander" onclick="setUSD(10)">$10</button>
-        <button class="btn-wander" onclick="setUSD(20)">$20</button>
-        <button class="btn-wander" onclick="setUSD(50)">$50</button>
-        <button class="btn-wander" onclick="setUSD(100)">$100</button>
-      </div>
-
-      <div class="curr-grid">
-        <div class="curr-box">
-          <div class="c-lbl">🇰🇷 KOREAN WON (원)</div>
-          <div class="c-val" id="val-krw">₩27,000</div>
-          <div style="font-size:0.7rem; color:#94a3b8;">~$1 = ₩1,350</div>
-        </div>
-        <div class="curr-box">
-          <div class="c-lbl">🇯🇵 JAPANESE YEN (円)</div>
-          <div class="c-val" id="val-jpy">¥3,000</div>
-          <div style="font-size:0.7rem; color:#94a3b8;">~$1 = ¥150</div>
-        </div>
-        <div class="curr-box">
-          <div class="c-lbl">🇨🇳 CHINESE YUAN (元)</div>
-          <div class="c-val" id="val-cny">¥144</div>
-          <div style="font-size:0.7rem; color:#94a3b8;">~$1 = ¥7.20</div>
-        </div>
-        <div class="curr-box">
-          <div class="c-lbl">🇺🇸 USD BASE</div>
-          <div class="c-val" id="val-usd">$20.00</div>
-          <div style="font-size:0.7rem; color:#94a3b8;">Base USD</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="modal-overlay" id="modal-phrases">
-    <div class="modal-card">
-      <button class="modal-close" onclick="closeModal('phrases')">✕</button>
-      <h3 style="margin-bottom:12px; font-weight:800;" id="phrases-header"><i class="fa-solid fa-language" style="color:var(--primary);"></i> Pocket Survival Phrases</h3>
-      <div id="phrases-container" style="display:flex; flex-direction:column; gap:8px;"></div>
-    </div>
-  </div>
-
-  <div class="modal-overlay" id="modal-budget">
-    <div class="modal-card">
-      <button class="modal-close" onclick="closeModal('budget')">✕</button>
-      <h3 style="margin-bottom:12px; font-weight:800;"><i class="fa-solid fa-wallet" style="color:var(--primary);"></i> Trip Budget ($4,000 Cap)</h3>
-      <div style="display:flex; justify-content:space-between; font-size:0.88rem; font-weight:700;">
-        <span>Spent: $<span id="total-spent">0</span></span>
-        <span style="color:var(--text-muted);">Cap: $4,000</span>
-      </div>
-      <div style="height:10px; background:#e2e8f0; border-radius:6px; overflow:hidden; margin:8px 0 14px 0;">
-        <div id="budget-fill" style="height:100%; width:0%; background:#10b981; transition:width 0.3s;"></div>
-      </div>
-
-      <div style="display:flex; gap:6px; margin-bottom:12px;">
-        <input type="text" id="exp-name" placeholder="Item (e.g. Sushi dinner)" style="flex:2; padding:8px 10px; border:1px solid var(--border-color); border-radius:6px; font-size:0.85rem;">
-        <input type="number" id="exp-amount" placeholder="USD $" style="flex:1; padding:8px 10px; border:1px solid var(--border-color); border-radius:6px; font-size:0.85rem;">
-        <button onclick="addExpense()" class="btn-wander primary-btn" style="padding:8px 14px;">Add</button>
-      </div>
-      <div id="expense-list"></div>
-    </div>
-  </div>
-
   <div class="modal-overlay" id="modal-add-spot">
     <div class="modal-card">
       <button class="modal-close" onclick="closeModal('add-spot')">✕</button>
-      <h3 style="margin-bottom:12px; font-weight:800;"><i class="fa-solid fa-map-pin" style="color:var(--primary);"></i> Add Spot to Today's Plan</h3>
+      <h3 style="margin-bottom:12px; font-weight:800;">+ Add Spot to Day</h3>
       
-      <label style="font-size:0.82rem; font-weight:700; color:var(--text-muted);">SPOT NAME (ENGLISH):</label>
-      <input type="text" id="new-spot-name" placeholder="e.g. Blue Bottle Coffee" style="width:100%; padding:8px 10px; border:1px solid var(--border-color); border-radius:6px; margin:4px 0 10px 0;">
+      <label style="font-size:0.8rem; font-weight:700; color:var(--text-muted);">NAME (ENGLISH):</label>
+      <input type="text" id="new-spot-name" placeholder="e.g. Shibuya Sky" style="width:100%; padding:8px 10px; border:1px solid var(--border-color); border-radius:6px; margin:4px 0 10px 0;">
 
-      <label style="font-size:0.82rem; font-weight:700; color:var(--text-muted);">NATIVE SCRIPT (OPTIONAL):</label>
-      <input type="text" id="new-spot-native" placeholder="e.g. 블루보틀 삼청 / ブルーボトル" style="width:100%; padding:8px 10px; border:1px solid var(--border-color); border-radius:6px; margin:4px 0 10px 0;">
+      <label style="font-size:0.8rem; font-weight:700; color:var(--text-muted);">NATIVE SCRIPT (OPTIONAL):</label>
+      <input type="text" id="new-spot-native" placeholder="e.g. 渋谷スカイ" style="width:100%; padding:8px 10px; border:1px solid var(--border-color); border-radius:6px; margin:4px 0 10px 0;">
 
-      <label style="font-size:0.82rem; font-weight:700; color:var(--text-muted);">TIME & NOTES:</label>
-      <input type="text" id="new-spot-desc" placeholder="e.g. 3:00 PM • Iced Latte & Pastries" style="width:100%; padding:8px 10px; border:1px solid var(--border-color); border-radius:6px; margin:4px 0 14px 0;">
+      <label style="font-size:0.8rem; font-weight:700; color:var(--text-muted);">NOTES / TIME:</label>
+      <input type="text" id="new-spot-desc" placeholder="e.g. 3:30 PM • Sunset views" style="width:100%; padding:8px 10px; border:1px solid var(--border-color); border-radius:6px; margin:4px 0 14px 0;">
 
       <button class="btn-wander primary-btn" style="width:100%; justify-content:center; padding:10px;" onclick="saveCustomSpot()">Add to Plan</button>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modal-add-day">
+    <div class="modal-card">
+      <button class="modal-close" onclick="closeModal('add-day')">✕</button>
+      <h3 style="margin-bottom:12px; font-weight:800;">+ Add New Day</h3>
+      <label style="font-size:0.8rem; font-weight:700; color:var(--text-muted);">DAY TITLE:</label>
+      <input type="text" id="new-day-title" placeholder="e.g. Day 4: Exploration & Nightlife" style="width:100%; padding:8px 10px; border:1px solid var(--border-color); border-radius:6px; margin:4px 0 14px 0;">
+      <button class="btn-wander primary-btn" style="width:100%; justify-content:center; padding:10px;" onclick="addNewDay()">Create Day</button>
     </div>
   </div>
 
@@ -748,177 +483,47 @@
   <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
   
   <script>
-    const SEOUL_HOTEL = [37.5636, 126.9854];
-    const TOKYO_HOTEL = [35.6961, 139.7578];
-    const SHANGHAI_HOTEL = [31.2384, 121.4829];
-    const HANGZHOU_HOTEL = [30.2520, 120.1550];
-
-    let itinerary = {
-      "d1": {
-        title: "Day 1 (Sat, Apr 3): NYC ➔ Transpacific Flight",
-        country: "korea",
-        timezone: "Asia/Seoul",
-        region: "In Flight (New York to Seoul)",
-        transitFreq: "Long-haul flight (~15h 30m).",
-        ticketUrl: "https://www.google.com/travel/flights",
-        ticketName: "Flight Gate Info",
-        stops: [
-          { name: "New York Airport (JFK/EWR)", native: "뉴욕 공항", time: "Evening", coords: [40.6413, -73.7781], desc: "Board transpacific flight across International Date Line." }
-        ],
-        transit: "Transpacific flight crossing International Date Line (+1 day)."
-      },
-      "d2": {
-        title: "Day 2 (Sun, Apr 4): Incheon Arrival ➔ Myeongdong Check-in",
-        country: "korea",
-        timezone: "Asia/Seoul",
-        region: "Seoul, South Korea",
-        transitFreq: "AREX Express runs every 35-40 mins (05:15 to 22:48). Line 4 runs every 3-5 mins.",
-        ticketUrl: "https://www.airportrailroad.com",
-        ticketName: "AREX Express Train Booking",
-        stops: [
-          { name: "Incheon Int'l Airport (ICN)", native: "인천국제공항", time: "7:15 PM", coords: [37.4602, 126.4407], desc: "Land, clear customs, pick up T-Money transit card.", ticketUrl: "https://www.airportrailroad.com", ticketName: "AREX Ticket" },
-          { name: "Seoul Station", native: "서울역", time: "8:30 PM", coords: [37.5559, 126.9723], desc: "Express train hub into central Seoul.", ticketUrl: "http://www.seoulmetro.co.kr/en/", ticketName: "Subway Pass" },
-          { name: "🏨 Myeongdong Hotel", native: "명동 숙소", time: "9:30 PM", coords: SEOUL_HOTEL, desc: "Check in to hotel & unpack bags." },
-          { name: "Myeongdong Night Food Street", native: "명동 야시장", time: "9:45 PM - 11:00 PM", coords: [37.5615, 126.9858], desc: "Street food feast: lobster tails, hotteok, egg bread & tornado potato." }
-        ],
-        transit: "Take AREX Express train from ICN to Seoul Station (43m). Transfer to Subway Line 4 to Myeongdong Station (Exit 6/8)."
-      },
-      "d3": {
-        title: "Day 3 (Mon, Apr 5): Gyeongbokgung Palace & Bukchon Village",
-        country: "korea",
-        timezone: "Asia/Seoul",
-        region: "Seoul, South Korea",
-        transitFreq: "Line 3 runs every 3-6 mins all day.",
-        ticketUrl: "https://royal.khs.go.kr/ROYAL/contents/menuInfo-gbg.do?grpCode=gbg",
-        ticketName: "Palace Admission Info",
-        stops: [
-          { name: "🏨 Myeongdong Hotel", native: "명동 숙소", time: "10:00 AM", coords: SEOUL_HOTEL, desc: "Morning start from hotel base." },
-          { name: "Gyeongbokgung Palace", native: "경복궁", time: "10:30 AM - 1:00 PM", coords: [37.5796, 126.9770], desc: "Royal Palace & 10:00 AM Guard changing ceremony.", ticketUrl: "https://royal.khs.go.kr", ticketName: "Palace Entry" },
-          { name: "Bukchon Hanok Village", native: "북촌한옥마을", time: "1:30 PM - 3:30 PM", coords: [37.5826, 126.9836], desc: "Preserved historic tile-roof alleyways with scenic views." },
-          { name: "Insadong Cultural Street", native: "인사동 문화의거리", time: "4:00 PM - 7:00 PM", coords: [37.5743, 126.9877], desc: "Traditional teahouses, handmade pottery & hot mandu dumplings." }
-        ],
-        transit: "Line 3 to Gyeongbokgung Station (Exit 5). Walk east into Bukchon, south to Insadong."
-      },
-      "d4": {
-        title: "Day 4 (Tue, Apr 6): Hongdae Indie Scene & Yeonnam-dong",
-        country: "korea",
-        timezone: "Asia/Seoul",
-        region: "Seoul, South Korea",
-        transitFreq: "Subway Line 2 runs every 2 to 4 mins.",
-        ticketUrl: "http://www.seoulmetro.co.kr/en/",
-        ticketName: "Seoul Metro Map",
-        stops: [
-          { name: "🏨 Myeongdong Hotel", native: "명동 숙소", time: "11:00 AM", coords: SEOUL_HOTEL, desc: "Morning departure." },
-          { name: "Yeonnam-dong Forest Park", native: "연남동 경의선숲길", time: "11:30 AM - 2:30 PM", coords: [37.5621, 126.9248], desc: "Converted railway park, boutique cafes & artisan bakeries." },
-          { name: "Hongdae Shopping Street", native: "홍대 걷고싶은거리", time: "2:30 PM - 6:30 PM", coords: [37.5563, 126.9229], desc: "K-fashion boutiques, aesthetic photobooths & street dance buskers." },
-          { name: "Hongdae Chimaek (Fried Chicken)", native: "홍대 치맥", time: "6:30 PM - 9:00 PM", coords: [37.5538, 126.9216], desc: "Crispy fried chicken & draft beer dinner." }
-        ],
-        transit: "Take Subway Line 2 directly to Hongik Univ Station (Exit 3 for Yeonnam, Exit 9 for Hongdae)."
-      },
-      "d9": {
-        title: "Day 9 (Sun, Apr 11): Seoul ➔ Tokyo Flight & Shinjuku Night",
-        country: "japan",
-        timezone: "Asia/Tokyo",
-        region: "Tokyo, Japan",
-        transitFreq: "Keisei Skyliner runs every 20 mins (41m to Ueno).",
-        ticketUrl: "https://www.keisei.co.jp/keisei/tetudou/skyliner/e-ticket/en/",
-        ticketName: "Keisei Skyliner e-Ticket",
-        stops: [
-          { name: "🏨 Myeongdong Hotel", native: "명동 숙소", time: "9:00 AM", coords: SEOUL_HOTEL, desc: "Check out of Seoul hotel." },
-          { name: "Incheon Airport (ICN)", native: "인천공항", time: "10:30 AM", coords: [37.4602, 126.4407], desc: "Fly to Tokyo Narita." },
-          { name: "Narita Airport (NRT)", native: "成田国際空港", time: "2:25 PM", coords: [35.7720, 140.3929], desc: "Land in Tokyo, add digital Suica card." },
-          { name: "🏨 Tokyo Hotel (Jimbocho)", native: "神保町ホテル", time: "4:30 PM", coords: TOKYO_HOTEL, desc: "Check in to Tokyo hotel." },
-          { name: "Shinjuku Kabukicho & Ramen", native: "新宿歌舞伎町", time: "6:30 PM - 10:00 PM", coords: [35.6938, 139.7013], desc: "Godzilla head, neon alleys & counter ramen." }
-        ],
-        transit: "AREX to ICN -> Flight to NRT -> Keisei Skyliner / Narita Express to central Tokyo."
-      },
-      "d10": {
-        title: "Day 10 (Mon, Apr 12): Shibuya Crossing & Harajuku",
-        country: "japan",
-        timezone: "Asia/Tokyo",
-        region: "Tokyo, Japan",
-        transitFreq: "JR Yamanote Line arrives every 2-3 mins.",
-        ticketUrl: "https://www.shibuya-scramble-square.com/sky/",
-        ticketName: "Shibuya Sky Sunset Tickets",
-        stops: [
-          { name: "🏨 Tokyo Hotel", native: "神保町ホテル", time: "9:30 AM", coords: TOKYO_HOTEL, desc: "Morning start." },
-          { name: "Meiji Jingu Shrine", native: "明治神宮", time: "10:00 AM - 12:00 PM", coords: [35.6764, 139.6993], desc: "Serene cedar forest & giant wooden Torii gate." },
-          { name: "Takeshita Street (Harajuku)", native: "竹下通り", time: "12:00 PM - 2:00 PM", coords: [35.6715, 139.7032], desc: "Crepes, fashion shops & Cat Street stroll." },
-          { name: "Shibuya Crossing & Sky", native: "渋谷スクランブル交差点", time: "2:30 PM - 6:30 PM", coords: [35.6595, 139.7005], desc: "World famous scramble crossing & revolving sushi.", ticketUrl: "https://www.shibuya-scramble-square.com/sky/", ticketName: "Shibuya Sky Tickets" }
-        ],
-        transit: "JR Yamanote line to Harajuku Station. Walk south through Cat Street into Shibuya."
-      },
-      "d16": {
-        title: "Day 16 (Sun, Apr 18): Yu Garden & The Bund Lights",
-        country: "china",
-        timezone: "Asia/Shanghai",
-        region: "Shanghai, China",
-        transitFreq: "Metro Line 10 runs every 3 mins (Pay via Alipay QR).",
-        ticketUrl: "https://www.trip.com/travel-guide/attraction/shanghai/yu-garden-75685/",
-        ticketName: "Yu Garden Fast-Track Entry",
-        stops: [
-          { name: "🏨 Shanghai Hotel", native: "上海南京路酒店", time: "10:30 AM", coords: SHANGHAI_HOTEL, desc: "Morning start." },
-          { name: "Yu Garden & Bazaar", native: "豫园 / 城隍庙", time: "11:00 AM - 2:00 PM", coords: [31.2272, 121.4921], desc: "Ming-dynasty garden & steaming soup dumplings (Xiaolongbao).", ticketUrl: "https://www.trip.com", ticketName: "Yu Garden Entry" },
-          { name: "Nanjing Road Pedestrian Mall", native: "南京东路步行街", time: "2:30 PM - 5:30 PM", coords: [31.2384, 121.4780], desc: "Iconic shopping boulevard leading to the river." },
-          { name: "The Bund Waterfront Promenade", native: "上海外滩", time: "6:00 PM - 8:30 PM", coords: [31.2397, 121.4903], desc: "Illuminated 1920s architecture & futuristic Pudong skyline." }
-        ],
-        transit: "Metro Line 10 to Yuyuan Station (Exit 1). Walk along East Nanjing Road east towards The Bund."
-      }
-    };
-
-    // Load custom added spots from localStorage
-    function loadSavedCustomSpots() {
-      const saved = JSON.parse(localStorage.getItem('asia_custom_itinerary') || '{}');
-      for (const [dayKey, extraStops] of Object.entries(saved)) {
-        if (itinerary[dayKey]) {
-          extraStops.forEach(stop => {
-            if (!itinerary[dayKey].stops.some(s => s.name === stop.name)) {
-              itinerary[dayKey].stops.push(stop);
-            }
-          });
+    // Initial Default Data structure
+    let tripData = {
+      title: "My East Asia Adventure",
+      destination: "Tokyo, Japan",
+      center: [35.6762, 139.6503],
+      currentDay: "d1",
+      days: {
+        "d1": {
+          title: "Day 1: Shibuya & Harajuku",
+          stops: [
+            { name: "Meiji Jingu Shrine", native: "明治神宮", desc: "Tranquil cedar forest and massive Torii gate.", coords: [35.6764, 139.6993] },
+            { name: "Takeshita Street", native: "竹下通り", desc: "Harajuku fashion, crepes & boutiques.", coords: [35.6715, 139.7032] },
+            { name: "Shibuya Crossing", native: "渋谷スクランブル交差点", desc: "World famous intersection & Hachiko.", coords: [35.6595, 139.7005] }
+          ]
+        },
+        "d2": {
+          title: "Day 2: Historic Asakusa & Akihabara",
+          stops: [
+            { name: "Senso-ji Temple", native: "浅草寺", desc: "Ancient Buddhist temple with Kaminarimon lantern.", coords: [35.7148, 139.7967] },
+            { name: "Akihabara Electric Town", native: "秋葉原", desc: "Retro gaming, multi-floor arcades & electronics.", coords: [35.6983, 139.7731] }
+          ]
         }
       }
-    }
-
-    const survivalPhrases = {
-      "korea": [
-        { eng: "Hello / Goodbye", native: "안녕하세요", rom: "An-nyeong-ha-se-yo", lang: "ko-KR" },
-        { eng: "Thank you", native: "감사합니다", rom: "Gam-sa-ham-ni-da", lang: "ko-KR" },
-        { eng: "How much is this?", native: "얼마예요?", rom: "Eol-ma-ye-yo?", lang: "ko-KR" },
-        { eng: "Can I pay with credit card?", native: "카드 계산 돼요?", rom: "Ka-deu gye-san dwae-yo?", lang: "ko-KR" },
-        { eng: "Please give me this", native: "이거 주세요", rom: "I-geo ju-se-yo", lang: "ko-KR" },
-        { eng: "Where is the subway?", native: "지하철역 어디예요?", rom: "Ji-ha-cheol-yeok eo-di-ye-yo?", lang: "ko-KR" }
-      ],
-      "japan": [
-        { eng: "Excuse me / Sorry", native: "すみません", rom: "Sumimasen", lang: "ja-JP" },
-        { eng: "Thank you very much", native: "ありがとうございます", rom: "Arigatou gozaimasu", lang: "ja-JP" },
-        { eng: "How much is this?", native: "これはいくらですか？", rom: "Kore wa ikura desu ka?", lang: "ja-JP" },
-        { eng: "Check please", native: "お会計お願いします", rom: "O-kaikei onegaishimasu", lang: "ja-JP" },
-        { eng: "Do you take Suica / IC Card?", native: "Suica使えますか？", rom: "Suika tsukaemasu ka?", lang: "ja-JP" },
-        { eng: "Where is the station?", native: "駅はどこですか？", rom: "Eki wa doko desu ka?", lang: "ja-JP" }
-      ],
-      "china": [
-        { eng: "Hello", native: "你好", rom: "Nǐ hǎo", lang: "zh-CN" },
-        { eng: "Thank you", native: "谢谢", rom: "Xièxie", lang: "zh-CN" },
-        { eng: "How much is it?", native: "多少钱？", rom: "Duōshǎo qián?", lang: "zh-CN" },
-        { eng: "I'll pay with Alipay / WeChat", native: "我扫你 (支付宝/微信)", rom: "Wǒ sǎo nǐ (Zhīfùbǎo / Wēixìn)", lang: "zh-CN" },
-        { eng: "The bill please", native: "买单", rom: "Mǎidān", lang: "zh-CN" },
-        { eng: "Where is the subway station?", native: "地铁站在哪里？", rom: "Dìtiězhàn zài nǎlǐ?", lang: "zh-CN" }
-      ]
     };
 
-    let map, markerLayer, lineLayer, userLocationLayer, searchLayer, adventureLayer;
+    let map, markerLayer, lineLayer, adventureLayer, searchLayer;
     let routingControl = null;
     let routeInstructions = [];
     let currentStepIndex = 0;
-    let watchId = null;
-    let currentHeading = 0;
-    let currentUserLatLng = null;
 
-    function initMap() {
-      loadSavedCustomSpots();
+    function initApp() {
+      // Load saved trip data if exists
+      const saved = localStorage.getItem('roamlogic_trip_data');
+      if (saved) {
+        try { tripData = JSON.parse(saved); } catch (e) {}
+      }
 
-      map = L.map('map', { zoomControl: false }).setView(SEOUL_HOTEL, 13);
+      document.getElementById('tripTitleInput').value = tripData.title;
+      document.getElementById('trip-dest-label').innerText = tripData.destination;
+
+      map = L.map('map', { zoomControl: false }).setView(tripData.center, 13);
       L.control.zoom({ position: 'topright' }).addTo(map);
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -928,277 +533,259 @@
 
       markerLayer = L.layerGroup().addTo(map);
       lineLayer = L.layerGroup().addTo(map);
-      userLocationLayer = L.layerGroup().addTo(map);
-      searchLayer = L.layerGroup().addTo(map);
       adventureLayer = L.layerGroup().addTo(map);
+      searchLayer = L.layerGroup().addTo(map);
 
-      // CLICK ANYWHERE ON MAP TO INSPECT BUILDINGS/PLACES
+      // Map Click reverse lookup inspector
       map.on('click', onMapClick);
 
-      const selector = document.getElementById('daySelector');
-      selector.innerHTML = '';
-      for (const [key, data] of Object.entries(itinerary)) {
+      populateDayDropdown();
+      renderCurrentDay();
+    }
+
+    function populateDayDropdown() {
+      const select = document.getElementById('daySelector');
+      select.innerHTML = '';
+      for (const [key, data] of Object.entries(tripData.days)) {
         const opt = document.createElement('option');
         opt.value = key;
         opt.innerText = data.title;
-        selector.appendChild(opt);
-      }
-
-      renderDay('d2');
-      startClock();
-      loadExpenses();
-      setupCompass();
-    }
-
-    // MAP CLICK INSPECTOR (REVERSE LOOKUP)
-    async function onMapClick(e) {
-      const lat = e.latlng.lat;
-      const lon = e.latlng.lng;
-
-      try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`);
-        const data = await res.json();
-        
-        if (data && data.display_name) {
-          const placeName = data.name || data.display_name.split(',')[0];
-          const fullAddr = data.display_name.split(',').slice(1, 3).join(',');
-
-          const clickPopup = L.popup()
-            .setLatLng(e.latlng)
-            .setContent(`
-              <div style="font-family:sans-serif; padding:4px;">
-                <b style="font-size:0.95rem; color:#1e293b;">🏢 ${placeName}</b><br>
-                <div style="font-size:0.75rem; color:#64748b; margin:2px 0 8px 0;">${fullAddr}</div>
-                <div style="display:flex; gap:4px; flex-wrap:wrap;">
-                  <button class="btn-wander primary-btn" onclick="startTurnByTurnNavigation(${lat}, ${lon}, '${placeName}')"><i class="fa-solid fa-location-arrow"></i> Route Here</button>
-                  <button class="btn-wander" onclick="addCustomSpotDirect('${placeName}', '${placeName}', [${lat}, ${lon}])"><i class="fa-solid fa-plus"></i> Add to Plan</button>
-                </div>
-              </div>
-            `)
-            .openOn(map);
-        }
-      } catch (err) {
-        console.error("Lookup error:", err);
+        if (key === tripData.currentDay) opt.selected = true;
+        select.appendChild(opt);
       }
     }
 
-    function renderDay(dayKey) {
-      const day = itinerary[dayKey];
+    function switchDay(dayKey) {
+      tripData.currentDay = dayKey;
+      saveTripData();
+      renderCurrentDay();
+    }
+
+    function renderCurrentDay() {
+      const day = tripData.days[tripData.currentDay];
       if (!day) return;
 
       markerLayer.clearLayers();
       lineLayer.clearLayers();
-      searchLayer.clearLayers();
       adventureLayer.clearLayers();
+      searchLayer.clearLayers();
       closeAdventureDrawer();
-      stopNavigation();
+      stopTurnNav();
 
       const latlngs = [];
+      const feed = document.getElementById('itineraryFeed');
+      feed.innerHTML = '';
 
-      day.stops.forEach((stop, index) => {
-        const isHotel = stop.name.includes("🏨");
+      day.stops.forEach((stop, idx) => {
+        // Marker
         const customPin = L.divIcon({
           className: 'custom-map-pin',
-          html: `<div style="background:${isHotel ? '#f59e0b' : '#ff4a5a'}; color:white; border-radius:50%; width:26px; height:26px; display:flex; align-items:center; justify-content:center; font-size:0.8rem; font-weight:800; border:2px solid white; box-shadow:0 2px 6px rgba(0,0,0,0.3);">${index + 1}</div>`,
+          html: `<div style="background:#ff4a5a; color:white; border-radius:50%; width:26px; height:26px; display:flex; align-items:center; justify-content:center; font-size:0.8rem; font-weight:800; border:2px solid white; box-shadow:0 2px 6px rgba(0,0,0,0.3);">${idx + 1}</div>`,
           iconSize: [26, 26],
           iconAnchor: [13, 13]
         });
 
         const marker = L.marker(stop.coords, { icon: customPin }).addTo(markerLayer);
-        const encodedQuery = encodeURIComponent(`${stop.name} ${day.region.split(',')[0]}`);
-        const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodedQuery}`;
-        
+        const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(stop.name + ' ' + tripData.destination)}`;
+
         marker.bindPopup(`
-          <div style="font-family:sans-serif; padding:4px;">
-            <b style="font-size:0.95rem; color:#111827;">#${index + 1}: ${stop.name}</b>
-            ${stop.native ? `<span class="place-native-tag">${stop.native}</span>` : ''}<br>
-            <span style="font-size:0.8rem; font-weight:700; color:#ff4a5a;">⏰ ${stop.time}</span><br>
-            <p style="font-size:0.82rem; color:#4b5563; margin:4px 0 8px 0;">${stop.desc}</p>
-            <div style="display:flex; gap:4px; flex-wrap:wrap;">
-              <button class="btn-wander primary-btn" onclick="startTurnByTurnNavigation(${stop.coords[0]}, ${stop.coords[1]}, '${stop.name}')"><i class="fa-solid fa-location-arrow"></i> Route Here</button>
-              <a href="${gmapsUrl}" target="_blank" class="btn-wander"><i class="fa-solid fa-map-location-dot"></i> Google Maps</a>
-            </div>
+          <b style="font-size:0.95rem;">#${idx + 1}: ${stop.name}</b> ${stop.native ? `<span class="place-native-tag">${stop.native}</span>` : ''}<br>
+          <p style="font-size:0.82rem; color:#64748b; margin:4px 0 8px 0;">${stop.desc}</p>
+          <div style="display:flex; gap:4px;">
+            <button class="btn-wander primary-btn" onclick="startTurnNav(${stop.coords[0]}, ${stop.coords[1]}, '${stop.name}')">Route Here</button>
+            <a href="${gmapsUrl}" target="_blank" class="btn-wander">Google Maps</a>
           </div>
         `);
         latlngs.push(stop.coords);
+
+        // Sidebar Card
+        const card = document.createElement('div');
+        card.className = 'place-card';
+        card.innerHTML = `
+          <div class="place-header">
+            <div class="place-num">${idx + 1}</div>
+            <div class="place-details">
+              <div class="place-title">${stop.name} ${stop.native ? `<span class="place-native-tag">${stop.native}</span>` : ''}</div>
+              <div class="place-desc">${stop.desc}</div>
+              <div class="card-actions">
+                <button class="btn-wander primary-btn" onclick="startTurnNav(${stop.coords[0]}, ${stop.coords[1]}, '${stop.name}')"><i class="fa-solid fa-location-arrow"></i> Route Here</button>
+                <a href="${gmapsUrl}" target="_blank" class="btn-wander"><i class="fa-solid fa-map-location-dot"></i> Google Maps</a>
+                <button class="btn-wander delete-btn" onclick="deleteSpot(${idx})"><i class="fa-solid fa-trash"></i></button>
+              </div>
+            </div>
+          </div>
+        `;
+        feed.appendChild(card);
       });
 
       if (latlngs.length > 1) {
         const polyline = L.polyline(latlngs, { color: '#ff4a5a', weight: 4, opacity: 0.85, dashArray: '6, 8' }).addTo(lineLayer);
         map.fitBounds(polyline.getBounds(), { padding: [50, 50] });
-      } else {
-        map.setView(latlngs[0], 13);
+      } else if (latlngs.length === 1) {
+        map.setView(latlngs[0], 14);
       }
-
-      // Sidebar Itinerary Cards
-      let feedHtml = `
-        <div class="transit-card">
-          <div class="transit-header"><i class="fa-solid fa-train-subway"></i> Transit Interval & Schedules:</div>
-          <div class="transit-freq">${day.transitFreq}</div>
-          <a href="${day.ticketUrl}" target="_blank" class="btn-wander ticket-btn"><i class="fa-solid fa-ticket"></i> ${day.ticketName}</a>
-        </div>
-      `;
-
-      day.stops.forEach((stop, index) => {
-        const isHotel = stop.name.includes("🏨");
-        const encodedQuery = encodeURIComponent(`${stop.name} ${day.region.split(',')[0]}`);
-        const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodedQuery}`;
-
-        feedHtml += `
-          <div class="place-card">
-            <div class="place-header">
-              <div class="place-num ${isHotel ? 'hotel' : ''}">${index + 1}</div>
-              <div class="place-details">
-                <div class="place-time">${stop.time}</div>
-                <div class="place-title">
-                  ${stop.name}
-                  ${stop.native ? `<span class="place-native-tag">${stop.native}</span>` : ''}
-                </div>
-                <div class="place-desc">${stop.desc}</div>
-                
-                <div class="card-actions">
-                  <button class="btn-wander primary-btn" onclick="startTurnByTurnNavigation(${stop.coords[0]}, ${stop.coords[1]}, '${stop.name}')">
-                    <i class="fa-solid fa-location-arrow"></i> Route Here
-                  </button>
-                  <a href="${stop.ticketUrl || day.ticketUrl}" target="_blank" class="btn-wander ticket-btn">
-                    <i class="fa-solid fa-ticket"></i> ${stop.ticketName || 'Tickets / Pass'}
-                  </a>
-                  <a href="${gmapsUrl}" target="_blank" class="btn-wander">
-                    <i class="fa-solid fa-map-location-dot"></i> Google Maps
-                  </a>
-                </div>
-              </div>
-            </div>
-          </div>
-        `;
-      });
-
-      feedHtml += `
-        <div style="background:#f8fafc; border:1px solid var(--border-color); border-radius:10px; padding:12px; font-size:0.84rem; color:var(--text-muted); margin-top:10px;">
-          <b style="color:var(--text-main);"><i class="fa-solid fa-signs-post"></i> Day Transit Guide:</b> ${day.transit}
-        </div>
-      `;
-
-      document.getElementById('day-summary').innerHTML = feedHtml;
-      renderPhrases(day.country);
     }
 
-    // LIVE GOOGLE MAPS STYLE TURN-BY-TURN STEP NAVIGATION
-    function startTurnByTurnNavigation(destLat, destLng, destName) {
-      if (routingControl) {
-        map.removeControl(routingControl);
-      }
+    // 🎲 SPONTANEOUS ADVENTURE ENGINE (ANY CITY / AREA)
+    async function triggerSpontaneousAdventure() {
+      const center = map.getCenter();
+      adventureLayer.clearLayers();
 
-      let origin = currentUserLatLng;
-      if (!origin) {
-        const currentDayKey = document.getElementById('daySelector').value || 'd2';
-        const day = itinerary[currentDayKey];
-        origin = day.stops[0].coords;
-      }
+      const drawer = document.getElementById('adventureDrawer');
+      const content = document.getElementById('adv-content');
+      const title = document.getElementById('adv-title');
 
-      routingControl = L.Routing.control({
-        waypoints: [
-          L.latLng(origin[0], origin[1]),
-          L.latLng(destLat, destLng)
-        ],
-        routeWhileDragging: false,
-        addWaypoints: false,
-        showAlternatives: false,
-        lineOptions: {
-          styles: [{ color: '#10b981', opacity: 0.95, weight: 6 }]
+      title.innerText = "🎲 Querying Top Fun Spots...";
+      content.innerHTML = "<div>Scanning attractions, hidden cafes & scenic view spots...</div>";
+      drawer.style.display = 'block';
+
+      const query = `[out:json][timeout:15];(
+        node["tourism"~"attraction|viewpoint|artwork"](around:2500,${center.lat},${center.lng});
+        node["amenity"~"cafe|restaurant|bar|ice_cream"](around:2000,${center.lat},${center.lng});
+        node["historic"](around:2500,${center.lat},${center.lng});
+      );out body 30;`;
+
+      try {
+        const res = await fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(query));
+        const data = await res.json();
+
+        if (!data.elements || data.elements.length === 0) {
+          title.innerText = "No extra spots found nearby";
+          content.innerHTML = "<div>Try panning the map or zooming out.</div>";
+          return;
         }
-      }).addTo(map);
 
-      routingControl.on('routesfound', function(e) {
-        const routes = e.routes;
-        const summary = routes[0].summary;
-        routeInstructions = routes[0].instructions || [];
-        currentStepIndex = 0;
+        const valid = data.elements.filter(el => (el.tags.name || el.tags['name:en']));
+        const shuffled = valid.sort(() => 0.5 - Math.random()).slice(0, 6);
 
-        document.getElementById('turn-total-stat').innerText = `${(summary.totalDistance / 1000).toFixed(1)} km • ${Math.round(summary.totalTime / 60)} mins`;
-        document.getElementById('turnHud').style.display = 'block';
-        updateTurnStepDisplay();
-      });
+        title.innerText = "✨ Surprise Adventure Picks";
+        content.innerHTML = '';
 
-      map.flyTo([destLat, destLng], 16);
-    }
+        shuffled.forEach(spot => {
+          const name = spot.tags['name:en'] || spot.tags.name;
+          const native = spot.tags.name || '';
+          let cat = spot.tags.tourism || spot.tags.amenity || spot.tags.historic || "Spot";
+          let emoji = "🎡";
+          if (cat === "cafe") emoji = "☕";
+          if (cat === "restaurant") emoji = "🍜";
+          if (cat === "viewpoint") emoji = "🌆";
+          if (cat === "bar") emoji = "🍺";
 
-    function updateTurnStepDisplay() {
-      if (routeInstructions.length === 0) return;
-      const step = routeInstructions[currentStepIndex];
-      const turnText = document.getElementById('turn-text');
-      const turnSub = document.getElementById('turn-sub');
-      const turnIcon = document.getElementById('turn-icon');
+          const pin = L.divIcon({
+            className: 'adv-pin',
+            html: `<div style="background:linear-gradient(135deg, #8b5cf6, #ec4899); color:white; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; font-size:0.9rem; border:2px solid white; box-shadow:0 3px 8px rgba(139,92,246,0.6);">${emoji}</div>`,
+            iconSize: [28, 28],
+            iconAnchor: [14, 14]
+          });
 
-      turnText.innerText = step.text || "Continue along route";
-      turnSub.innerText = `Step ${currentStepIndex + 1} of ${routeInstructions.length} • in ${Math.round(step.distance)} meters`;
+          const m = L.marker([spot.lat, spot.lon], { icon: pin }).addTo(adventureLayer);
+          m.bindPopup(`
+            <b>${emoji} ${name}</b> ${native && native !== name ? `<span class="place-native-tag">${native}</span>` : ''}<br>
+            <span style="font-size:0.75rem; color:#64748b; text-transform:uppercase;">${cat}</span><br>
+            <div style="margin-top:6px; display:flex; gap:4px;">
+              <button class="btn-wander primary-btn" onclick="addCustomSpotDirect('${name}', '${native}', [${spot.lat}, ${spot.lon}])">+ Add to Plan</button>
+              <button class="btn-wander" onclick="startTurnNav(${spot.lat}, ${spot.lon}, '${name}')">Route</button>
+            </div>
+          `);
 
-      let iconHtml = '<i class="fa-solid fa-arrow-up"></i>';
-      if (step.type && step.type.toLowerCase().includes('left')) iconHtml = '<i class="fa-solid fa-arrow-left"></i>';
-      if (step.type && step.type.toLowerCase().includes('right')) iconHtml = '<i class="fa-solid fa-arrow-right"></i>';
-      if (step.type && step.type.toLowerCase().includes('destination')) iconHtml = '<i class="fa-solid fa-flag-checkered"></i>';
-      turnIcon.innerHTML = iconHtml;
-    }
+          const item = document.createElement('div');
+          item.style.cssText = "display:flex; justify-content:space-between; align-items:center; padding:8px 10px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0;";
+          item.innerHTML = `
+            <div>
+              <b style="color:#0f172a;">${emoji} ${name}</b> ${native && native !== name ? `<span class="place-native-tag">${native}</span>` : ''}
+              <div style="font-size:0.72rem; color:#94a3b8; text-transform:capitalize;">${cat} • Nearby Discovery</div>
+            </div>
+            <div style="display:flex; gap:4px;">
+              <button class="btn-wander primary-btn" style="padding:4px 8px;" onclick="addCustomSpotDirect('${name}', '${native}', [${spot.lat}, ${spot.lon}])"><i class="fa-solid fa-plus"></i></button>
+              <button class="btn-wander" style="padding:4px 8px;" onclick="map.flyTo([${spot.lat}, ${spot.lon}], 16); m.openPopup();"><i class="fa-solid fa-eye"></i></button>
+            </div>
+          `;
+          content.appendChild(item);
+        });
 
-    function nextStep() {
-      if (currentStepIndex < routeInstructions.length - 1) {
-        currentStepIndex++;
-        updateTurnStepDisplay();
+      } catch (e) {
+        title.innerText = "Lookup timed out";
+        content.innerHTML = "<div>Unable to query live spots right now.</div>";
       }
     }
 
-    function prevStep() {
-      if (currentStepIndex > 0) {
-        currentStepIndex--;
-        updateTurnStepDisplay();
+    function closeAdventureDrawer() {
+      document.getElementById('adventureDrawer').style.display = 'none';
+    }
+
+    // Geocoding city search
+    async function searchLocation() {
+      const q = document.getElementById('searchInput').value.trim();
+      if (!q) return;
+
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`);
+        const data = await res.json();
+        if (data && data.length > 0) {
+          const lat = parseFloat(data[0].lat);
+          const lon = parseFloat(data[0].lon);
+          tripData.destination = data[0].display_name.split(',')[0];
+          tripData.center = [lat, lon];
+          document.getElementById('trip-dest-label').innerText = tripData.destination;
+          saveTripData();
+          map.flyTo([lat, lon], 13);
+        } else {
+          alert("Location not found.");
+        }
+      } catch (e) {
+        alert("Search failed.");
       }
     }
 
-    function stopNavigation() {
-      if (routingControl) {
-        map.removeControl(routingControl);
-        routingControl = null;
-      }
-      document.getElementById('turnHud').style.display = 'none';
-      routeInstructions = [];
+    function quickCategory(tag) {
+      document.getElementById('searchInput').value = tag;
+      triggerSpontaneousAdventure();
     }
 
-    // ADD CUSTOM SPOT DIRECTLY
+    // MAP CLICK INSPECTOR
+    async function onMapClick(e) {
+      const lat = e.latlng.lat;
+      const lon = e.latlng.lng;
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`);
+        const data = await res.json();
+        if (data && data.display_name) {
+          const name = data.name || data.display_name.split(',')[0];
+          L.popup().setLatLng(e.latlng).setContent(`
+            <b style="font-size:0.95rem;">🏢 ${name}</b><br>
+            <div style="margin-top:6px; display:flex; gap:4px;">
+              <button class="btn-wander primary-btn" onclick="addCustomSpotDirect('${name}', '', [${lat}, ${lon}])">+ Add to Plan</button>
+              <button class="btn-wander" onclick="startTurnNav(${lat}, ${lon}, '${name}')">Route</button>
+            </div>
+          `).openOn(map);
+        }
+      } catch (err) {}
+    }
+
+    // Add Spot Direct
     function addCustomSpotDirect(name, native, coords) {
-      const currentDayKey = document.getElementById('daySelector').value || 'd2';
-      const newSpot = {
+      const day = tripData.days[tripData.currentDay];
+      day.stops.push({
         name: name,
         native: native || '',
-        time: "Added Plan",
-        coords: coords,
-        desc: "Custom spot added to your itinerary."
-      };
-
-      itinerary[currentDayKey].stops.push(newSpot);
-
-      // Save to localStorage
-      const saved = JSON.parse(localStorage.getItem('asia_custom_itinerary') || '{}');
-      if (!saved[currentDayKey]) saved[currentDayKey] = [];
-      saved[currentDayKey].push(newSpot);
-      localStorage.setItem('asia_custom_itinerary', JSON.stringify(saved));
-
-      renderDay(currentDayKey);
-      alert(`✅ Added "${name}" to Day's Itinerary!`);
+        desc: "Custom added spot",
+        coords: coords
+      });
+      saveTripData();
+      renderCurrentDay();
+      alert(`✅ Added "${name}" to ${day.title}!`);
     }
 
-    function openAddSpotModal() {
-      openModal('add-spot');
-    }
+    // Modals
+    function openModal(id) { document.getElementById('modal-' + id).classList.add('open'); }
+    function closeModal(id) { document.getElementById('modal-' + id).classList.remove('open'); }
 
+    function openAddSpotModal() { openModal('add-spot'); }
     function saveCustomSpot() {
       const name = document.getElementById('new-spot-name').value.trim();
       const native = document.getElementById('new-spot-native').value.trim();
       const desc = document.getElementById('new-spot-desc').value.trim();
-
-      if (!name) {
-        alert("Please enter a spot name.");
-        return;
-      }
+      if (!name) return alert("Please enter a name.");
 
       const center = map.getCenter();
       addCustomSpotDirect(name, native, [center.lat, center.lng]);
@@ -1209,390 +796,71 @@
       closeModal('add-spot');
     }
 
-    // SPONTANEOUS SURPRISE ADVENTURE ENGINE
-    async function triggerRandomAdventure() {
-      const inputVal = document.getElementById('searchInput').value.trim();
-      let center = map.getCenter();
-      let areaName = "Nearby Area";
+    function openAddDayModal() { openModal('add-day'); }
+    function addNewDay() {
+      const title = document.getElementById('new-day-title').value.trim();
+      if (!title) return alert("Please enter a title.");
 
-      adventureLayer.clearLayers();
-      const advDrawer = document.getElementById('adventureDrawer');
-      const advContent = document.getElementById('adv-content');
-      const advTitle = document.getElementById('adv-title');
+      const newKey = "d" + (Object.keys(tripData.days).length + 1);
+      tripData.days[newKey] = { title: title, stops: [] };
+      tripData.currentDay = newKey;
+      saveTripData();
+      populateDayDropdown();
+      renderCurrentDay();
+      closeModal('add-day');
+    }
 
-      advTitle.innerText = "🎲 Searching Top Fun Spots...";
-      advContent.innerHTML = "<div style='padding:10px;'>Scanning attractions, photo spots & aesthetic cafes...</div>";
-      advDrawer.style.display = 'block';
-
-      if (inputVal.length > 2) {
-        try {
-          const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(inputVal)}&limit=1`);
-          const geoData = await geoRes.json();
-          if (geoData && geoData.length > 0) {
-            center = { lat: parseFloat(geoData[0].lat), lng: parseFloat(geoData[0].lon) };
-            areaName = geoData[0].display_name.split(',')[0];
-            map.flyTo([center.lat, center.lng], 14);
-          }
-        } catch (e) {
-          console.error("Geocoding failed, using current map center.");
-        }
-      }
-
-      const advQuery = `[out:json][timeout:15];(
-        node["tourism"~"attraction|viewpoint|artwork"](around:2500,${center.lat},${center.lng});
-        node["amenity"~"cafe|restaurant|bar|ice_cream"](around:2000,${center.lat},${center.lng});
-        node["historic"](around:2500,${center.lat},${center.lng});
-      );out body 35;`;
-
-      try {
-        const res = await fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(advQuery));
-        const data = await res.json();
-
-        if (!data.elements || data.elements.length === 0) {
-          advTitle.innerText = `🎲 No extra spots found in ${areaName}`;
-          advContent.innerHTML = "<div>Try zooming out or entering a larger neighborhood.</div>";
-          return;
-        }
-
-        const namedSpots = data.elements.filter(el => (el.tags.name || el.tags['name:en']) && !el.tags.name.includes("Toilet"));
-        const shuffled = namedSpots.sort(() => 0.5 - Math.random()).slice(0, 6);
-
-        advTitle.innerText = `✨ Top Fun Spots in ${areaName}`;
-        advContent.innerHTML = '';
-
-        shuffled.forEach((spot) => {
-          const name = spot.tags['name:en'] || spot.tags.name;
-          const native = spot.tags.name || '';
-          let category = spot.tags.tourism || spot.tags.amenity || spot.tags.historic || "Spot";
-          let iconEmoji = "🎡";
-          if (category === "cafe" || category === "ice_cream") iconEmoji = "☕";
-          if (category === "restaurant") iconEmoji = "🍜";
-          if (category === "viewpoint") iconEmoji = "🌆";
-          if (category === "bar") iconEmoji = "🍺";
-
-          const advPin = L.divIcon({
-            className: 'adventure-pin',
-            html: `<div style="background:linear-gradient(135deg, #8b5cf6, #ec4899); color:white; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; font-size:0.9rem; border:2px solid white; box-shadow:0 3px 8px rgba(139,92,246,0.6);">${iconEmoji}</div>`,
-            iconSize: [28, 28],
-            iconAnchor: [14, 14]
-          });
-
-          const marker = L.marker([spot.lat, spot.lon], { icon: advPin }).addTo(adventureLayer);
-          const encodedQuery = encodeURIComponent(`${name} ${native}`);
-          const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodedQuery}`;
-
-          marker.bindPopup(`
-            <b style="font-size:0.95rem; color:#6d28d9;">${iconEmoji} ${name}</b>
-            ${native && native !== name ? `<span class="place-native-tag">${native}</span>` : ''}<br>
-            <span style="font-size:0.75rem; color:#6b7280; text-transform:uppercase; font-weight:bold;">${category}</span><br>
-            <div style="margin-top:6px; display:flex; gap:4px; flex-wrap:wrap;">
-              <button class="btn-wander primary-btn" onclick="startTurnByTurnNavigation(${spot.lat}, ${spot.lon}, '${name}')"><i class="fa-solid fa-location-arrow"></i> Route</button>
-              <button class="btn-wander" onclick="addCustomSpotDirect('${name}', '${native}', [${spot.lat}, ${spot.lon}])"><i class="fa-solid fa-plus"></i> Add to Plan</button>
-              <a href="${gmapsUrl}" target="_blank" class="btn-wander">Google Maps</a>
-            </div>
-          `);
-
-          const item = document.createElement('div');
-          item.style.cssText = "display:flex; justify-content:space-between; align-items:center; padding:8px 10px; background:#f8fafc; border-radius:8px; border:1px solid #e2e8f0;";
-          item.innerHTML = `
-            <div>
-              <b style="color:#0f172a;">${iconEmoji} ${name}</b> ${native && native !== name ? `<span class="place-native-tag">${native}</span>` : ''}
-              <div style="font-size:0.72rem; color:#94a3b8; text-transform:capitalize;">${category} • Nearby Discovery</div>
-            </div>
-            <div style="display:flex; gap:4px;">
-              <button class="btn-wander primary-btn" style="padding:4px 8px;" onclick="map.flyTo([${spot.lat}, ${spot.lon}], 16); marker.openPopup();"><i class="fa-solid fa-eye"></i></button>
-              <button class="btn-wander" style="padding:4px 8px;" onclick="addCustomSpotDirect('${name}', '${native}', [${spot.lat}, ${spot.lon}])"><i class="fa-solid fa-plus"></i></button>
-              <button class="btn-wander adventure-btn" style="padding:4px 8px;" onclick="startTurnByTurnNavigation(${spot.lat}, ${spot.lon}, '${name}')"><i class="fa-solid fa-location-arrow"></i></button>
-            </div>
-          `;
-          advContent.appendChild(item);
-        });
-
-      } catch (err) {
-        advTitle.innerText = "Adventure lookup timed out";
-        advContent.innerHTML = "<div>Unable to query live spots. Check connection.</div>";
+    function deleteSpot(idx) {
+      if (confirm("Delete this spot from itinerary?")) {
+        tripData.days[tripData.currentDay].stops.splice(idx, 1);
+        saveTripData();
+        renderCurrentDay();
       }
     }
 
-    function closeAdventureDrawer() {
-      document.getElementById('adventureDrawer').style.display = 'none';
+    function saveTripData() {
+      tripData.title = document.getElementById('tripTitleInput').value.trim();
+      localStorage.setItem('roamlogic_trip_data', JSON.stringify(tripData));
     }
 
-    // Quick Search
-    function quickSearch(tag) {
-      document.getElementById('searchInput').value = tag;
-      searchNearby();
-    }
+    // Turn Navigation
+    function startTurnNav(destLat, destLng, destName) {
+      if (routingControl) map.removeControl(routingControl);
+      const day = tripData.days[tripData.currentDay];
+      const origin = day.stops[0] ? day.stops[0].coords : map.getCenter();
 
-    async function searchNearby() {
-      const query = document.getElementById('searchInput').value.trim().toLowerCase();
-      if (!query) return;
+      routingControl = L.Routing.control({
+        waypoints: [L.latLng(origin[0], origin[1]), L.latLng(destLat, destLng)],
+        lineOptions: { styles: [{ color: '#10b981', opacity: 0.95, weight: 6 }] }
+      }).addTo(map);
 
-      const center = map.getCenter();
-      searchLayer.clearLayers();
-
-      let overpassFilter = '';
-      let markerEmoji = '📍';
-
-      if (query.includes('coffee') || query.includes('cafe') || query.includes('starbucks') || query.includes('luckin')) {
-        overpassFilter = 'node["amenity"="cafe"](around:2500,' + center.lat + ',' + center.lng + ');';
-        markerEmoji = '☕';
-      } else if (query.includes('ramen') || query.includes('noodle') || query.includes('food') || query.includes('restaurant')) {
-        overpassFilter = 'node["amenity"="restaurant"](around:2500,' + center.lat + ',' + center.lng + ');';
-        markerEmoji = '🍜';
-      } else if (query.includes('boba') || query.includes('tea')) {
-        overpassFilter = 'node["shop"="tea"](around:2500,' + center.lat + ',' + center.lng + ');node["amenity"="cafe"](around:2500,' + center.lat + ',' + center.lng + ');';
-        markerEmoji = '🧋';
-      } else if (query.includes('viewpoint') || query.includes('view') || query.includes('photo')) {
-        overpassFilter = 'node["tourism"="viewpoint"](around:3500,' + center.lat + ',' + center.lng + ');node["tourism"="attraction"](around:3500,' + center.lat + ',' + center.lng + ');';
-        markerEmoji = '🌆';
-      } else if (query.includes('7-eleven') || query.includes('convenience') || query.includes('lawson') || query.includes('mart')) {
-        overpassFilter = 'node["shop"="convenience"](around:2500,' + center.lat + ',' + center.lng + ');';
-        markerEmoji = '🏪';
-      } else if (query.includes('bar') || query.includes('pub') || query.includes('izakaya')) {
-        overpassFilter = 'node["amenity"="bar"](around:2500,' + center.lat + ',' + center.lng + ');node["amenity"="pub"](around:2500,' + center.lat + ',' + center.lng + ');';
-        markerEmoji = '🍺';
-      } else {
-        overpassFilter = 'node["name"~"' + query + '",i](around:3500,' + center.lat + ',' + center.lng + ');';
-        markerEmoji = '📍';
-      }
-
-      const overpassQuery = '[out:json][timeout:15];(' + overpassFilter + ');out body 20;';
-      const url = 'https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(overpassQuery);
-
-      try {
-        const res = await fetch(url);
-        const data = await res.json();
-
-        if (!data.elements || data.elements.length === 0) {
-          alert(`No spots found for "${query}" right here. Try moving the map.`);
-          return;
-        }
-
-        data.elements.forEach((el) => {
-          const name = el.tags['name:en'] || el.tags.name || query.toUpperCase();
-          const native = el.tags.name || '';
-          const cuisine = el.tags.cuisine ? ` (${el.tags.cuisine})` : '';
-          const searchIcon = L.divIcon({
-            className: 'search-marker-dot',
-            html: `<div style="background:#ff4a5a; color:white; border-radius:50%; width:26px; height:26px; display:flex; align-items:center; justify-content:center; font-size:0.85rem; border:2px solid white; box-shadow:0 2px 6px rgba(0,0,0,0.4);">${markerEmoji}</div>`,
-            iconSize: [26, 26],
-            iconAnchor: [13, 13]
-          });
-
-          const encodedQuery = encodeURIComponent(`${name} ${native}`);
-          const gmapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodedQuery}`;
-
-          L.marker([el.lat, el.lon], { icon: searchIcon }).addTo(searchLayer)
-            .bindPopup(`
-              <b style="font-size:0.92rem;">${name}</b> ${native && native !== name ? `<span class="place-native-tag">${native}</span>` : ''}${cuisine}<br>
-              <div style="display:flex; gap:4px; margin-top:6px; flex-wrap:wrap;">
-                <button class="btn-wander primary-btn" onclick="startTurnByTurnNavigation(${el.lat}, ${el.lon}, '${name}')"><i class="fa-solid fa-location-arrow"></i> Route</button>
-                <button class="btn-wander" onclick="addCustomSpotDirect('${name}', '${native}', [${el.lat}, ${el.lon}])"><i class="fa-solid fa-plus"></i> Add to Plan</button>
-                <a href="${gmapsUrl}" target="_blank" class="btn-wander">Google Maps</a>
-              </div>
-            `);
-        });
-
-        map.setView([data.elements[0].lat, data.elements[0].lon], 14);
-      } catch (err) {
-        alert("Search timed out. Please try again.");
-      }
-    }
-
-    // Modals
-    function openModal(id) { document.getElementById('modal-' + id).classList.add('open'); }
-    function closeModal(id) { document.getElementById('modal-' + id).classList.remove('open'); }
-
-    // Dual Clock
-    function startClock() {
-      function update() {
-        const now = new Date();
-        const nycTime = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }).format(now);
-        
-        const currentDayKey = document.getElementById('daySelector').value || 'd2';
-        const tz = itinerary[currentDayKey] ? itinerary[currentDayKey].timezone : 'Asia/Seoul';
-        const localTime = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }).format(now);
-
-        document.getElementById('time-nyc').innerText = nycTime;
-        document.getElementById('time-local').innerText = localTime;
-      }
-      setInterval(update, 1000);
-      update();
-    }
-
-    // Compass
-    function setupCompass() {
-      if (window.DeviceOrientationEvent) {
-        window.addEventListener('deviceorientationabsolute', handleOrientation, true);
-        window.addEventListener('deviceorientation', handleOrientation, true);
-      }
-    }
-    function handleOrientation(event) {
-      let heading = null;
-      if (event.webkitCompassHeading) {
-        heading = event.webkitCompassHeading;
-      } else if (event.alpha) {
-        heading = (360 - event.alpha) % 360;
-      }
-      if (heading !== null) {
-        currentHeading = heading;
-        const cone = document.querySelector('.user-cone');
-        if (cone) {
-          cone.style.transform = `rotate(${currentHeading}deg)`;
-        }
-      }
-    }
-
-    // GPS
-    function toggleGPS() {
-      const btn = document.getElementById('gpsBtn');
-
-      if (!navigator.geolocation) {
-        alert("Geolocation not supported on this device.");
-        return;
-      }
-
-      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-        DeviceOrientationEvent.requestPermission().catch(console.error);
-      }
-
-      if (watchId !== null) {
-        navigator.geolocation.clearWatch(watchId);
-        watchId = null;
-        userLocationLayer.clearLayers();
-        btn.classList.remove('active');
-        return;
-      }
-
-      watchId = navigator.geolocation.watchPosition(
-        (pos) => {
-          const lat = pos.coords.latitude;
-          const lng = pos.coords.longitude;
-          const accuracy = pos.coords.accuracy;
-          currentUserLatLng = [lat, lng];
-
-          userLocationLayer.clearLayers();
-
-          const userHeadingIcon = L.divIcon({
-            className: 'user-heading-container',
-            html: `
-              <div class="user-cone" style="transform: rotate(${currentHeading}deg);"></div>
-              <div class="user-dot"></div>
-            `,
-            iconSize: [40, 40],
-            iconAnchor: [20, 20]
-          });
-
-          L.marker([lat, lng], { icon: userHeadingIcon }).addTo(userLocationLayer)
-            .bindPopup("<b>📍 You are here</b><br>Accuracy: ±" + Math.round(accuracy) + "m");
-
-          L.circle([lat, lng], { radius: accuracy, color: '#ff4a5a', opacity: 0.15, fillOpacity: 0.05 }).addTo(userLocationLayer);
-
-          btn.classList.add('active');
-          map.panTo([lat, lng]);
-        },
-        (err) => {
-          alert("GPS error: " + err.message);
-          btn.classList.remove('active');
-          watchId = null;
-        },
-        { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
-      );
-    }
-
-    // Currency
-    function setUSD(val) { document.getElementById('usdInput').value = val; updateCurrency(val); }
-    function updateCurrency(val) {
-      const num = parseFloat(val) || 0;
-      document.getElementById('val-krw').innerText = "₩" + Math.round(num * 1350).toLocaleString();
-      document.getElementById('val-jpy').innerText = "¥" + Math.round(num * 150).toLocaleString();
-      document.getElementById('val-cny').innerText = "¥" + (num * 7.2).toFixed(1);
-      document.getElementById('val-usd').innerText = "$" + num.toFixed(2);
-    }
-
-    // Phrases
-    function renderPhrases(country) {
-      const phrases = survivalPhrases[country] || survivalPhrases['korea'];
-      const container = document.getElementById('phrases-container');
-      const header = document.getElementById('phrases-header');
-
-      const countryNames = { korea: "🇰🇷 Korea", japan: "🇯🇵 Japan", china: "🇨🇳 China" };
-      header.innerHTML = `<i class="fa-solid fa-language" style="color:var(--primary);"></i> Pocket Phrases (${countryNames[country] || 'Korea'})`;
-
-      container.innerHTML = '';
-      phrases.forEach(p => {
-        const item = document.createElement('div');
-        item.style.cssText = "display:flex; justify-content:space-between; align-items:center; background:#f8fafc; padding:10px 12px; border-radius:8px; border:1px solid var(--border-color);";
-        item.innerHTML = `
-          <div>
-            <div style="font-size:1rem; font-weight:800; color:var(--text-main);">${p.native}</div>
-            <div style="font-size:0.75rem; color:var(--text-muted);">${p.rom}</div>
-            <div style="font-size:0.82rem; font-weight:600; color:#334155;">${p.eng}</div>
-          </div>
-          <button class="btn-wander primary-btn" style="border-radius:50%; width:32px; height:32px; padding:0; justify-content:center;" onclick="speakPhrase('${p.native}', '${p.lang}')"><i class="fa-solid fa-volume-high"></i></button>
-        `;
-        container.appendChild(item);
+      routingControl.on('routesfound', function(e) {
+        const routes = e.routes;
+        routeInstructions = routes[0].instructions || [];
+        currentStepIndex = 0;
+        document.getElementById('turn-stat').innerText = `${(routes[0].summary.totalDistance / 1000).toFixed(1)} km`;
+        document.getElementById('turnHud').style.display = 'block';
+        updateTurnDisplay();
       });
+      map.flyTo([destLat, destLng], 15);
     }
 
-    function speakPhrase(text, lang) {
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        const utter = new SpeechSynthesisUtterance(text);
-        utter.lang = lang;
-        utter.rate = 0.85;
-        window.speechSynthesis.speak(utter);
-      }
+    function updateTurnDisplay() {
+      if (!routeInstructions.length) return;
+      const step = routeInstructions[currentStepIndex];
+      document.getElementById('turn-text').innerText = step.text || "Continue along route";
+      document.getElementById('turn-sub').innerText = `Step ${currentStepIndex + 1} of ${routeInstructions.length} • in ${Math.round(step.distance)}m`;
     }
 
-    // Budget Tracker
-    function loadExpenses() {
-      const saved = JSON.parse(localStorage.getItem('asia_expenses') || '[]');
-      const list = document.getElementById('expense-list');
-      let total = 0;
-      list.innerHTML = '';
-
-      saved.forEach((item, idx) => {
-        total += item.amount;
-        const row = document.createElement('div');
-        row.style.cssText = "display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid #f1f5f9; font-size:0.84rem;";
-        row.innerHTML = `
-          <span>${item.name}</span>
-          <span><b>$${item.amount.toFixed(2)}</b> <button onclick="deleteExpense(${idx})" style="border:none; background:none; color:red; cursor:pointer; margin-left:6px;">✕</button></span>
-        `;
-        list.appendChild(row);
-      });
-
-      document.getElementById('total-spent').innerText = total.toFixed(2);
-      const pct = Math.min((total / 4000) * 100, 100);
-      document.getElementById('budget-fill').style.width = pct + '%';
-      document.getElementById('budget-fill').style.backgroundColor = pct > 90 ? '#ef4444' : '#10b981';
+    function nextTurn() { if (currentStepIndex < routeInstructions.length - 1) { currentStepIndex++; updateTurnDisplay(); } }
+    function prevTurn() { if (currentStepIndex > 0) { currentStepIndex--; updateTurnDisplay(); } }
+    function stopTurnNav() {
+      if (routingControl) { map.removeControl(routingControl); routingControl = null; }
+      document.getElementById('turnHud').style.display = 'none';
+      routeInstructions = [];
     }
 
-    function addExpense() {
-      const name = document.getElementById('exp-name').value.trim();
-      const amount = parseFloat(document.getElementById('exp-amount').value);
-
-      if (!name || isNaN(amount) || amount <= 0) return;
-
-      const saved = JSON.parse(localStorage.getItem('asia_expenses') || '[]');
-      saved.push({ name, amount });
-      localStorage.setItem('asia_expenses', JSON.stringify(saved));
-
-      document.getElementById('exp-name').value = '';
-      document.getElementById('exp-amount').value = '';
-      loadExpenses();
-    }
-
-    function deleteExpense(idx) {
-      const saved = JSON.parse(localStorage.getItem('asia_expenses') || '[]');
-      saved.splice(idx, 1);
-      localStorage.setItem('asia_expenses', JSON.stringify(saved));
-      loadExpenses();
-    }
-
-    window.onload = initMap;
+    window.onload = initApp;
   </script>
 </body>
 </html>
