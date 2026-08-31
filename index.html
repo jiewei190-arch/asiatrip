@@ -3,22 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VoyagePulse - Ultimate Smart Travel Planner</title>
+  <title>VoyagePulse - All-in-One Travel Planner (TripAdvisor, Google Maps, Yelp & Wanderlog)</title>
   
-  <!-- Leaflet CSS & JS for OpenStreetMap -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
   
-  <!-- Chart.js for Budget Analytics -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Chart.js for Expense Visualizer -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
   
   <!-- FontAwesome Icons -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
   
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 
   <style>
     :root {
@@ -36,14 +36,14 @@
       --text-main: #0f172a;
       --text-muted: #64748b;
       --border: #e2e8f0;
-      --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-      --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-      --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-      --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+      --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.08), 0 2px 4px -2px rgba(0,0,0,0.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.05);
+      --shadow-xl: 0 20px 25px -5px rgba(0,0,0,0.15);
       --radius: 12px;
       --radius-sm: 8px;
       --radius-lg: 16px;
-      --nav-height: 70px;
+      --nav-height: 72px;
     }
 
     [data-theme="dark"] {
@@ -54,9 +54,9 @@
       --text-muted: #94a3b8;
       --border: #23304d;
       --primary-light: #172554;
-      --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.5);
-      --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.5);
-      --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.5);
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
+      --shadow-md: 0 4px 6px rgba(0,0,0,0.5);
+      --shadow-lg: 0 10px 15px rgba(0,0,0,0.5);
     }
 
     * {
@@ -73,25 +73,28 @@
       display: flex;
       flex-direction: column;
       overflow-x: hidden;
-      transition: background-color 0.3s, color 0.3s;
+      transition: background-color 0.25s, color 0.25s;
     }
 
+    /* TOP GLOBAL HEADER & SEARCH BAR */
     header.navbar {
-      height: var(--nav-height);
+      min-height: var(--nav-height);
       background: var(--bg-card);
       border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 1.5rem;
+      padding: 0.5rem 1.5rem;
       position: sticky;
       top: 0;
-      z-index: 1000;
+      z-index: 1100;
       backdrop-filter: blur(12px);
       box-shadow: var(--shadow-sm);
+      gap: 1rem;
+      flex-wrap: wrap;
     }
 
-    .brand {
+    .brand-section {
       display: flex;
       align-items: center;
       gap: 0.75rem;
@@ -100,22 +103,80 @@
       font-weight: 800;
       font-size: 1.35rem;
       font-family: 'Space Grotesk', sans-serif;
-      letter-spacing: -0.5px;
+      cursor: pointer;
     }
 
-    .brand i {
+    .brand-section i {
+      font-size: 1.7rem;
       color: var(--primary);
-      font-size: 1.6rem;
       background: linear-gradient(135deg, #2563eb, #0d9488);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
     }
 
+    /* Global Live Destination Search Box */
+    .global-destination-search {
+      flex: 1;
+      max-width: 420px;
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .global-search-input {
+      width: 100%;
+      background: var(--bg-main);
+      border: 1.5px solid var(--border);
+      border-radius: 30px;
+      padding: 0.6rem 1rem 0.6rem 2.6rem;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--text-main);
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    .global-search-input:focus {
+      border-color: var(--primary);
+      background: var(--bg-card);
+      box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+    }
+
+    .global-search-icon {
+      position: absolute;
+      left: 1rem;
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      pointer-events: none;
+    }
+
+    .global-search-submit {
+      position: absolute;
+      right: 0.4rem;
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      transition: transform 0.2s, background 0.2s;
+    }
+
+    .global-search-submit:hover {
+      background: var(--primary-hover);
+      transform: scale(1.06);
+    }
+
     .nav-tabs {
       display: flex;
-      gap: 0.5rem;
+      gap: 0.35rem;
       background: var(--bg-main);
-      padding: 0.35rem;
+      padding: 0.3rem;
       border-radius: 30px;
       border: 1px solid var(--border);
     }
@@ -124,14 +185,14 @@
       background: transparent;
       border: none;
       color: var(--text-muted);
-      padding: 0.5rem 1.1rem;
+      padding: 0.45rem 1rem;
       border-radius: 20px;
-      font-size: 0.88rem;
+      font-size: 0.84rem;
       font-weight: 600;
       cursor: pointer;
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.45rem;
       transition: all 0.2s ease;
     }
 
@@ -148,68 +209,23 @@
     .header-actions {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
-    }
-
-    .destination-select-wrapper {
-      position: relative;
-      display: flex;
-      align-items: center;
-    }
-
-    .destination-select {
-      background: var(--bg-main);
-      color: var(--text-main);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 0.45rem 2rem 0.45rem 0.85rem;
-      font-size: 0.85rem;
-      font-weight: 600;
-      cursor: pointer;
-      appearance: none;
-      outline: none;
-    }
-
-    .destination-select-wrapper i {
-      position: absolute;
-      right: 0.75rem;
-      pointer-events: none;
-      color: var(--text-muted);
-      font-size: 0.75rem;
-    }
-
-    .icon-btn {
-      background: var(--bg-main);
-      border: 1px solid var(--border);
-      color: var(--text-main);
-      width: 38px;
-      height: 38px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .icon-btn:hover {
-      background: var(--bg-card-hover);
-      transform: translateY(-1px);
+      gap: 0.5rem;
     }
 
     .btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 0.5rem;
-      padding: 0.55rem 1.1rem;
-      font-size: 0.88rem;
+      gap: 0.45rem;
+      padding: 0.5rem 0.95rem;
+      font-size: 0.84rem;
       font-weight: 600;
       border-radius: var(--radius-sm);
       border: 1px solid transparent;
       cursor: pointer;
       transition: all 0.2s ease;
       text-decoration: none;
+      white-space: nowrap;
     }
 
     .btn-primary {
@@ -223,13 +239,14 @@
     }
 
     .btn-outline {
-      background: transparent;
+      background: var(--bg-card);
       border-color: var(--border);
       color: var(--text-main);
     }
 
     .btn-outline:hover {
       background: var(--bg-card-hover);
+      border-color: var(--primary);
     }
 
     .btn-danger {
@@ -245,8 +262,59 @@
     }
 
     .btn-sm {
-      padding: 0.35rem 0.75rem;
+      padding: 0.35rem 0.7rem;
       font-size: 0.78rem;
+    }
+
+    .icon-btn {
+      background: var(--bg-main);
+      border: 1px solid var(--border);
+      color: var(--text-main);
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .icon-btn:hover {
+      background: var(--bg-card-hover);
+      transform: translateY(-1px);
+    }
+
+    .quick-destinations-bar {
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      padding: 0.4rem 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      overflow-x: auto;
+      font-size: 0.78rem;
+      scrollbar-width: none;
+    }
+
+    .quick-destinations-bar::-webkit-scrollbar { display: none; }
+
+    .quick-dest-chip {
+      background: var(--bg-main);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 0.25rem 0.65rem;
+      border-radius: 16px;
+      cursor: pointer;
+      white-space: nowrap;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+
+    .quick-dest-chip:hover, .quick-dest-chip.active {
+      background: var(--primary-light);
+      border-color: var(--primary);
+      color: var(--primary);
     }
 
     main.main-content {
@@ -259,7 +327,7 @@
     .tab-panel {
       display: none;
       flex: 1;
-      animation: fadeIn 0.25s ease-in-out;
+      animation: fadeIn 0.2s ease-in-out;
     }
 
     .tab-panel.active {
@@ -268,7 +336,7 @@
     }
 
     @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(4px); }
+      from { opacity: 0; transform: translateY(3px); }
       to { opacity: 1; transform: translateY(0); }
     }
 
@@ -276,7 +344,8 @@
     .explore-container {
       display: flex;
       flex: 1;
-      height: calc(100vh - var(--nav-height));
+      height: calc(100vh - var(--nav-height) - 38px);
+      min-height: 550px;
       overflow: hidden;
     }
 
@@ -294,67 +363,65 @@
     }
 
     .explore-search-header {
-      padding: 1.25rem 1.25rem 0.75rem 1.25rem;
+      padding: 1rem 1.25rem 0.75rem 1.25rem;
       border-bottom: 1px solid var(--border);
       display: flex;
       flex-direction: column;
-      gap: 0.85rem;
+      gap: 0.75rem;
     }
 
-    .search-input-box {
+    .local-search-box {
       position: relative;
       display: flex;
       align-items: center;
     }
 
-    .search-input-box i {
+    .local-search-box i {
       position: absolute;
-      left: 1rem;
+      left: 0.9rem;
       color: var(--text-muted);
     }
 
-    .search-input-box input {
+    .local-search-box input {
       width: 100%;
       background: var(--bg-main);
       border: 1px solid var(--border);
-      padding: 0.7rem 1rem 0.7rem 2.6rem;
-      border-radius: 30px;
-      font-size: 0.9rem;
+      padding: 0.6rem 1rem 0.6rem 2.4rem;
+      border-radius: 24px;
+      font-size: 0.88rem;
       color: var(--text-main);
       outline: none;
-      transition: border-color 0.2s, box-shadow 0.2s;
+      transition: all 0.2s;
     }
 
-    .search-input-box input:focus {
+    .local-search-box input:focus {
       border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
     }
 
     .category-pills {
       display: flex;
-      gap: 0.5rem;
+      gap: 0.4rem;
       overflow-x: auto;
-      padding-bottom: 0.35rem;
+      padding-bottom: 0.25rem;
       scrollbar-width: none;
     }
 
-    .category-pills::-webkit-scrollbar {
-      display: none;
-    }
+    .category-pills::-webkit-scrollbar { display: none; }
 
     .pill-btn {
       white-space: nowrap;
       background: var(--bg-main);
       border: 1px solid var(--border);
       color: var(--text-muted);
-      padding: 0.4rem 0.85rem;
-      border-radius: 20px;
-      font-size: 0.8rem;
+      padding: 0.35rem 0.75rem;
+      border-radius: 18px;
+      font-size: 0.78rem;
       font-weight: 600;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 0.4rem;
+      gap: 0.35rem;
       transition: all 0.2s;
     }
 
@@ -374,23 +441,24 @@
       align-items: center;
       justify-content: space-between;
       gap: 0.5rem;
-      font-size: 0.8rem;
+      font-size: 0.78rem;
+      flex-wrap: wrap;
     }
 
     .filter-select {
       background: var(--bg-main);
       border: 1px solid var(--border);
       color: var(--text-main);
-      padding: 0.35rem 0.65rem;
+      padding: 0.35rem 0.6rem;
       border-radius: var(--radius-sm);
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       outline: none;
       cursor: pointer;
     }
 
     .price-filters {
       display: flex;
-      gap: 0.25rem;
+      gap: 0.2rem;
     }
 
     .price-btn {
@@ -400,7 +468,7 @@
       width: 28px;
       height: 28px;
       border-radius: 6px;
-      font-size: 0.75rem;
+      font-size: 0.74rem;
       font-weight: 700;
       cursor: pointer;
     }
@@ -441,7 +509,7 @@
 
     .place-card-img-wrapper {
       position: relative;
-      height: 160px;
+      height: 155px;
       background: #1e293b;
       overflow: hidden;
     }
@@ -459,14 +527,14 @@
 
     .place-card-badge {
       position: absolute;
-      top: 0.75rem;
-      left: 0.75rem;
-      background: rgba(15, 23, 42, 0.8);
+      top: 0.65rem;
+      left: 0.65rem;
+      background: rgba(15, 23, 42, 0.85);
       backdrop-filter: blur(8px);
       color: #fff;
-      padding: 0.25rem 0.6rem;
-      border-radius: 20px;
-      font-size: 0.72rem;
+      padding: 0.2rem 0.55rem;
+      border-radius: 16px;
+      font-size: 0.7rem;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.5px;
@@ -474,9 +542,9 @@
 
     .place-fav-btn {
       position: absolute;
-      top: 0.75rem;
-      right: 0.75rem;
-      background: rgba(255, 255, 255, 0.9);
+      top: 0.65rem;
+      right: 0.65rem;
+      background: rgba(255, 255, 255, 0.92);
       color: #475569;
       border: none;
       width: 32px;
@@ -487,6 +555,7 @@
       justify-content: center;
       cursor: pointer;
       transition: all 0.2s;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
     }
 
     .place-fav-btn.favorited {
@@ -494,14 +563,14 @@
     }
 
     .place-fav-btn:hover {
-      transform: scale(1.15);
+      transform: scale(1.12);
     }
 
     .place-card-body {
-      padding: 1rem;
+      padding: 0.95rem;
       display: flex;
       flex-direction: column;
-      gap: 0.5rem;
+      gap: 0.45rem;
     }
 
     .place-card-title-row {
@@ -512,7 +581,7 @@
     }
 
     .place-card-title {
-      font-size: 1.05rem;
+      font-size: 1.02rem;
       font-weight: 700;
       color: var(--text-main);
       line-height: 1.3;
@@ -527,8 +596,8 @@
     .rating-row {
       display: flex;
       align-items: center;
-      gap: 0.4rem;
-      font-size: 0.82rem;
+      gap: 0.35rem;
+      font-size: 0.8rem;
     }
 
     .stars {
@@ -539,23 +608,23 @@
 
     .review-count {
       color: var(--text-muted);
-      font-size: 0.78rem;
+      font-size: 0.76rem;
     }
 
     .place-tags {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.35rem;
-      margin-top: 0.25rem;
+      gap: 0.3rem;
+      margin-top: 0.2rem;
     }
 
     .tag-chip {
       background: var(--bg-main);
       color: var(--text-muted);
       border: 1px solid var(--border);
-      padding: 0.15rem 0.5rem;
+      padding: 0.15rem 0.45rem;
       border-radius: 4px;
-      font-size: 0.72rem;
+      font-size: 0.7rem;
       font-weight: 500;
     }
 
@@ -563,17 +632,17 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding-top: 0.75rem;
+      padding-top: 0.65rem;
       border-top: 1px solid var(--border);
-      margin-top: 0.5rem;
+      margin-top: 0.35rem;
     }
 
     .open-status {
-      font-size: 0.75rem;
+      font-size: 0.74rem;
       font-weight: 600;
       display: flex;
       align-items: center;
-      gap: 0.35rem;
+      gap: 0.3rem;
     }
 
     .status-open { color: #10b981; }
@@ -582,12 +651,15 @@
     .explore-map-wrapper {
       flex: 1;
       height: 100%;
+      min-height: 450px;
       position: relative;
+      background: #e2e8f0;
     }
 
     #explore-map {
       width: 100%;
       height: 100%;
+      min-height: 450px;
       z-index: 1;
     }
 
@@ -605,15 +677,15 @@
       background: var(--bg-card);
       border: 1px solid var(--border);
       color: var(--text-main);
-      padding: 0.6rem 0.9rem;
+      padding: 0.55rem 0.85rem;
       border-radius: var(--radius-sm);
-      font-size: 0.82rem;
+      font-size: 0.8rem;
       font-weight: 600;
       cursor: pointer;
       box-shadow: var(--shadow-md);
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.45rem;
       backdrop-filter: blur(8px);
       transition: all 0.2s;
     }
@@ -638,7 +710,7 @@
     }
 
     .custom-map-marker:hover {
-      transform: scale(1.2);
+      transform: scale(1.18);
     }
 
     .marker-attraction { background: #3b82f6; }
@@ -647,11 +719,12 @@
     .marker-activity { background: #10b981; }
     .marker-nightlife { background: #ec4899; }
 
-    /* ITINERARY BUILDER */
+    /* ITINERARY PLANNER */
     .itinerary-container {
       display: flex;
       flex: 1;
-      height: calc(100vh - var(--nav-height));
+      height: calc(100vh - var(--nav-height) - 38px);
+      min-height: 550px;
       overflow: hidden;
     }
 
@@ -669,27 +742,28 @@
     }
 
     .itinerary-header {
-      padding: 1.25rem;
+      padding: 1.15rem;
       border-bottom: 1px solid var(--border);
       display: flex;
       flex-direction: column;
-      gap: 1rem;
+      gap: 0.85rem;
     }
 
     .trip-meta-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 0.5rem;
     }
 
     .trip-title-input {
-      font-size: 1.35rem;
+      font-size: 1.25rem;
       font-weight: 800;
       color: var(--text-main);
       background: transparent;
       border: none;
       outline: none;
-      width: 70%;
+      flex: 1;
       border-bottom: 2px solid transparent;
       transition: border-color 0.2s;
     }
@@ -700,18 +774,18 @@
 
     .trip-stats-bar {
       display: flex;
-      gap: 1.5rem;
+      gap: 1.25rem;
       background: var(--bg-main);
-      padding: 0.6rem 1rem;
+      padding: 0.55rem 0.85rem;
       border-radius: var(--radius-sm);
       border: 1px solid var(--border);
-      font-size: 0.82rem;
+      font-size: 0.8rem;
     }
 
     .trip-stat-item {
       display: flex;
       align-items: center;
-      gap: 0.45rem;
+      gap: 0.4rem;
       color: var(--text-muted);
     }
 
@@ -721,25 +795,27 @@
 
     .days-tab-nav {
       display: flex;
-      gap: 0.5rem;
+      gap: 0.45rem;
       overflow-x: auto;
-      padding-bottom: 0.25rem;
+      padding-bottom: 0.2rem;
       scrollbar-width: none;
     }
+
+    .days-tab-nav::-webkit-scrollbar { display: none; }
 
     .day-tab-btn {
       background: var(--bg-main);
       border: 1px solid var(--border);
       color: var(--text-muted);
-      padding: 0.45rem 1rem;
+      padding: 0.4rem 0.85rem;
       border-radius: var(--radius-sm);
-      font-size: 0.82rem;
+      font-size: 0.8rem;
       font-weight: 700;
       cursor: pointer;
       white-space: nowrap;
       display: flex;
       align-items: center;
-      gap: 0.4rem;
+      gap: 0.35rem;
       transition: all 0.2s;
     }
 
@@ -752,20 +828,20 @@
     .itinerary-scrollable-content {
       flex: 1;
       overflow-y: auto;
-      padding: 1.25rem;
+      padding: 1.15rem;
       display: flex;
       flex-direction: column;
-      gap: 1.25rem;
+      gap: 1rem;
     }
 
     .day-notes-card {
       background: var(--primary-light);
       border: 1px dashed var(--primary);
       border-radius: var(--radius-sm);
-      padding: 0.75rem 1rem;
+      padding: 0.75rem 0.9rem;
       display: flex;
       flex-direction: column;
-      gap: 0.35rem;
+      gap: 0.3rem;
     }
 
     .day-notes-card textarea {
@@ -773,10 +849,10 @@
       border: none;
       resize: none;
       outline: none;
-      font-size: 0.85rem;
+      font-size: 0.84rem;
       color: var(--text-main);
       width: 100%;
-      height: 48px;
+      height: 44px;
     }
 
     .timeline-stops-list {
@@ -789,10 +865,10 @@
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 1rem;
+      padding: 0.95rem;
       display: flex;
       flex-direction: column;
-      gap: 0.75rem;
+      gap: 0.65rem;
       box-shadow: var(--shadow-sm);
       position: relative;
       transition: border-color 0.2s, box-shadow 0.2s;
@@ -815,7 +891,7 @@
       background: var(--primary);
       color: #fff;
       font-weight: 800;
-      font-size: 0.82rem;
+      font-size: 0.8rem;
       border-radius: 50%;
       display: flex;
       align-items: center;
@@ -827,11 +903,11 @@
       flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 0.25rem;
+      gap: 0.2rem;
     }
 
     .stop-title {
-      font-size: 1rem;
+      font-size: 0.98rem;
       font-weight: 700;
       color: var(--text-main);
     }
@@ -839,14 +915,14 @@
     .stop-meta {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
-      font-size: 0.78rem;
+      gap: 0.65rem;
+      font-size: 0.76rem;
       color: var(--text-muted);
     }
 
     .stop-controls {
       display: flex;
-      gap: 0.35rem;
+      gap: 0.25rem;
     }
 
     .stop-btn {
@@ -860,7 +936,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 0.75rem;
+      font-size: 0.74rem;
     }
 
     .stop-btn:hover {
@@ -871,10 +947,10 @@
     .stop-time-row {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
-      font-size: 0.8rem;
+      gap: 0.65rem;
+      font-size: 0.78rem;
       background: var(--bg-main);
-      padding: 0.4rem 0.75rem;
+      padding: 0.35rem 0.65rem;
       border-radius: var(--radius-sm);
     }
 
@@ -883,19 +959,19 @@
       border: 1px solid var(--border);
       color: var(--text-main);
       border-radius: 4px;
-      padding: 0.2rem 0.4rem;
-      font-size: 0.78rem;
+      padding: 0.15rem 0.35rem;
+      font-size: 0.76rem;
       outline: none;
     }
 
     .transit-indicator {
       display: flex;
       align-items: center;
-      gap: 0.6rem;
-      padding: 0.4rem 0.85rem;
-      margin-left: 1.5rem;
+      gap: 0.5rem;
+      padding: 0.35rem 0.75rem;
+      margin-left: 1.4rem;
       border-left: 2px dashed var(--border);
-      font-size: 0.76rem;
+      font-size: 0.74rem;
       color: var(--text-muted);
     }
 
@@ -906,19 +982,22 @@
     .itinerary-map-wrapper {
       flex: 1;
       height: 100%;
+      min-height: 450px;
       position: relative;
+      background: #e2e8f0;
     }
 
     #itinerary-map {
       width: 100%;
       height: 100%;
+      min-height: 450px;
       z-index: 1;
     }
 
     /* BUDGET VIEW */
     .budget-container {
       max-width: 1100px;
-      margin: 2rem auto;
+      margin: 1.5rem auto;
       padding: 0 1.5rem;
       width: 100%;
       display: flex;
@@ -944,7 +1023,7 @@
     }
 
     .stat-card-title {
-      font-size: 0.82rem;
+      font-size: 0.8rem;
       font-weight: 600;
       color: var(--text-muted);
       text-transform: uppercase;
@@ -952,7 +1031,7 @@
     }
 
     .stat-card-value {
-      font-size: 1.8rem;
+      font-size: 1.75rem;
       font-weight: 800;
       color: var(--text-main);
       font-family: 'Space Grotesk', sans-serif;
@@ -963,7 +1042,7 @@
       background: var(--bg-main);
       border-radius: 10px;
       overflow: hidden;
-      margin-top: 0.5rem;
+      margin-top: 0.4rem;
     }
 
     .budget-progress-bar-fill {
@@ -984,7 +1063,7 @@
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 1.5rem;
+      padding: 1.25rem;
       box-shadow: var(--shadow-sm);
       display: flex;
       flex-direction: column;
@@ -993,7 +1072,7 @@
     }
 
     .chart-box-title {
-      font-size: 1.05rem;
+      font-size: 1rem;
       font-weight: 700;
       align-self: flex-start;
     }
@@ -1002,14 +1081,14 @@
       position: relative;
       width: 100%;
       max-width: 320px;
-      height: 260px;
+      height: 250px;
     }
 
     .expenses-table-card {
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 1.5rem;
+      padding: 1.25rem;
       box-shadow: var(--shadow-sm);
       display: flex;
       flex-direction: column;
@@ -1019,26 +1098,26 @@
     .expenses-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.88rem;
+      font-size: 0.86rem;
     }
 
     .expenses-table th {
       text-align: left;
-      padding: 0.75rem;
+      padding: 0.65rem 0.75rem;
       border-bottom: 2px solid var(--border);
       color: var(--text-muted);
       font-weight: 600;
     }
 
     .expenses-table td {
-      padding: 0.75rem;
+      padding: 0.65rem 0.75rem;
       border-bottom: 1px solid var(--border);
     }
 
     /* PACKING CHECKLIST */
     .packing-container {
       max-width: 900px;
-      margin: 2rem auto;
+      margin: 1.5rem auto;
       padding: 0 1.5rem;
       width: 100%;
       display: flex;
@@ -1050,10 +1129,10 @@
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 1.5rem;
+      padding: 1.25rem;
       display: flex;
       flex-direction: column;
-      gap: 0.75rem;
+      gap: 0.65rem;
       box-shadow: var(--shadow-sm);
     }
 
@@ -1067,10 +1146,10 @@
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 1.25rem;
+      padding: 1.15rem;
       display: flex;
       flex-direction: column;
-      gap: 1rem;
+      gap: 0.85rem;
       box-shadow: var(--shadow-sm);
     }
 
@@ -1079,27 +1158,27 @@
       align-items: center;
       justify-content: space-between;
       font-weight: 700;
-      font-size: 1rem;
+      font-size: 0.95rem;
     }
 
     .checklist-items {
       display: flex;
       flex-direction: column;
-      gap: 0.5rem;
+      gap: 0.45rem;
     }
 
     .checklist-item-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0.35rem 0;
-      font-size: 0.88rem;
+      padding: 0.25rem 0;
+      font-size: 0.85rem;
     }
 
     .checklist-label {
       display: flex;
       align-items: center;
-      gap: 0.6rem;
+      gap: 0.55rem;
       cursor: pointer;
     }
 
@@ -1163,7 +1242,7 @@
     }
 
     .modal-header {
-      padding: 1.25rem 1.5rem;
+      padding: 1.15rem 1.35rem;
       border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
@@ -1188,15 +1267,15 @@
     }
 
     .modal-body {
-      padding: 1.5rem;
+      padding: 1.35rem;
       display: flex;
       flex-direction: column;
-      gap: 1.25rem;
+      gap: 1.15rem;
     }
 
     .detail-hero-img {
       width: 100%;
-      height: 240px;
+      height: 230px;
       border-radius: var(--radius);
       object-fit: cover;
     }
@@ -1205,14 +1284,14 @@
       background: var(--bg-main);
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
-      padding: 1rem;
+      padding: 0.95rem;
       display: flex;
       align-items: center;
-      gap: 1.5rem;
+      gap: 1.35rem;
     }
 
     .big-score {
-      font-size: 2.5rem;
+      font-size: 2.4rem;
       font-weight: 800;
       color: var(--text-main);
       font-family: 'Space Grotesk', sans-serif;
@@ -1224,14 +1303,14 @@
       flex: 1;
       display: flex;
       flex-direction: column;
-      gap: 0.35rem;
-      font-size: 0.78rem;
+      gap: 0.3rem;
+      font-size: 0.76rem;
     }
 
     .rating-bar-row {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.45rem;
     }
 
     .bar-bg {
@@ -1251,15 +1330,15 @@
     .amenities-list {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 0.6rem;
-      font-size: 0.85rem;
+      gap: 0.55rem;
+      font-size: 0.82rem;
       color: var(--text-main);
     }
 
     .amenity-item {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.45rem;
       color: var(--text-muted);
     }
 
@@ -1270,17 +1349,17 @@
     .reviews-stream {
       display: flex;
       flex-direction: column;
-      gap: 1rem;
+      gap: 0.85rem;
     }
 
     .review-bubble {
       background: var(--bg-main);
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
-      padding: 1rem;
+      padding: 0.85rem;
       display: flex;
       flex-direction: column;
-      gap: 0.5rem;
+      gap: 0.45rem;
     }
 
     .reviewer-header {
@@ -1291,17 +1370,17 @@
 
     .reviewer-name {
       font-weight: 700;
-      font-size: 0.88rem;
+      font-size: 0.85rem;
     }
 
     .form-group {
       display: flex;
       flex-direction: column;
-      gap: 0.4rem;
+      gap: 0.35rem;
     }
 
     .form-group label {
-      font-size: 0.82rem;
+      font-size: 0.8rem;
       font-weight: 600;
       color: var(--text-muted);
     }
@@ -1310,9 +1389,9 @@
       background: var(--bg-main);
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
-      padding: 0.6rem 0.85rem;
+      padding: 0.55rem 0.8rem;
       color: var(--text-main);
-      font-size: 0.88rem;
+      font-size: 0.86rem;
       outline: none;
     }
 
@@ -1326,13 +1405,13 @@
       right: 2rem;
       background: #0f172a;
       color: #fff;
-      padding: 0.85rem 1.25rem;
+      padding: 0.8rem 1.2rem;
       border-radius: var(--radius-sm);
       box-shadow: var(--shadow-xl);
       display: flex;
       align-items: center;
-      gap: 0.75rem;
-      font-size: 0.88rem;
+      gap: 0.65rem;
+      font-size: 0.86rem;
       font-weight: 500;
       z-index: 3000;
       transform: translateY(100px);
@@ -1353,55 +1432,59 @@
       .explore-sidebar, .itinerary-sidebar {
         width: 100%;
         max-width: 100%;
-        height: 500px;
+        height: 520px;
       }
       .explore-map-wrapper, .itinerary-map-wrapper {
-        height: 400px;
+        height: 420px;
+        min-height: 420px;
       }
       .budget-charts-grid {
         grid-template-columns: 1fr;
       }
-      .nav-tabs {
-        display: none;
+      .global-destination-search {
+        order: 3;
+        width: 100%;
+        max-width: 100%;
       }
     }
   </style>
 </head>
 <body>
 
-  <!-- Top Sticky Navigation Bar -->
+  <!-- Top Global Header -->
   <header class="navbar">
-    <a href="#" class="brand">
+    <div class="brand-section" onclick="switchTab('explore')">
       <i class="fa-solid fa-compass"></i>
       <span>VoyagePulse</span>
-    </a>
+    </div>
 
+    <!-- GLOBAL LIVE CITY SEARCH BAR (TripAdvisor / Google Maps Style) -->
+    <div class="global-destination-search">
+      <i class="fa-solid fa-magnifying-glass global-search-icon"></i>
+      <input type="text" id="global-city-input" class="global-search-input" placeholder="Search ANY destination (e.g. Rome, Tokyo, Bali, Chicago, London)..." onkeydown="if(event.key==='Enter') executeGlobalCitySearch()">
+      <button class="global-search-submit" onclick="executeGlobalCitySearch()" title="Search City or Place">
+        <i class="fa-solid fa-arrow-right"></i>
+      </button>
+    </div>
+
+    <!-- Main Navigation Tabs -->
     <nav class="nav-tabs">
       <button class="nav-btn active" onclick="switchTab('explore')">
-        <i class="fa-solid fa-earth-americas"></i> Explore & Places
+        <i class="fa-solid fa-earth-americas"></i> Explore
       </button>
       <button class="nav-btn" onclick="switchTab('itinerary')">
-        <i class="fa-solid fa-calendar-days"></i> Itinerary Builder
+        <i class="fa-solid fa-calendar-days"></i> Itinerary
       </button>
       <button class="nav-btn" onclick="switchTab('budget')">
-        <i class="fa-solid fa-wallet"></i> Budget & Expenses
+        <i class="fa-solid fa-wallet"></i> Budget
       </button>
       <button class="nav-btn" onclick="switchTab('packing')">
-        <i class="fa-solid fa-suitcase-rolling"></i> Packing List
+        <i class="fa-solid fa-suitcase-rolling"></i> Packing
       </button>
     </nav>
 
+    <!-- Header Actions -->
     <div class="header-actions">
-      <div class="destination-select-wrapper">
-        <select id="destination-selector" class="destination-select" onchange="changeDestination(this.value)">
-          <option value="paris">Paris, France</option>
-          <option value="tokyo">Tokyo, Japan</option>
-          <option value="nyc">New York City, USA</option>
-          <option value="rome">Rome, Italy</option>
-        </select>
-        <i class="fa-solid fa-chevron-down"></i>
-      </div>
-
       <button class="icon-btn" onclick="toggleTheme()" title="Toggle Dark/Light Mode">
         <i id="theme-icon" class="fa-solid fa-moon"></i>
       </button>
@@ -1416,17 +1499,36 @@
     </div>
   </header>
 
+  <!-- Popular Worldwide Destinations Quick Bar -->
+  <div class="quick-destinations-bar">
+    <span style="color: var(--text-muted); font-weight: 700; display: flex; align-items: center; gap: 4px;">
+      <i class="fa-solid fa-fire" style="color: #f97316;"></i> Popular:
+    </span>
+    <button class="quick-dest-chip active" onclick="loadKnownCity('paris', this)">Paris</button>
+    <button class="quick-dest-chip" onclick="loadKnownCity('nyc', this)">New York</button>
+    <button class="quick-dest-chip" onclick="loadKnownCity('tokyo', this)">Tokyo</button>
+    <button class="quick-dest-chip" onclick="loadKnownCity('rome', this)">Rome</button>
+    <button class="quick-dest-chip" onclick="loadKnownCity('london', this)">London</button>
+    <button class="quick-dest-chip" onclick="loadKnownCity('barcelona', this)">Barcelona</button>
+    <button class="quick-dest-chip" onclick="loadKnownCity('bali', this)">Bali</button>
+    <button class="quick-dest-chip" onclick="loadKnownCity('dubai', this)">Dubai</button>
+    <button class="quick-dest-chip" onclick="loadKnownCity('sydney', this)">Sydney</button>
+    <button class="quick-dest-chip" onclick="loadKnownCity('sf', this)">San Francisco</button>
+  </div>
+
   <!-- Main Content Areas -->
   <main class="main-content">
     
     <!-- TAB 1: EXPLORE & PLACES -->
     <section id="tab-explore" class="tab-panel active">
       <div class="explore-container">
+        
+        <!-- Left Sidebar: Filterable Place Feed -->
         <aside class="explore-sidebar">
           <div class="explore-search-header">
-            <div class="search-input-box">
-              <i class="fa-solid fa-magnifying-glass"></i>
-              <input type="text" id="place-search-input" placeholder="Search restaurants, sights, hotels, cafes..." oninput="handlePlaceSearch()">
+            <div class="local-search-box">
+              <i class="fa-solid fa-filter"></i>
+              <input type="text" id="place-filter-input" placeholder="Filter places in current city..." oninput="handleLocalPlaceSearch()">
             </div>
 
             <div class="category-pills">
@@ -1462,6 +1564,7 @@
           <div id="places-list" class="places-list-container"></div>
         </aside>
 
+        <!-- Right Side: Leaflet Interactive Map -->
         <div class="explore-map-wrapper">
           <div id="explore-map"></div>
           
@@ -1470,16 +1573,18 @@
             <button class="map-btn" onclick="fitExploreBounds()"><i class="fa-solid fa-expand"></i> View All Places</button>
           </div>
         </div>
+
       </div>
     </section>
 
-    <!-- TAB 2: ITINERARY BUILDER -->
+    <!-- TAB 2: ITINERARY PLANNER -->
     <section id="tab-itinerary" class="tab-panel">
       <div class="itinerary-container">
+        
         <aside class="itinerary-sidebar">
           <div class="itinerary-header">
             <div class="trip-meta-row">
-              <input type="text" id="trip-name-input" class="trip-title-input" value="Paris Dream Vacation 2026" onchange="saveTripData()">
+              <input type="text" id="trip-name-input" class="trip-title-input" value="Paris Dream Vacation" onchange="saveTripData()">
               <button class="btn btn-outline btn-sm" onclick="addNewDay()"><i class="fa-solid fa-calendar-plus"></i> + Add Day</button>
             </div>
 
@@ -1494,13 +1599,13 @@
 
           <div class="itinerary-scrollable-content">
             <div class="day-notes-card">
-              <div style="font-size: 0.8rem; font-weight: 700; color: var(--primary);"><i class="fa-solid fa-pen"></i> Day Highlights & Notes</div>
+              <div style="font-size: 0.78rem; font-weight: 700; color: var(--primary);"><i class="fa-solid fa-pen"></i> Day Highlights & Notes</div>
               <textarea id="day-notes-input" placeholder="Add flight info, hotel reservation details, or daily goals..." onchange="saveDayNotes(this.value)"></textarea>
             </div>
 
             <div id="timeline-stops" class="timeline-stops-list"></div>
 
-            <div style="display: flex; gap: 0.75rem; justify-content: center; margin-top: 1rem;">
+            <div style="display: flex; gap: 0.75rem; justify-content: center; margin-top: 0.75rem;">
               <button class="btn btn-outline btn-sm" onclick="optimizeCurrentDayRoute()"><i class="fa-solid fa-wand-magic-sparkles"></i> Auto-Optimize Route Order</button>
             </div>
           </div>
@@ -1509,16 +1614,18 @@
         <div class="itinerary-map-wrapper">
           <div id="itinerary-map"></div>
         </div>
+
       </div>
     </section>
 
     <!-- TAB 3: BUDGET & EXPENSES -->
     <section id="tab-budget" class="tab-panel">
       <div class="budget-container">
-        <div style="display: flex; align-items: center; justify-content: space-between;">
+        
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
           <div>
-            <h2 style="font-size: 1.6rem; font-weight: 800; font-family: 'Space Grotesk', sans-serif;">Trip Budget & Expenses</h2>
-            <p style="color: var(--text-muted); font-size: 0.88rem;">Track spending across flights, stays, food, and activities.</p>
+            <h2 style="font-size: 1.5rem; font-weight: 800; font-family: 'Space Grotesk', sans-serif;">Trip Budget & Expenses</h2>
+            <p style="color: var(--text-muted); font-size: 0.85rem;">Track spending across flights, hotels, dining, and activities.</p>
           </div>
           <button class="btn btn-primary" onclick="openAddExpenseModal()"><i class="fa-solid fa-plus"></i> Add New Expense</button>
         </div>
@@ -1563,7 +1670,7 @@
         </div>
 
         <div class="expenses-table-card">
-          <span style="font-weight: 700; font-size: 1.1rem;">Expense Log</span>
+          <span style="font-weight: 700; font-size: 1.05rem;">Expense Log</span>
           <table class="expenses-table">
             <thead>
               <tr>
@@ -1577,22 +1684,23 @@
             <tbody id="expenses-table-body"></tbody>
           </table>
         </div>
+
       </div>
     </section>
 
     <!-- TAB 4: PACKING CHECKLIST -->
     <section id="tab-packing" class="tab-panel">
       <div class="packing-container">
-        <div style="display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
           <div>
-            <h2 style="font-size: 1.6rem; font-weight: 800; font-family: 'Space Grotesk', sans-serif;">Smart Packing Checklist</h2>
-            <p style="color: var(--text-muted); font-size: 0.88rem;">Stay prepared and never leave essentials behind.</p>
+            <h2 style="font-size: 1.5rem; font-weight: 800; font-family: 'Space Grotesk', sans-serif;">Smart Packing Checklist</h2>
+            <p style="color: var(--text-muted); font-size: 0.85rem;">Never leave essentials, chargers, or documents behind.</p>
           </div>
           <button class="btn btn-primary" onclick="openAddPackingModal()"><i class="fa-solid fa-plus"></i> Add Item</button>
         </div>
 
         <div class="packing-progress-box">
-          <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 0.95rem;">
+          <div style="display: flex; justify-content: space-between; font-weight: 700; font-size: 0.92rem;">
             <span>Packing Completion</span>
             <span id="packing-progress-text">6 / 12 items packed (50%)</span>
           </div>
@@ -1611,18 +1719,18 @@
   <div id="place-detail-modal" class="modal-overlay">
     <div class="modal-content">
       <div class="modal-header">
-        <h3 id="modal-place-title" style="font-size: 1.25rem; font-weight: 800;">Place Title</h3>
+        <h3 id="modal-place-title" style="font-size: 1.2rem; font-weight: 800;">Place Title</h3>
         <button class="modal-close-btn" onclick="closeModal('place-detail-modal')"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="modal-body">
         <img id="modal-place-img" class="detail-hero-img" src="" alt="Place photo">
         
         <div style="display: flex; align-items: center; justify-content: space-between;">
-          <div id="modal-place-category" class="tag-chip" style="font-weight: 700; font-size: 0.8rem;">CATEGORY</div>
+          <div id="modal-place-category" class="tag-chip" style="font-weight: 700; font-size: 0.78rem;">CATEGORY</div>
           <span id="modal-place-price" style="font-weight: 800; color: var(--secondary); font-size: 1.1rem;">$$$</span>
         </div>
 
-        <p id="modal-place-desc" style="font-size: 0.92rem; color: var(--text-muted); line-height: 1.5;"></p>
+        <p id="modal-place-desc" style="font-size: 0.88rem; color: var(--text-muted); line-height: 1.5;"></p>
 
         <div class="ratings-breakdown-box">
           <div>
@@ -1642,25 +1750,25 @@
         </div>
 
         <div>
-          <h4 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 0.6rem;">Key Features & Amenities</h4>
+          <h4 style="font-size: 0.92rem; font-weight: 700; margin-bottom: 0.5rem;">Key Features & Amenities</h4>
           <div id="modal-place-amenities" class="amenities-list"></div>
         </div>
 
-        <div style="background: var(--bg-main); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.85rem; font-size: 0.85rem; display: flex; flex-direction: column; gap: 0.4rem;">
-          <div><i class="fa-solid fa-location-dot" style="color: var(--primary); width: 20px;"></i> <span id="modal-place-address">123 Rue de Rivoli, Paris</span></div>
+        <div style="background: var(--bg-main); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.75rem; font-size: 0.82rem; display: flex; flex-direction: column; gap: 0.35rem;">
+          <div><i class="fa-solid fa-location-dot" style="color: var(--primary); width: 20px;"></i> <span id="modal-place-address">Central Location</span></div>
           <div><i class="fa-regular fa-clock" style="color: var(--primary); width: 20px;"></i> <span id="modal-place-hours">Open Daily: 09:00 AM - 08:00 PM</span></div>
         </div>
 
         <div>
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem;">
-            <h4 style="font-size: 1rem; font-weight: 700;">Traveler Reviews</h4>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+            <h4 style="font-size: 0.95rem; font-weight: 700;">Traveler Reviews</h4>
             <button class="btn btn-outline btn-sm" onclick="toggleReviewForm()"><i class="fa-solid fa-pen-to-square"></i> Write a Review</button>
           </div>
 
-          <div id="write-review-box" style="display: none; background: var(--bg-main); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 1rem; margin-bottom: 1rem; flex-direction: column; gap: 0.75rem;">
+          <div id="write-review-box" style="display: none; background: var(--bg-main); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.85rem; margin-bottom: 0.85rem; flex-direction: column; gap: 0.65rem;">
             <div class="form-group">
               <label>Your Name</label>
-              <input type="text" id="review-author-input" class="form-control" placeholder="e.g. Alex M.">
+              <input type="text" id="review-author-input" class="form-control" placeholder="e.g. Jordan K.">
             </div>
             <div class="form-group">
               <label>Rating</label>
@@ -1674,27 +1782,29 @@
             </div>
             <div class="form-group">
               <label>Review Comment</label>
-              <textarea id="review-text-input" class="form-control" style="height: 70px;" placeholder="Share your experience, tips, what you ordered..."></textarea>
+              <textarea id="review-text-input" class="form-control" style="height: 65px;" placeholder="Share your experience, tips, recommendations..."></textarea>
             </div>
             <button class="btn btn-primary btn-sm" onclick="submitReview()"><i class="fa-solid fa-paper-plane"></i> Post Review</button>
           </div>
 
           <div id="modal-reviews-list" class="reviews-stream"></div>
         </div>
+
       </div>
     </div>
   </div>
 
+  <!-- Add Custom Place Modal -->
   <div id="add-place-modal" class="modal-overlay">
     <div class="modal-content" style="max-width: 480px;">
       <div class="modal-header">
-        <h3 style="font-size: 1.15rem; font-weight: 800;">Add Custom Place to Explore</h3>
+        <h3 style="font-size: 1.12rem; font-weight: 800;">Add Custom Place to Explore</h3>
         <button class="modal-close-btn" onclick="closeModal('add-place-modal')"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="modal-body">
         <div class="form-group">
           <label>Place Name *</label>
-          <input type="text" id="new-place-name" class="form-control" placeholder="e.g. Cafe de Flore">
+          <input type="text" id="new-place-name" class="form-control" placeholder="e.g. Sunset Point Lounge">
         </div>
         <div class="form-group">
           <label>Category *</label>
@@ -1725,23 +1835,24 @@
         </div>
         <div class="form-group">
           <label>Description / Notes</label>
-          <textarea id="new-place-desc" class="form-control" placeholder="Historic spot, amazing croissants..."></textarea>
+          <textarea id="new-place-desc" class="form-control" placeholder="Must-visit spot with scenic terrace views..."></textarea>
         </div>
         <button class="btn btn-primary" style="width: 100%;" onclick="saveCustomPlace()"><i class="fa-solid fa-check"></i> Save Place</button>
       </div>
     </div>
   </div>
 
+  <!-- Add Expense Modal -->
   <div id="add-expense-modal" class="modal-overlay">
     <div class="modal-content" style="max-width: 460px;">
       <div class="modal-header">
-        <h3 style="font-size: 1.15rem; font-weight: 800;">Add New Expense</h3>
+        <h3 style="font-size: 1.12rem; font-weight: 800;">Add New Expense</h3>
         <button class="modal-close-btn" onclick="closeModal('add-expense-modal')"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="modal-body">
         <div class="form-group">
           <label>Description / Item *</label>
-          <input type="text" id="expense-name" class="form-control" placeholder="e.g. Louvre Entry Tickets">
+          <input type="text" id="expense-name" class="form-control" placeholder="e.g. Museum Entry Tickets">
         </div>
         <div class="form-group">
           <label>Amount ($ USD) *</label>
@@ -1767,10 +1878,11 @@
     </div>
   </div>
 
+  <!-- Add Packing Modal -->
   <div id="add-packing-modal" class="modal-overlay">
     <div class="modal-content" style="max-width: 440px;">
       <div class="modal-header">
-        <h3 style="font-size: 1.15rem; font-weight: 800;">Add Packing Item</h3>
+        <h3 style="font-size: 1.12rem; font-weight: 800;">Add Packing Item</h3>
         <button class="modal-close-btn" onclick="closeModal('add-packing-modal')"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="modal-body">
@@ -1793,31 +1905,32 @@
     </div>
   </div>
 
+  <!-- Export / Import Modal -->
   <div id="export-modal" class="modal-overlay">
     <div class="modal-content" style="max-width: 500px;">
       <div class="modal-header">
-        <h3 style="font-size: 1.15rem; font-weight: 800;">Backup, Export & Share Trip</h3>
+        <h3 style="font-size: 1.12rem; font-weight: 800;">Backup, Export & Share Trip</h3>
         <button class="modal-close-btn" onclick="closeModal('export-modal')"><i class="fa-solid fa-xmark"></i></button>
       </div>
-      <div class="modal-body" style="gap: 1.5rem;">
+      <div class="modal-body" style="gap: 1.25rem;">
         <div>
-          <h4 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 0.35rem;">Export Trip Data</h4>
-          <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.75rem;">Download all your itinerary stops, expenses, and notes as a JSON file.</p>
+          <h4 style="font-size: 0.92rem; font-weight: 700; margin-bottom: 0.35rem;">Export Trip Data</h4>
+          <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.65rem;">Download all your itinerary stops, expenses, and notes as a JSON file.</p>
           <button class="btn btn-primary btn-sm" onclick="exportTripJSON()"><i class="fa-solid fa-download"></i> Download Trip JSON</button>
         </div>
         
         <hr style="border: 0; border-top: 1px solid var(--border);">
         
         <div>
-          <h4 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 0.35rem;">Import Trip Data</h4>
-          <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.75rem;">Load a previously saved trip JSON file.</p>
+          <h4 style="font-size: 0.92rem; font-weight: 700; margin-bottom: 0.35rem;">Import Trip Data</h4>
+          <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.65rem;">Load a previously saved trip JSON file.</p>
           <input type="file" id="import-json-file" accept=".json" class="form-control" onchange="importTripJSON(event)">
         </div>
 
         <hr style="border: 0; border-top: 1px solid var(--border);">
 
         <div>
-          <h4 style="font-size: 0.95rem; font-weight: 700; color: var(--danger); margin-bottom: 0.35rem;">Reset Trip</h4>
+          <h4 style="font-size: 0.92rem; font-weight: 700; color: var(--danger); margin-bottom: 0.35rem;">Reset Trip</h4>
           <button class="btn btn-danger btn-sm" onclick="resetToSampleData()"><i class="fa-solid fa-rotate-left"></i> Reset to Default Sample Data</button>
         </div>
       </div>
@@ -1829,8 +1942,9 @@
     <span id="toast-message">Success!</span>
   </div>
 
+  <!-- JAVASCRIPT ENGINE -->
   <script>
-    const SAMPLE_DESTINATIONS = {
+    const PRESET_DESTINATIONS = {
       paris: {
         name: "Paris, France",
         lat: 48.8566,
@@ -1887,9 +2001,9 @@
             address: "15 Rue Marbeuf, 75008 Paris",
             hours: "12:00 PM - 02:30 PM, 06:45 PM - 11:00 PM",
             desc: "World-renowned for its single main course: steak frites served with their legendary secret herb sauce.",
-            amenities: ["Outdoor Seating", "Full Wine List", "No Reservations (Queue early)"],
+            amenities: ["Outdoor Seating", "Full Wine List", "Queue Early"],
             reviews: [
-              { author: "David K.", rating: 5, text: "The secret sauce and double serving of fries are to die for. Arrive 15 mins before opening!" }
+              { author: "David K.", rating: 5, text: "The secret sauce and double serving of fries are incredible. Arrive 15 mins before opening!" }
             ]
           },
           {
@@ -1921,11 +2035,11 @@
             lat: 48.8595,
             lng: 2.2933,
             address: "Port de la Bourdonnais, 75007 Paris",
-            hours: "Departures every 30 mins from 10:00 AM - 10:30 PM",
+            hours: "10:00 AM - 10:30 PM",
             desc: "1-hour narrated boat cruise gliding past Notre Dame, Musée d'Orsay, and the sparkling Eiffel Tower.",
-            amenities: ["Multi-language Audio", "Open-air Upper Deck", "Bar on board"],
+            amenities: ["Audio Commentary", "Open-air Upper Deck", "Onboard Bar"],
             reviews: [
-              { author: "Hannah T.", rating: 5, text: "The best way to see the city lights without walking. Highly recommend the sunset slot." }
+              { author: "Hannah T.", rating: 5, text: "The best way to see the city lights without walking. Highly recommend sunset." }
             ]
           },
           {
@@ -1950,30 +2064,22 @@
         itinerary: [
           {
             dayNumber: 1,
-            title: "Day 1: Icons & Historic Splendor",
-            notes: "Morning coffee near Champ de Mars, sunset cruise booked for 7:30 PM.",
+            title: "Day 1: Classic Landmarks & River Sunset",
+            notes: "Eiffel Tower summit at 10 AM, river cruise at sunset.",
             stops: [
-              { placeId: "p1", customTime: "09:30 AM", notes: "Summit tickets pre-booked" },
-              { placeId: "p2", customTime: "01:30 PM", notes: "Enter via Carrousel passage" },
-              { placeId: "p5", customTime: "07:30 PM", notes: "Sunset Seine river cruise" }
+              { placeId: "p1", customTime: "10:00 AM", notes: "Summit pre-booked" },
+              { placeId: "p2", customTime: "02:00 PM", notes: "Mona Lisa & Winged Victory" },
+              { placeId: "p5", customTime: "07:30 PM", notes: "Sunset Seine cruise" }
             ]
           },
           {
             dayNumber: 2,
-            title: "Day 2: Gourmet & Chic Fashion",
-            notes: "Wear comfortable walking shoes around Avenue Montaigne.",
+            title: "Day 2: Gourmet Dining & Chic Paris",
+            notes: "Lunch around Champs-Élysées, evening cocktails.",
             stops: [
-              { placeId: "p4", customTime: "11:00 AM", notes: "Brunch and courtyard stroll" },
-              { placeId: "p3", customTime: "07:00 PM", notes: "Dinner at Entrecote" },
-              { placeId: "p6", customTime: "09:45 PM", notes: "Cocktails at Le Syndicat" }
-            ]
-          },
-          {
-            dayNumber: 3,
-            title: "Day 3: Art & Hidden Gems",
-            notes: "Pack luggage before checkout.",
-            stops: [
-              { placeId: "p2", customTime: "10:00 AM", notes: "Sculpture garden walk" }
+              { placeId: "p4", customTime: "11:30 AM", notes: "Brunch and courtyard walk" },
+              { placeId: "p3", customTime: "06:30 PM", notes: "Steak frites at Entrecôte" },
+              { placeId: "p6", customTime: "09:30 PM", notes: "Speakeasy drinks" }
             ]
           }
         ],
@@ -1981,25 +2087,114 @@
           total: 2500,
           expenses: [
             { id: "e1", name: "Eiffel Summit Tickets (2x)", amount: 72, category: "Activities", day: 1 },
-            { id: "e2", name: "Louvre Museum Tickets", amount: 44, category: "Activities", day: 1 },
+            { id: "e2", name: "Louvre Museum Pass", amount: 44, category: "Activities", day: 1 },
             { id: "e3", name: "Seine Cruise Champagne", amount: 65, category: "Activities", day: 1 },
-            { id: "e4", name: "Hotel Plaza Deposit", amount: 650, category: "Accommodation", day: 1 },
-            { id: "e5", name: "Dinner at Entrecôte", amount: 120, category: "Food", day: 2 },
-            { id: "e6", name: "Cocktails at Le Syndicat", amount: 55, category: "Food", day: 2 },
-            { id: "e7", name: "Metro passes & Uber", amount: 48, category: "Transport", day: 2 }
+            { id: "e4", name: "Hotel Plaza Booking Deposit", amount: 650, category: "Accommodation", day: 1 },
+            { id: "e5", name: "Dinner at Entrecôte", amount: 120, category: "Food", day: 2 }
           ]
         },
         packing: [
-          { id: "pk1", name: "Passport & ID", category: "Documents", checked: true },
-          { id: "pk2", name: "Travel Insurance Card", category: "Documents", checked: true },
-          { id: "pk3", name: "Universal EU Plug Adapter", category: "Electronics", checked: true },
-          { id: "pk4", name: "Power Bank & Cables", category: "Electronics", checked: false },
-          { id: "pk5", name: "Comfortable Walking Sneakers", category: "Clothing", checked: true },
-          { id: "pk6", name: "Light Rain Jacket / Trench", category: "Clothing", checked: false },
-          { id: "pk7", name: "Evening Dinner Outfit", category: "Clothing", checked: false },
-          { id: "pk8", name: "Travel Size Toiletries", category: "Toiletries", checked: true },
-          { id: "pk9", name: "Sunscreen & Lip Balm", category: "Toiletries", checked: false },
-          { id: "pk10", name: "Personal Medication & Band-Aids", category: "Health", checked: true }
+          { id: "pk1", name: "Passport & Visa", category: "Documents", checked: true },
+          { id: "pk2", name: "EU Power Adapter Plug", category: "Electronics", checked: true },
+          { id: "pk3", name: "Comfortable Walking Shoes", category: "Clothing", checked: true },
+          { id: "pk4", name: "Light Trench Coat / Jacket", category: "Clothing", checked: false },
+          { id: "pk5", name: "Travel Size Toiletries", category: "Toiletries", checked: true }
+        ]
+      },
+      nyc: {
+        name: "New York City, USA",
+        lat: 40.7128,
+        lng: -74.0060,
+        zoom: 13,
+        places: [
+          {
+            id: "n1",
+            title: "Central Park & Bethesda Terrace",
+            category: "attraction",
+            rating: 4.9,
+            reviewsCount: 31000,
+            price: "$",
+            img: "https://images.unsplash.com/photo-1534430480872-3498386e7856?w=600&auto=format&fit=crop",
+            lat: 40.7829,
+            lng: -73.9654,
+            address: "Central Park, Manhattan, NY",
+            hours: "06:00 AM - 01:00 AM Daily",
+            desc: "843-acre lush urban oasis featuring walking trails, boating lake, and iconic film locations.",
+            amenities: ["Bike Rentals", "Rowboats", "Picnic Lawns"],
+            reviews: [{ author: "Sam W.", rating: 5, text: "Rent a CitiBike and explore the loop from south to north!" }]
+          },
+          {
+            id: "n2",
+            title: "Joe's Pizza Greenwich Village",
+            category: "restaurant",
+            rating: 4.8,
+            reviewsCount: 11200,
+            price: "$",
+            img: "https://images.unsplash.com/photo-1513104890138-7c749659a591?w=600&auto=format&fit=crop",
+            lat: 40.7305,
+            lng: -74.0021,
+            address: "7 Carmine St, New York, NY 10014",
+            hours: "10:00 AM - 04:00 AM",
+            desc: "The quintessential New York slice. Crispy, thin-crust, fresh mozzarella, and legendary reputation.",
+            amenities: ["Late Night Slices", "Quick Counter Service"],
+            reviews: [{ author: "Rachel F.", rating: 5, text: "Classic cheese slice is perfection in every bite." }]
+          },
+          {
+            id: "n3",
+            title: "The Standard High Line Hotel",
+            category: "hotel",
+            rating: 4.6,
+            reviewsCount: 4200,
+            price: "$$$$",
+            img: "https://images.unsplash.com/photo-1566073771259-6a8506099945?w=600&auto=format&fit=crop",
+            lat: 40.7408,
+            lng: -74.0080,
+            address: "848 Washington St, New York, NY 10014",
+            hours: "24/7 Front Desk",
+            desc: "Striking hotel elevated above the High Line park in the trendy Meatpacking District.",
+            amenities: ["Rooftop Bar", "Hudson River Views", "Biergarten"],
+            reviews: [{ author: "Tyler M.", rating: 5, text: "Floor to ceiling windows with unmatched river views!" }]
+          },
+          {
+            id: "n4",
+            title: "Broadway Theater District Show",
+            category: "activity",
+            rating: 4.9,
+            reviewsCount: 15400,
+            price: "$$$",
+            img: "https://images.unsplash.com/photo-1507676184212-d03ab07a01bf?w=600&auto=format&fit=crop",
+            lat: 40.7590,
+            lng: -73.9845,
+            address: "Times Square / West 45th St, NY",
+            hours: "Showtimes: 02:00 PM & 08:00 PM",
+            desc: "World-class theatrical performances in the heart of Midtown Manhattan.",
+            amenities: ["TKTS Booth Nearby", "Concessions", "Merchandise"],
+            reviews: [{ author: "Megan D.", rating: 5, text: "Unforgettable energy and talent!" }]
+          }
+        ],
+        itinerary: [
+          {
+            dayNumber: 1,
+            title: "Day 1: Manhattan Highlights",
+            notes: "OMNY tap for subway rides.",
+            stops: [
+              { placeId: "n1", customTime: "10:00 AM", notes: "Walk around Bow Bridge" },
+              { placeId: "n2", customTime: "01:00 PM", notes: "Lunch slice in the Village" },
+              { placeId: "n4", customTime: "07:30 PM", notes: "Broadway evening show" }
+            ]
+          }
+        ],
+        budget: {
+          total: 2200,
+          expenses: [
+            { id: "e_n1", name: "Broadway Tickets", amount: 240, category: "Activities", day: 1 },
+            { id: "e_n2", name: "Joe's Pizza & Soda", amount: 22, category: "Food", day: 1 },
+            { id: "e_n3", name: "Subway Pass (OMNY)", amount: 34, category: "Transport", day: 1 }
+          ]
+        },
+        packing: [
+          { id: "pk_n1", name: "MetroCard / Phone NFC for OMNY", category: "Documents", checked: true },
+          { id: "pk_n2", name: "Portable Phone Charger", category: "Electronics", checked: true }
         ]
       },
       tokyo: {
@@ -2038,7 +2233,7 @@
             hours: "Open 24/7",
             desc: "The world's busiest pedestrian scramble, pulsing with giant neon screens and energy.",
             amenities: ["Rooftop Views", "Nearby Shopping", "Transit Hub"],
-            reviews: [{ author: "Maya T.", rating: 5, text: "View the scramble from the Starbucks upstairs or Shibuya Sky." }]
+            reviews: [{ author: "Maya T.", rating: 5, text: "View the scramble from Starbucks upstairs or Shibuya Sky." }]
           },
           {
             id: "t3",
@@ -2063,8 +2258,8 @@
             title: "Day 1: Historic Asakusa & Modern Shibuya",
             notes: "Get a Suica / Pasmo transit card upon arrival.",
             stops: [
-              { placeId: "t1", customTime: "09:00 AM", notes: "Walk through Nakamise shopping street" },
-              { placeId: "t2", customTime: "02:00 PM", notes: "Experience the scramble crossing" },
+              { placeId: "t1", customTime: "09:00 AM", notes: "Walk through Nakamise street" },
+              { placeId: "t2", customTime: "02:00 PM", notes: "Experience scramble crossing" },
               { placeId: "t3", customTime: "06:30 PM", notes: "Dinner at Ichiran ramen" }
             ]
           }
@@ -2072,76 +2267,13 @@
         budget: {
           total: 3000,
           expenses: [
-            { id: "e_t1", name: "Shinkansen & Suica cards", amount: 180, category: "Transport", day: 1 },
+            { id: "e_t1", name: "Suica Cards & Transit", amount: 60, category: "Transport", day: 1 },
             { id: "e_t2", name: "Ichiran Ramen Dinner", amount: 35, category: "Food", day: 1 }
           ]
         },
         packing: [
           { id: "pk_t1", name: "Passport & JR Pass", category: "Documents", checked: true },
-          { id: "pk_t2", name: "Pocket WiFi / eSim", category: "Electronics", checked: true },
-          { id: "pk_t3", name: "Slip-on Shoes (easy removal for temples)", category: "Clothing", checked: true }
-        ]
-      },
-      nyc: {
-        name: "New York City, USA",
-        lat: 40.7128,
-        lng: -74.0060,
-        zoom: 13,
-        places: [
-          {
-            id: "n1",
-            title: "Central Park & Bethesda Terrace",
-            category: "attraction",
-            rating: 4.9,
-            reviewsCount: 31000,
-            price: "$",
-            img: "https://images.unsplash.com/photo-1534430480872-3498386e7856?w=600&auto=format&fit=crop",
-            lat: 40.7829,
-            lng: -73.9654,
-            address: "Central Park, Manhattan, NY",
-            hours: "06:00 AM - 01:00 AM Daily",
-            desc: "843-acre lush urban oasis featuring walking trails, boating lake, and iconic film locations.",
-            amenities: ["Bike Rentals", "Rowboats", "Picnic Areas"],
-            reviews: [{ author: "Sam W.", rating: 5, text: "Rent a CitiBike and explore the loop from south to north!" }]
-          },
-          {
-            id: "n2",
-            title: "Joe's Pizza Greenwich Village",
-            category: "restaurant",
-            rating: 4.8,
-            reviewsCount: 11200,
-            price: "$",
-            img: "https://images.unsplash.com/photo-1513104890138-7c749659a591?w=600&auto=format&fit=crop",
-            lat: 40.7305,
-            lng: -74.0021,
-            address: "7 Carmine St, New York, NY 10014",
-            hours: "10:00 AM - 04:00 AM",
-            desc: "The quintessential New York slice. Crispy, thin-crust, fresh mozzarella, and legendary reputation.",
-            amenities: ["Late Night Slices", "Quick Counter Service"],
-            reviews: [{ author: "Rachel F.", rating: 5, text: "Classic cheese slice is perfection in every bite." }]
-          }
-        ],
-        itinerary: [
-          {
-            dayNumber: 1,
-            title: "Day 1: Manhattan Highlights",
-            notes: "Metropass or OMNY tap for subway rides.",
-            stops: [
-              { placeId: "n1", customTime: "10:00 AM", notes: "Walk around Bow Bridge" },
-              { placeId: "n2", customTime: "01:00 PM", notes: "Lunch slice in the Village" }
-            ]
-          }
-        ],
-        budget: {
-          total: 2200,
-          expenses: [
-            { id: "e_n1", name: "Broadway Tickets", amount: 240, category: "Activities", day: 1 },
-            { id: "e_n2", name: "Joe's Pizza", amount: 18, category: "Food", day: 1 }
-          ]
-        },
-        packing: [
-          { id: "pk_n1", name: "MetroCard / Phone NFC for OMNY", category: "Documents", checked: true },
-          { id: "pk_n2", name: "Portable Charger", category: "Electronics", checked: true }
+          { id: "pk_t2", name: "Pocket WiFi / eSIM", category: "Electronics", checked: true }
         ]
       },
       rome: {
@@ -2165,28 +2297,277 @@
             desc: "The largest ancient amphitheater ever built, center of gladiatorial combat and ancient Roman history.",
             amenities: ["Underground Arena Access", "Audio Tours"],
             reviews: [{ author: "Marco D.", rating: 5, text: "Book underground access in advance for the best experience." }]
+          },
+          {
+            id: "r2",
+            title: "Trevi Fountain & Spanish Steps",
+            category: "attraction",
+            rating: 4.8,
+            reviewsCount: 24500,
+            price: "$",
+            img: "https://images.unsplash.com/photo-1525874684015-58379d421a52?w=600&auto=format&fit=crop",
+            lat: 41.9009,
+            lng: 12.4833,
+            address: "Piazza di Trevi, 00187 Roma",
+            hours: "Open 24/7",
+            desc: "Breathtaking Baroque fountain. Toss a coin over your left shoulder to ensure a return to Rome.",
+            amenities: ["Nearby Gelaterias", "Night Illuminations"],
+            reviews: [{ author: "Lucia M.", rating: 5, text: "Visit at 7 AM or midnight to enjoy without the crowds!" }]
+          },
+          {
+            id: "r3",
+            title: "Trattoria Da Enzo al 29",
+            category: "restaurant",
+            rating: 4.7,
+            reviewsCount: 5200,
+            price: "$$",
+            img: "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=600&auto=format&fit=crop",
+            lat: 41.8885,
+            lng: 12.4776,
+            address: "Via dei Vascellari, 29, 00153 Roma (Trastevere)",
+            hours: "12:15 PM - 03:00 PM, 07:30 PM - 11:00 PM",
+            desc: "Authentic Roman trattoria renowned for Cacio e Pepe, Carbonara, and fried artichokes.",
+            amenities: ["Outdoor Seating", "Traditional Roman Recipes"],
+            reviews: [{ author: "Gianni F.", rating: 5, text: "Best Carbonara in Trastevere hands down." }]
           }
         ],
         itinerary: [
           {
             dayNumber: 1,
-            title: "Day 1: Ancient Wonders",
-            notes: "Bring a refillable water bottle for Rome's nasoni fountains.",
+            title: "Day 1: Ancient Rome & Historic Piazzas",
+            notes: "Refill water bottles at Rome's historic nasoni fountains.",
             stops: [
-              { placeId: "r1", customTime: "09:00 AM", notes: "Gladiator arena tour" }
+              { placeId: "r1", customTime: "09:00 AM", notes: "Colosseum & Forum tour" },
+              { placeId: "r2", customTime: "02:30 PM", notes: "Coin toss at Trevi fountain" },
+              { placeId: "r3", customTime: "07:30 PM", notes: "Dinner in Trastevere" }
             ]
           }
         ],
         budget: {
           total: 2000,
           expenses: [
-            { id: "e_r1", name: "Colosseum Tickets", amount: 48, category: "Activities", day: 1 }
+            { id: "e_r1", name: "Colosseum Priority Tickets", amount: 48, category: "Activities", day: 1 },
+            { id: "e_r2", name: "Trattoria da Enzo Dinner", amount: 65, category: "Food", day: 1 }
           ]
         },
         packing: [
-          { id: "pk_r1", name: "Passport & Copies", category: "Documents", checked: true },
-          { id: "pk_r2", name: "Sun Hat & Sunglasses", category: "Clothing", checked: true }
+          { id: "pk_r1", name: "Passport & Travel Insurance", category: "Documents", checked: true },
+          { id: "pk_r2", name: "Comfortable Walking Sneakers", category: "Clothing", checked: true }
         ]
+      },
+      london: {
+        name: "London, United Kingdom",
+        lat: 51.5074,
+        lng: -0.1278,
+        zoom: 13,
+        places: [
+          {
+            id: "l1",
+            title: "Tower of London & Tower Bridge",
+            category: "attraction",
+            rating: 4.8,
+            reviewsCount: 21000,
+            price: "$$",
+            img: "https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=600&auto=format&fit=crop",
+            lat: 51.5081,
+            lng: -0.0759,
+            address: "London EC3N 4AB, UK",
+            hours: "09:00 AM - 05:30 PM",
+            desc: "Historic royal fortress on the north bank of the Thames, home to the dazzling Crown Jewels.",
+            amenities: ["Yeoman Warder Tours", "Crown Jewels Exhibition"],
+            reviews: [{ author: "Arthur P.", rating: 5, text: "Take the Beefeater tour for unforgettable history and humor!" }]
+          },
+          {
+            id: "l2",
+            title: "Dishoom Covent Garden",
+            category: "restaurant",
+            rating: 4.7,
+            reviewsCount: 9800,
+            price: "$$",
+            img: "https://images.unsplash.com/photo-1585937421612-70a008356fbe?w=600&auto=format&fit=crop",
+            lat: 51.5126,
+            lng: -0.1264,
+            address: "12 Upper St Martin's Ln, London WC2H 9FB",
+            hours: "08:00 AM - 11:00 PM",
+            desc: "Legendary Bombay cafe style dining famous for house black daal, bacon naan rolls, and spiced chai.",
+            amenities: ["Cocktail Lounge", "Vegetarian Friendly"],
+            reviews: [{ author: "Clara S.", rating: 5, text: "The House Black Daal is worth the line every single time." }]
+          }
+        ],
+        itinerary: [
+          {
+            dayNumber: 1,
+            title: "Day 1: Royal Heritage & West End",
+            notes: "Use contactless card for London Underground tube rides.",
+            stops: [
+              { placeId: "l1", customTime: "10:00 AM", notes: "Crown Jewels & Fortress" },
+              { placeId: "l2", customTime: "06:30 PM", notes: "Dinner at Dishoom" }
+            ]
+          }
+        ],
+        budget: { total: 2400, expenses: [{ id: "el1", name: "Tower of London", amount: 40, category: "Activities", day: 1 }] },
+        packing: [{ id: "pkl1", name: "Passport", category: "Documents", checked: true }, { id: "pkl2", name: "Compact Umbrella", category: "Clothing", checked: true }]
+      },
+      barcelona: {
+        name: "Barcelona, Spain",
+        lat: 41.3851,
+        lng: 2.1734,
+        zoom: 13,
+        places: [
+          {
+            id: "b1",
+            title: "Basílica de la Sagrada Família",
+            category: "attraction",
+            rating: 4.9,
+            reviewsCount: 38000,
+            price: "$$",
+            img: "https://images.unsplash.com/photo-1583422409516-2895a77efded?w=600&auto=format&fit=crop",
+            lat: 41.4036,
+            lng: 2.1744,
+            address: "Carrer de Mallorca, 401, 08013 Barcelona",
+            hours: "09:00 AM - 08:00 PM",
+            desc: "Gaudí's unfinished modernist masterpiece with towering spires and stained-glass lighting.",
+            amenities: ["Tower Access", "Audio Guide"],
+            reviews: [{ author: "Carlos M.", rating: 5, text: "Book tickets online weeks in advance for morning light!" }]
+          },
+          {
+            id: "b2",
+            title: "El Xampanyet Tapas",
+            category: "restaurant",
+            rating: 4.7,
+            reviewsCount: 4600,
+            price: "$$",
+            img: "https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop",
+            lat: 41.3854,
+            lng: 2.1818,
+            address: "Carrer de Montcada, 22, 08003 Barcelona (El Born)",
+            hours: "12:00 PM - 03:30 PM, 07:00 PM - 11:00 PM",
+            desc: "Historic buzzing tapas bar serving homemade sparkling cava wine, anchovies, and jamón ibérico.",
+            amenities: ["Traditional Cava", "Lively Atmosphere"],
+            reviews: [{ author: "Ana V.", rating: 5, text: "Incredible tapas energy. Try the grilled octopus and cava." }]
+          }
+        ],
+        itinerary: [
+          {
+            dayNumber: 1,
+            title: "Day 1: Gaudí Wonders & Born Tapas",
+            notes: "Wear sunglasses for the Mediterranean sun.",
+            stops: [
+              { placeId: "b1", customTime: "10:00 AM", notes: "Sagrada Familia audio tour" },
+              { placeId: "b2", customTime: "07:30 PM", notes: "Tapas and sparkling cava" }
+            ]
+          }
+        ],
+        budget: { total: 2100, expenses: [{ id: "eb1", name: "Sagrada Familia Entry", amount: 36, category: "Activities", day: 1 }] },
+        packing: [{ id: "pkb1", name: "Passport", category: "Documents", checked: true }, { id: "pkb2", name: "Beachwear & Sunscreen", category: "Clothing", checked: true }]
+      },
+      bali: {
+        name: "Bali, Indonesia",
+        lat: -8.4095,
+        lng: 115.1889,
+        zoom: 11,
+        places: [
+          {
+            id: "ba1",
+            title: "Tegallalang Rice Terraces & Ubud",
+            category: "attraction",
+            rating: 4.8,
+            reviewsCount: 16200,
+            price: "$",
+            img: "https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=600&auto=format&fit=crop",
+            lat: -8.4337,
+            lng: 115.2778,
+            address: "Jl. Raya Tegallalang, Gianyar, Bali",
+            hours: "07:00 AM - 06:00 PM",
+            desc: "Cascading emerald-green rice terraces carved into the hillsides of Ubud.",
+            amenities: ["Jungle Swings", "Terrace Cafes", "Artisan Crafts"],
+            reviews: [{ author: "Lina R.", rating: 5, text: "Come early in the morning for calm golden hour photography." }]
+          }
+        ],
+        itinerary: [{ dayNumber: 1, title: "Day 1: Ubud Jungles & Terraces", notes: "Rent a scooter or hire a day driver.", stops: [{ placeId: "ba1", customTime: "08:30 AM", notes: "Walk through valley paths" }] }],
+        budget: { total: 1800, expenses: [{ id: "eba1", name: "Terrace Entry & Swing", amount: 15, category: "Activities", day: 1 }] },
+        packing: [{ id: "pkba1", name: "Passport", category: "Documents", checked: true }, { id: "pkba2", name: "Bug Spray & Sun Hat", category: "Health", checked: true }]
+      },
+      dubai: {
+        name: "Dubai, United Arab Emirates",
+        lat: 25.2048,
+        lng: 55.2708,
+        zoom: 12,
+        places: [
+          {
+            id: "d1",
+            title: "Burj Khalifa & Dubai Mall Fountain",
+            category: "attraction",
+            rating: 4.9,
+            reviewsCount: 34000,
+            price: "$$$",
+            img: "https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=600&auto=format&fit=crop",
+            lat: 25.1972,
+            lng: 55.2744,
+            address: "1 Sheikh Mohammed bin Rashid Blvd, Dubai",
+            hours: "08:30 AM - 11:00 PM",
+            desc: "The world's tallest building with panoramic observatory decks overlooking the Persian Gulf.",
+            amenities: ["148th Floor Lounge", "Fountain Light Show"],
+            reviews: [{ author: "Zack T.", rating: 5, text: "Sunset slot gives you both daytime and sparkling night views!" }]
+          }
+        ],
+        itinerary: [{ dayNumber: 1, title: "Day 1: Downtown Dubai Highlights", notes: "Fountain shows run every 30 mins starting at 6 PM.", stops: [{ placeId: "d1", customTime: "05:00 PM", notes: "Observatory deck" }] }],
+        budget: { total: 3200, expenses: [{ id: "ed1", name: "Burj Khalifa Observation Ticket", amount: 65, category: "Activities", day: 1 }] },
+        packing: [{ id: "pkd1", name: "Passport", category: "Documents", checked: true }, { id: "pkd2", name: "Light Modest Clothing", category: "Clothing", checked: true }]
+      },
+      sydney: {
+        name: "Sydney, Australia",
+        lat: -33.8688,
+        lng: 151.2093,
+        zoom: 13,
+        places: [
+          {
+            id: "s1",
+            title: "Sydney Opera House & Circular Quay",
+            category: "attraction",
+            rating: 4.9,
+            reviewsCount: 29000,
+            price: "$$",
+            img: "https://images.unsplash.com/photo-1506973035872-a4ec16b8e8d9?w=600&auto=format&fit=crop",
+            lat: -33.8568,
+            lng: 151.2153,
+            address: "Bennelong Point, Sydney NSW 2000",
+            hours: "09:00 AM - 08:30 PM",
+            desc: "Architectural masterpiece on Sydney Harbour with sail-shaped shells.",
+            amenities: ["Harbour Bar", "Guided Architecture Tour"],
+            reviews: [{ author: "Oliver G.", rating: 5, text: "Drink at the Opera Bar during golden hour!" }]
+          }
+        ],
+        itinerary: [{ dayNumber: 1, title: "Day 1: Sydney Harbour & Coastal Walk", notes: "Take the ferry to Manly beach.", stops: [{ placeId: "s1", customTime: "10:00 AM", notes: "Harbour promenade walk" }] }],
+        budget: { total: 2600, expenses: [{ id: "es1", name: "Opera House Tour", amount: 42, category: "Activities", day: 1 }] },
+        packing: [{ id: "pks1", name: "Passport", category: "Documents", checked: true }, { id: "pks2", name: "Sunscreen SPF 50+", category: "Toiletries", checked: true }]
+      },
+      sf: {
+        name: "San Francisco, USA",
+        lat: 37.7749,
+        lng: -122.4194,
+        zoom: 13,
+        places: [
+          {
+            id: "sf1",
+            title: "Golden Gate Bridge & Battery Spencer",
+            category: "attraction",
+            rating: 4.9,
+            reviewsCount: 27500,
+            price: "$",
+            img: "https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=600&auto=format&fit=crop",
+            lat: 37.8199,
+            lng: -122.4783,
+            address: "Golden Gate Bridge, San Francisco, CA",
+            hours: "Open 24/7",
+            desc: "Iconic orange suspension bridge spanning the Golden Gate strait between San Francisco and Marin County.",
+            amenities: ["Pedestrian Walkway", "Bike Path", "Scenic Overlooks"],
+            reviews: [{ author: "Erica B.", rating: 5, text: "Walk or bike across for incredible bay vistas!" }]
+          }
+        ],
+        itinerary: [{ dayNumber: 1, title: "Day 1: Golden Gate & Fisherman's Wharf", notes: "Bring layers — SF fog can roll in quickly!", stops: [{ placeId: "sf1", customTime: "10:00 AM", notes: "Walk across bridge overlook" }] }],
+        budget: { total: 2300, expenses: [{ id: "esf1", name: "Cable Car Tickets", amount: 16, category: "Transport", day: 1 }] },
+        packing: [{ id: "pksf1", name: "Windbreaker / Warm Hoodie", category: "Clothing", checked: true }]
       }
     };
 
@@ -2196,7 +2577,7 @@
     let selectedCategoryFilter = "all";
     let selectedPriceFilters = new Set();
     let currentSortOrder = "recommended";
-    let searchQuery = "";
+    let localFilterQuery = "";
     let activeModalPlace = null;
     let categoryChartInstance = null;
     let dayChartInstance = null;
@@ -2213,10 +2594,10 @@
         try {
           appData = JSON.parse(saved);
         } catch (e) {
-          appData = JSON.parse(JSON.stringify(SAMPLE_DESTINATIONS));
+          appData = JSON.parse(JSON.stringify(PRESET_DESTINATIONS));
         }
       } else {
-        appData = JSON.parse(JSON.stringify(SAMPLE_DESTINATIONS));
+        appData = JSON.parse(JSON.stringify(PRESET_DESTINATIONS));
         saveToLocalStorage();
       }
     }
@@ -2227,12 +2608,12 @@
 
     function getCurrentTrip() {
       if (!appData[currentDestinationKey]) {
-        appData[currentDestinationKey] = JSON.parse(JSON.stringify(SAMPLE_DESTINATIONS[currentDestinationKey] || SAMPLE_DESTINATIONS.paris));
+        appData[currentDestinationKey] = JSON.parse(JSON.stringify(PRESET_DESTINATIONS[currentDestinationKey] || PRESET_DESTINATIONS.paris));
       }
       return appData[currentDestinationKey];
     }
 
-    document.addEventListener("DOMContentLoaded", () => {
+    window.addEventListener("DOMContentLoaded", () => {
       loadAppData();
       initExploreMap();
       renderPlacesList();
@@ -2243,33 +2624,64 @@
       const savedTheme = localStorage.getItem("voyagepulse_theme") || "light";
       document.documentElement.setAttribute("data-theme", savedTheme);
       updateThemeIcon(savedTheme);
+
+      setTimeout(() => {
+        if (exploreMap) exploreMap.invalidateSize();
+      }, 250);
     });
 
     function initExploreMap() {
       const trip = getCurrentTrip();
+      const mapContainer = document.getElementById('explore-map');
+      if (!mapContainer) return;
+
       if (!exploreMap) {
-        exploreMap = L.map('explore-map').setView([trip.lat, trip.lng], trip.zoom);
+        exploreMap = L.map('explore-map', {
+          zoomControl: true,
+          scrollWheelZoom: true
+        }).setView([trip.lat, trip.lng], trip.zoom || 13);
+
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
           attribution: '&copy; OpenStreetMap contributors'
         }).addTo(exploreMap);
+
         exploreMarkersGroup = L.layerGroup().addTo(exploreMap);
+
+        exploreMap.on('click', (e) => {
+          const { lat, lng } = e.latlng;
+          const promptName = prompt("Add new spot at this map location? Enter place name:");
+          if (promptName && promptName.trim()) {
+            addCustomMapPin(promptName.trim(), lat, lng);
+          }
+        });
       } else {
-        exploreMap.setView([trip.lat, trip.lng], trip.zoom);
+        exploreMap.setView([trip.lat, trip.lng], trip.zoom || 13);
       }
+
       updateExploreMapMarkers();
     }
 
     function initItineraryMap() {
       const trip = getCurrentTrip();
+      const mapContainer = document.getElementById('itinerary-map');
+      if (!mapContainer) return;
+
       if (!itineraryMap) {
-        itineraryMap = L.map('itinerary-map').setView([trip.lat, trip.lng], trip.zoom);
+        itineraryMap = L.map('itinerary-map', {
+          zoomControl: true
+        }).setView([trip.lat, trip.lng], trip.zoom || 13);
+
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
           attribution: '&copy; OpenStreetMap contributors'
         }).addTo(itineraryMap);
+
         itineraryMarkersGroup = L.layerGroup().addTo(itineraryMap);
       } else {
-        itineraryMap.setView([trip.lat, trip.lng], trip.zoom);
+        itineraryMap.setView([trip.lat, trip.lng], trip.zoom || 13);
       }
+
       updateItineraryMapRoute();
     }
 
@@ -2291,16 +2703,248 @@
       });
     }
 
+    function updateExploreMapMarkers() {
+      if (!exploreMap || !exploreMarkersGroup) return;
+      exploreMarkersGroup.clearLayers();
+      const trip = getCurrentTrip();
+
+      trip.places.forEach(place => {
+        if (!place.lat || !place.lng) return;
+
+        const marker = L.marker([place.lat, place.lng], {
+          icon: getMarkerIcon(place.category)
+        });
+
+        const popupContent = `
+          <div style="font-family: 'Plus Jakarta Sans', sans-serif; min-width: 190px; max-width: 230px;">
+            <img src="${place.img || 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=600&auto=format&fit=crop'}" style="width:100%; height:85px; object-fit:cover; border-radius:6px; margin-bottom:6px;">
+            <strong style="font-size:0.92rem; display:block; line-height:1.2; margin-bottom:4px;">${place.title}</strong>
+            <div style="display:flex; align-items:center; gap:4px; font-size:0.8rem; color:#f59e0b; margin-bottom:6px;">
+              <i class="fa-solid fa-star"></i> <strong>${place.rating}</strong>
+              <span style="color:#64748b;">(${place.price || '$$'})</span>
+            </div>
+            <button onclick="openPlaceDetailModal('${place.id}')" style="width:100%; background:#2563eb; color:#fff; border:none; border-radius:4px; padding:5px 8px; font-size:0.78rem; font-weight:600; cursor:pointer;">
+              View Details & Reviews
+            </button>
+          </div>
+        `;
+
+        marker.bindPopup(popupContent);
+        exploreMarkersGroup.addLayer(marker);
+      });
+    }
+
+    function fitExploreBounds() {
+      if (exploreMarkersGroup && exploreMarkersGroup.getLayers().length > 0) {
+        const group = new L.featureGroup(exploreMarkersGroup.getLayers());
+        exploreMap.fitBounds(group.getBounds().pad(0.15));
+      } else {
+        const trip = getCurrentTrip();
+        exploreMap.setView([trip.lat, trip.lng], trip.zoom || 13);
+      }
+    }
+
+    function locateUser() {
+      if (!navigator.geolocation) {
+        showToast("Geolocation is not supported by your browser.");
+        return;
+      }
+      showToast("Finding your current location...");
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords;
+          exploreMap.setView([latitude, longitude], 15);
+          L.marker([latitude, longitude], {
+            icon: L.divIcon({
+              className: 'custom-div-icon',
+              html: `<div style="background:#10b981; width:22px; height:22px; border-radius:50%; border:3px solid #fff; box-shadow:0 0 14px rgba(16,185,129,0.9);"></div>`,
+              iconSize: [22, 22],
+              iconAnchor: [11, 11]
+            })
+          }).addTo(exploreMap).bindPopup("<strong>You are here!</strong>").openPopup();
+          showToast("Centered on your current location!");
+        },
+        () => {
+          showToast("Unable to access your location. Please check browser permissions.");
+        }
+      );
+    }
+
+    async function executeGlobalCitySearch() {
+      const query = document.getElementById("global-city-input").value.trim();
+      if (!query) {
+        showToast("Please enter a city or destination name to search.");
+        return;
+      }
+
+      showToast(`Searching destination: "${query}"...`);
+
+      const lowerQ = query.toLowerCase();
+      const existingKey = Object.keys(PRESET_DESTINATIONS).find(k => 
+        k.toLowerCase() === lowerQ || 
+        PRESET_DESTINATIONS[k].name.toLowerCase().includes(lowerQ)
+      );
+
+      if (existingKey) {
+        loadKnownCity(existingKey);
+        showToast(`Loaded ${PRESET_DESTINATIONS[existingKey].name}!`);
+        return;
+      }
+
+      try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`, {
+          headers: { 'Accept-Language': 'en' }
+        });
+        const results = await response.json();
+
+        if (results && results.length > 0) {
+          const item = results[0];
+          const lat = parseFloat(item.lat);
+          const lng = parseFloat(item.lon);
+          const displayName = item.display_name.split(",").slice(0, 2).join(",");
+
+          const newKey = "city_" + Date.now();
+          appData[newKey] = {
+            name: displayName,
+            lat: lat,
+            lng: lng,
+            zoom: 13,
+            places: [
+              {
+                id: "cp1",
+                title: `${displayName} City Center & Main Square`,
+                category: "attraction",
+                rating: 4.8,
+                reviewsCount: 3200,
+                price: "$",
+                img: "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=600&auto=format&fit=crop",
+                lat: lat + 0.005,
+                lng: lng + 0.005,
+                address: `${displayName} Center`,
+                hours: "Open 24/7",
+                desc: `Historic focal point and scenic gathering square in ${displayName}.`,
+                amenities: ["Walking Paths", "Photography Spot", "Historic Architecture"],
+                reviews: [{ author: "Traveler", rating: 5, text: `Stunning spot to start exploring ${displayName}!` }]
+              },
+              {
+                id: "cp2",
+                title: `Grand Culinary Bistro & Cafe`,
+                category: "restaurant",
+                rating: 4.7,
+                reviewsCount: 1450,
+                price: "$$",
+                img: "https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop",
+                lat: lat - 0.004,
+                lng: lng + 0.003,
+                address: `${displayName} Promenade`,
+                hours: "11:30 AM - 10:30 PM",
+                desc: "Renowned local restaurant serving authentic regional cuisine, fine wines, and desserts.",
+                amenities: ["Outdoor Seating", "Wine Bar", "Chef Specials"],
+                reviews: [{ author: "Foodie", rating: 5, text: "Fantastic local specialties and warm hospitality." }]
+              },
+              {
+                id: "cp3",
+                title: `Grand Palace & Heritage Hotel`,
+                category: "hotel",
+                rating: 4.8,
+                reviewsCount: 980,
+                price: "$$$",
+                img: "https://images.unsplash.com/photo-1566073771259-6a8506099945?w=600&auto=format&fit=crop",
+                lat: lat + 0.002,
+                lng: lng - 0.006,
+                address: `Central Avenue, ${displayName}`,
+                hours: "24/7 Front Desk",
+                desc: "Upscale lodging featuring plush suites, central location, and breakfast terrace.",
+                amenities: ["Spa & Pool", "Room Service", "Breakfast Included"],
+                reviews: [{ author: "Guest", rating: 5, text: "Spotless rooms and central location." }]
+              }
+            ],
+            itinerary: [
+              {
+                dayNumber: 1,
+                title: "Day 1: Arrival & Exploring City Center",
+                notes: `Welcome to ${displayName}! Take a walking tour and enjoy local dinner.`,
+                stops: [
+                  { placeId: "cp1", customTime: "10:00 AM", notes: "Explore historic square" },
+                  { placeId: "cp2", customTime: "07:00 PM", notes: "Dinner tasting menu" }
+                ]
+              }
+            ],
+            budget: {
+              total: 2000,
+              expenses: [
+                { id: "e_gen1", name: "Hotel Lodging", amount: 350, category: "Accommodation", day: 1 },
+                { id: "e_gen2", name: "Welcome Dinner & Drinks", amount: 75, category: "Food", day: 1 }
+              ]
+            },
+            packing: [
+              { id: "pk_g1", name: "Passport & Identity Cards", category: "Documents", checked: true },
+              { id: "pk_g2", name: "Universal Travel Plug & Cables", category: "Electronics", checked: true },
+              { id: "pk_g3", name: "Comfortable Walking Shoes", category: "Clothing", checked: true }
+            ]
+          };
+
+          currentDestinationKey = newKey;
+          saveToLocalStorage();
+
+          document.querySelectorAll(".quick-dest-chip").forEach(c => c.classList.remove("active"));
+
+          if (exploreMap) {
+            exploreMap.flyTo([lat, lng], 13, { duration: 1.5 });
+          }
+          if (itineraryMap) {
+            itineraryMap.setView([lat, lng], 13);
+          }
+
+          renderPlacesList();
+          renderItinerary();
+          renderBudgetView();
+          renderPackingList();
+
+          showToast(`📍 Discovered ${displayName}! Ready to plan.`);
+        } else {
+          showToast(`Could not find "${query}". Please check spelling and try again.`);
+        }
+      } catch (err) {
+        showToast("Search failed. Please check internet connection.");
+      }
+    }
+
+    function loadKnownCity(key, btn) {
+      currentDestinationKey = key;
+      activeDayIndex = 0;
+      const trip = getCurrentTrip();
+
+      if (btn) {
+        document.querySelectorAll(".quick-dest-chip").forEach(c => c.classList.remove("active"));
+        btn.classList.add("active");
+      }
+
+      if (exploreMap) {
+        exploreMap.flyTo([trip.lat, trip.lng], trip.zoom || 13, { duration: 1.2 });
+      }
+      if (itineraryMap) {
+        itineraryMap.setView([trip.lat, trip.lng], trip.zoom || 13);
+      }
+
+      renderPlacesList();
+      renderItinerary();
+      renderBudgetView();
+      renderPackingList();
+      showToast(`Loaded ${trip.name}!`);
+    }
+
     function renderPlacesList() {
       const trip = getCurrentTrip();
       const container = document.getElementById("places-list");
+      if (!container) return;
       container.innerHTML = "";
 
-      let filtered = trip.places.filter(place => {
+      let filtered = (trip.places || []).filter(place => {
         if (selectedCategoryFilter !== "all" && place.category !== selectedCategoryFilter) return false;
         if (selectedPriceFilters.size > 0 && !selectedPriceFilters.has(place.price)) return false;
-        if (searchQuery.trim()) {
-          const q = searchQuery.toLowerCase();
+        if (localFilterQuery.trim()) {
+          const q = localFilterQuery.toLowerCase();
           const matchTitle = place.title.toLowerCase().includes(q);
           const matchDesc = (place.desc || "").toLowerCase().includes(q);
           const matchCategory = place.category.toLowerCase().includes(q);
@@ -2320,10 +2964,10 @@
 
       if (filtered.length === 0) {
         container.innerHTML = `
-          <div style="text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+          <div style="text-align: center; padding: 2.5rem 1rem; color: var(--text-muted);">
             <i class="fa-regular fa-compass" style="font-size: 2.5rem; margin-bottom: 0.75rem; color: var(--border);"></i>
-            <p style="font-weight: 600;">No places found matching your filters.</p>
-            <p style="font-size: 0.8rem; margin-top: 0.25rem;">Try adjusting search terms or clearing price filters.</p>
+            <p style="font-weight: 700; font-size: 0.95rem;">No places match current filters.</p>
+            <p style="font-size: 0.8rem; margin-top: 0.25rem;">Try clearing price tags or click "Add Place" to add your own spot!</p>
           </div>
         `;
         return;
@@ -2335,12 +2979,15 @@
         card.onclick = (e) => {
           if (!e.target.closest("button") && !e.target.closest("select")) {
             openPlaceDetailModal(place.id);
+            if (exploreMap && place.lat && place.lng) {
+              exploreMap.panTo([place.lat, place.lng]);
+            }
           }
         };
 
         const isFav = place.isFavorite ? "favorited" : "";
 
-        let dayOptionsHtml = trip.itinerary.map((day, idx) => 
+        let dayOptionsHtml = (trip.itinerary || []).map((day, idx) => 
           `<option value="${idx}">+ Add to Day ${day.dayNumber}</option>`
         ).join("");
 
@@ -2366,21 +3013,21 @@
               <span class="review-count">(${Number(place.reviewsCount || 0).toLocaleString()} reviews)</span>
             </div>
 
-            <p style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
-              ${place.desc || "A top-rated traveler favorite destination."}
+            <p style="font-size: 0.8rem; color: var(--text-muted); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
+              ${place.desc || "Top-rated traveler favorite."}
             </p>
 
             <div class="place-tags">
-              ${(place.amenities || []).slice(0, 2).map(a => `<span class="tag-chip">${a}</span>`).join("")}
+              ${(place.amenities || ["Verified Spot"]).slice(0, 2).map(a => `<span class="tag-chip">${a}</span>`).join("")}
             </div>
 
             <div class="place-card-footer">
               <div class="open-status status-open">
-                <i class="fa-solid fa-circle" style="font-size: 0.5rem;"></i>
+                <i class="fa-solid fa-circle" style="font-size: 0.45rem;"></i>
                 <span>Open Now</span>
               </div>
               <div style="display: flex; gap: 0.4rem; align-items: center;">
-                <select class="filter-select" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;" onchange="quickAddPlaceToDay('${place.id}', this.value); this.value='';">
+                <select class="filter-select" style="padding: 0.2rem 0.45rem; font-size: 0.74rem;" onchange="quickAddPlaceToDay('${place.id}', this.value); this.value='';">
                   <option value="" disabled selected>+ Add to Plan</option>
                   ${dayOptionsHtml}
                 </select>
@@ -2411,39 +3058,8 @@
       return starsHtml;
     }
 
-    function updateExploreMapMarkers() {
-      if (!exploreMap || !exploreMarkersGroup) return;
-      exploreMarkersGroup.clearLayers();
-      const trip = getCurrentTrip();
-
-      trip.places.forEach(place => {
-        if (!place.lat || !place.lng) return;
-
-        const marker = L.marker([place.lat, place.lng], {
-          icon: getMarkerIcon(place.category)
-        });
-
-        const popupContent = `
-          <div style="font-family: 'Plus Jakarta Sans', sans-serif; min-width: 180px; max-width: 220px;">
-            <img src="${place.img}" style="width:100%; height:80px; object-fit:cover; border-radius:6px; margin-bottom:6px;">
-            <strong style="font-size:0.9rem; display:block; line-height:1.2; margin-bottom:4px;">${place.title}</strong>
-            <div style="display:flex; align-items:center; gap:4px; font-size:0.78rem; color:#f59e0b; margin-bottom:6px;">
-              <i class="fa-solid fa-star"></i> <strong>${place.rating}</strong>
-              <span style="color:#64748b;">(${place.price})</span>
-            </div>
-            <button onclick="openPlaceDetailModal('${place.id}')" style="width:100%; background:#2563eb; color:#fff; border:none; border-radius:4px; padding:4px 8px; font-size:0.75rem; font-weight:600; cursor:pointer;">
-              View Details & Reviews
-            </button>
-          </div>
-        `;
-
-        marker.bindPopup(popupContent);
-        exploreMarkersGroup.addLayer(marker);
-      });
-    }
-
-    function handlePlaceSearch() {
-      searchQuery = document.getElementById("place-search-input").value;
+    function handleLocalPlaceSearch() {
+      localFilterQuery = document.getElementById("place-filter-input").value;
       renderPlacesList();
     }
 
@@ -2482,38 +3098,6 @@
       }
     }
 
-    function locateUser() {
-      if (!navigator.geolocation) {
-        showToast("Geolocation is not supported by your browser.");
-        return;
-      }
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const { latitude, longitude } = pos.coords;
-          exploreMap.setView([latitude, longitude], 15);
-          L.marker([latitude, longitude], {
-            icon: L.divIcon({
-              className: 'custom-div-icon',
-              html: `<div style="background:#10b981; width:20px; height:20px; border-radius:50%; border:3px solid #fff; box-shadow:0 0 12px rgba(16,185,129,0.8);"></div>`,
-              iconSize: [20, 20],
-              iconAnchor: [10, 10]
-            })
-          }).addTo(exploreMap).bindPopup("<strong>You are here!</strong>").openPopup();
-          showToast("Centered on your current location!");
-        },
-        () => {
-          showToast("Unable to retrieve your location.");
-        }
-      );
-    }
-
-    function fitExploreBounds() {
-      if (exploreMarkersGroup && exploreMarkersGroup.getLayers().length > 0) {
-        const group = new L.featureGroup(exploreMarkersGroup.getLayers());
-        exploreMap.fitBounds(group.getBounds().pad(0.1));
-      }
-    }
-
     function renderItinerary() {
       const trip = getCurrentTrip();
       
@@ -2524,7 +3108,7 @@
       trip.itinerary.forEach(d => totalStops += (d.stops || []).length);
       document.getElementById("itinerary-total-stops").innerText = `${totalStops} Stops`;
       
-      const dist = (totalStops * 2.3).toFixed(1);
+      const dist = (totalStops * 2.1).toFixed(1);
       document.getElementById("itinerary-total-distance").innerText = `${dist} km`;
 
       const daysNav = document.getElementById("days-nav");
@@ -2550,8 +3134,8 @@
         stopsContainer.innerHTML = `
           <div style="text-align: center; padding: 2.5rem 1rem; color: var(--text-muted); background: var(--bg-main); border-radius: var(--radius-sm); border: 1px dashed var(--border);">
             <i class="fa-regular fa-calendar-plus" style="font-size: 2rem; margin-bottom: 0.5rem; color: var(--primary);"></i>
-            <p style="font-weight: 700;">No stops added for this day yet.</p>
-            <p style="font-size: 0.8rem; margin-top: 0.25rem;">Switch to the <strong>Explore</strong> tab or use quick add to build your day!</p>
+            <p style="font-weight: 700;">No stops added for Day ${currentDay ? currentDay.dayNumber : 1}.</p>
+            <p style="font-size: 0.8rem; margin-top: 0.25rem;">Switch to <strong>Explore</strong> and click "+ Add to Plan" on any place!</p>
           </div>
         `;
       } else {
@@ -2588,7 +3172,7 @@
               <span><i class="fa-regular fa-clock"></i> Time:</span>
               <input type="text" class="time-input" value="${stop.customTime || '10:00 AM'}" onchange="updateStopTime(${stopIdx}, this.value)" style="width: 80px;">
               <span style="margin-left: auto; color: var(--text-muted); font-size: 0.75rem;">
-                <i class="fa-solid fa-pen-nib"></i> ${stop.notes || "Add personal note..."}
+                <i class="fa-solid fa-pen-nib"></i> ${stop.notes || "Add note..."}
               </span>
             </div>
           `;
@@ -2598,8 +3182,8 @@
           if (stopIdx < currentDay.stops.length - 1) {
             const transitDiv = document.createElement("div");
             transitDiv.className = "transit-indicator";
-            const walkMin = 10 + (stopIdx * 4);
-            const distKm = (0.7 + stopIdx * 0.4).toFixed(1);
+            const walkMin = 10 + (stopIdx * 3);
+            const distKm = (0.6 + stopIdx * 0.3).toFixed(1);
             transitDiv.innerHTML = `
               <i class="fa-solid fa-person-walking"></i>
               <span>~${walkMin} min walk (${distKm} km) to next destination</span>
@@ -2766,7 +3350,7 @@
         itineraryRoutePolyline = L.polyline(latlngs, {
           color: '#2563eb',
           weight: 4,
-          opacity: 0.8,
+          opacity: 0.85,
           dashArray: '8, 8',
           lineCap: 'round'
         }).addTo(itineraryMap);
@@ -2793,7 +3377,7 @@
       };
       const dayTotals = {};
 
-      trip.budget.expenses.forEach(exp => {
+      (trip.budget.expenses || []).forEach(exp => {
         const amt = parseFloat(exp.amount) || 0;
         totalSpent += amt;
         const cat = exp.category || "Other";
@@ -2811,6 +3395,7 @@
       document.getElementById("budget-progress-fill").style.width = `${spentPercent}%`;
 
       const tbody = document.getElementById("expenses-table-body");
+      if (!tbody) return;
       tbody.innerHTML = "";
 
       if (trip.budget.expenses.length === 0) {
@@ -2835,6 +3420,8 @@
     }
 
     function updateBudgetCharts(categoryTotals, dayTotals) {
+      if (typeof Chart === 'undefined') return;
+
       const catCtx = document.getElementById('expenseCategoryChart');
       if (catCtx) {
         if (categoryChartInstance) categoryChartInstance.destroy();
@@ -2852,7 +3439,7 @@
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-              legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } }
+              legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 } } }
             }
           }
         });
@@ -2900,7 +3487,7 @@
       const trip = getCurrentTrip();
       const daySelect = document.getElementById("expense-day-select");
       daySelect.innerHTML = "";
-      trip.itinerary.forEach((d, idx) => {
+      (trip.itinerary || []).forEach((d, idx) => {
         daySelect.innerHTML += `<option value="${idx + 1}">Day ${d.dayNumber}</option>`;
       });
       openModal('add-expense-modal');
@@ -2951,6 +3538,7 @@
       if (!trip.packing) trip.packing = [];
 
       const grid = document.getElementById("packing-grid");
+      if (!grid) return;
       grid.innerHTML = "";
 
       const totalItems = trip.packing.length;
@@ -2985,12 +3573,12 @@
         `).join("");
 
         if (items.length === 0) {
-          itemsHtml = `<p style="font-size:0.78rem; color:var(--text-muted); font-style:italic;">No items in this category.</p>`;
+          itemsHtml = `<p style="font-size:0.76rem; color:var(--text-muted); font-style:italic;">No items in this category.</p>`;
         }
 
         card.innerHTML = `
           <div class="packing-card-header">
-            <span><i class="fa-solid ${iconMap[cat] || 'fa-box'}" style="color:var(--primary); margin-right:0.4rem;"></i> ${cat}</span>
+            <span><i class="fa-solid ${iconMap[cat] || 'fa-box'}" style="color:var(--primary); margin-right:0.35rem;"></i> ${cat}</span>
             <span style="font-size:0.75rem; color:var(--text-muted);">${items.filter(i => i.checked).length}/${items.length}</span>
           </div>
           <div class="checklist-items">
@@ -3016,7 +3604,7 @@
       trip.packing = trip.packing.filter(i => i.id !== itemId);
       saveToLocalStorage();
       renderPackingList();
-      showToast("Packing item removed.");
+      showToast("Item removed.");
     }
 
     function openAddPackingModal() {
@@ -3053,9 +3641,9 @@
 
       document.getElementById("modal-place-title").innerText = place.title;
       document.getElementById("modal-place-img").src = place.img || "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=600&auto=format&fit=crop";
-      document.getElementById("modal-place-category").innerText = place.category.toUpperCase();
+      document.getElementById("modal-place-category").innerText = (place.category || "ATTRACTION").toUpperCase();
       document.getElementById("modal-place-price").innerText = place.price || "$$";
-      document.getElementById("modal-place-desc").innerText = place.desc || "Top rated destination with glowing traveler recommendations.";
+      document.getElementById("modal-place-desc").innerText = place.desc || "Top-rated traveler favorite.";
       document.getElementById("modal-place-score").innerText = place.rating;
       document.getElementById("modal-place-review-count").innerText = `${Number(place.reviewsCount || 0).toLocaleString()} reviews`;
       document.getElementById("modal-place-address").innerText = place.address || "Centrally located";
@@ -3078,7 +3666,7 @@
 
       const reviews = activeModalPlace.reviews || [];
       if (reviews.length === 0) {
-        stream.innerHTML = `<p style="font-size:0.85rem; color:var(--text-muted); font-style:italic;">No reviews posted yet. Be the first to review!</p>`;
+        stream.innerHTML = `<p style="font-size:0.82rem; color:var(--text-muted); font-style:italic;">No reviews posted yet. Be the first to review!</p>`;
         return;
       }
 
@@ -3090,7 +3678,7 @@
             <span class="reviewer-name"><i class="fa-solid fa-user-circle" style="color:var(--primary); margin-right:4px;"></i> ${rev.author || "Traveler"}</span>
             <div class="stars">${generateStarRating(rev.rating || 5)}</div>
           </div>
-          <p style="font-size:0.85rem; color:var(--text-main); line-height:1.4;">${rev.text}</p>
+          <p style="font-size:0.82rem; color:var(--text-main); line-height:1.4;">${rev.text}</p>
         `;
         stream.appendChild(div);
       });
@@ -3154,8 +3742,8 @@
         reviewsCount: 1,
         img,
         desc,
-        lat: trip.lat + (Math.random() - 0.5) * 0.03,
-        lng: trip.lng + (Math.random() - 0.5) * 0.03,
+        lat: trip.lat + (Math.random() - 0.5) * 0.02,
+        lng: trip.lng + (Math.random() - 0.5) * 0.02,
         amenities: ["Custom Place", "Recommended"],
         reviews: [{ author: "You", rating, text: desc || "Added to custom places." }]
       };
@@ -3170,38 +3758,27 @@
       document.getElementById("new-place-desc").value = "";
     }
 
-    function changeDestination(key) {
-      currentDestinationKey = key;
-      activeDayIndex = 0;
+    function addCustomMapPin(title, lat, lng) {
       const trip = getCurrentTrip();
+      const newPlace = {
+        id: "map_pin_" + Date.now(),
+        title: title,
+        category: "attraction",
+        price: "$$",
+        rating: 5.0,
+        reviewsCount: 1,
+        img: "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=600&auto=format&fit=crop",
+        desc: "Custom spot pinned on the map.",
+        lat: lat,
+        lng: lng,
+        amenities: ["Custom Location", "Map Pinned"],
+        reviews: [{ author: "You", rating: 5.0, text: "Pinned on interactive map." }]
+      };
 
-      if (exploreMap) {
-        exploreMap.setView([trip.lat, trip.lng], trip.zoom);
-      }
-      if (itineraryMap) {
-        itineraryMap.setView([trip.lat, trip.lng], trip.zoom);
-      }
-
+      trip.places.unshift(newPlace);
+      saveToLocalStorage();
       renderPlacesList();
-      renderItinerary();
-      renderBudgetView();
-      renderPackingList();
-      showToast(`Switched destination to ${trip.name || key}!`);
-    }
-
-    function toggleTheme() {
-      const current = document.documentElement.getAttribute("data-theme") || "light";
-      const next = current === "light" ? "dark" : "light";
-      document.documentElement.setAttribute("data-theme", next);
-      localStorage.setItem("voyagepulse_theme", next);
-      updateThemeIcon(next);
-    }
-
-    function updateThemeIcon(theme) {
-      const icon = document.getElementById("theme-icon");
-      if (icon) {
-        icon.className = theme === "dark" ? "fa-solid fa-sun" : "fa-solid fa-moon";
-      }
+      showToast(`Pinned "${title}" to your map!`);
     }
 
     function switchTab(tabId) {
@@ -3223,7 +3800,22 @@
         } else if (tabId === "budget") {
           renderBudgetView();
         }
-      }, 100);
+      }, 150);
+    }
+
+    function toggleTheme() {
+      const current = document.documentElement.getAttribute("data-theme") || "light";
+      const next = current === "light" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", next);
+      localStorage.setItem("voyagepulse_theme", next);
+      updateThemeIcon(next);
+    }
+
+    function updateThemeIcon(theme) {
+      const icon = document.getElementById("theme-icon");
+      if (icon) {
+        icon.className = theme === "dark" ? "fa-solid fa-sun" : "fa-solid fa-moon";
+      }
     }
 
     function openModal(modalId) {
@@ -3251,7 +3843,7 @@
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(appData, null, 2));
       const downloadAnchor = document.createElement('a');
       downloadAnchor.setAttribute("href", dataStr);
-      downloadAnchor.setAttribute("download", `voyagepulse_trip_backup_${Date.now()}.json`);
+      downloadAnchor.setAttribute("download", `voyagepulse_trip_${Date.now()}.json`);
       document.body.appendChild(downloadAnchor);
       downloadAnchor.click();
       downloadAnchor.remove();
@@ -3269,10 +3861,6 @@
             appData = imported;
             saveToLocalStorage();
             renderPlacesList();
-            if (imported && typeof imported === 'object') {
-            appData = imported;
-            saveToLocalStorage();
-            renderPlacesList();
             renderItinerary();
             renderBudgetView();
             renderPackingList();
@@ -3287,7 +3875,7 @@
     }
 
     function resetToSampleData() {
-      if (confirm("Reset all trips, itinerary stops, and expenses back to default demo data?")) {
+      if (confirm("Reset all trips, itinerary stops, and expenses back to default sample data?")) {
         localStorage.removeItem("voyagepulse_trip_data");
         loadAppData();
         renderPlacesList();
