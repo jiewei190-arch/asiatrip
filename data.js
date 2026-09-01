@@ -86,7 +86,10 @@ function photoCache(){ if(!__photoCache) __photoCache = readJSONCache(PHOTO_CACH
 async function fetchWikiThumbnail(query){
   const cache = photoCache();
   const key = query.trim().toLowerCase();
-  if(Object.prototype.hasOwnProperty.call(cache, key)) return cache[key];
+  // A falsy cached entry (including one left over from before this self-healing fix existed)
+  // is treated as "not resolved yet", not "confirmed no photo" — so it always retries below
+  // rather than staying stuck on whatever a previous session's failed lookup left behind.
+  if(cache[key]) return cache[key];
   let result = null;
   try{
     // A fuzzy, relevance-ranked SEARCH (not an exact-title lookup) so descriptive names like
@@ -103,9 +106,27 @@ async function fetchWikiThumbnail(query){
       }
     }
   }catch(e){ /* offline / blocked / not found — keep placeholder */ }
-  cache[key] = result;
-  writeJSONCache(PHOTO_CACHE_KEY, cache);
+  // Only cache a confirmed real photo. A miss (network failure, timeout, temporarily blocked)
+  // must never be cached — that would freeze the placeholder in place forever, surviving even a
+  // hard refresh, the moment one lookup happened to fail once (e.g. right as the page first
+  // loaded). Every future hydratePhotos() call simply retries instead.
+  if(result){ cache[key] = result; writeJSONCache(PHOTO_CACHE_KEY, cache); }
   return result;
+}
+/** Destination image priority chain, so ANY destination — a city, a coastline, a mountain
+ * range, an island, a small town, a region — gets a real, relevant photo without ever being
+ * hardcoded per name: 1) the destination's own name (its Wikipedia article's real lead photo —
+ * for "Amalfi Coast" or "Swiss Alps" that's already coastline/mountain imagery, not a skyline),
+ * 2) destination name qualified with its country (disambiguates a common/short place name),
+ * 3) the country alone. Only once every real tier fails does the caller fall back to the
+ * generated placeholder — never straight to it on the first miss. */
+async function fetchWikiThumbnailChain(queries){
+  for(const q of queries){
+    if(!q) continue;
+    const url = await fetchWikiThumbnail(q);
+    if(url) return url;
+  }
+  return null;
 }
 
 /* ---- Geocoding via OpenStreetMap Nominatim (no key) — real coordinates for ANY place typed, worldwide ---- */
@@ -115,7 +136,7 @@ function geocodeCache(){ if(!__geocodeCache) __geocodeCache = readJSONCache(GEOC
 async function geocodeCity(query){
   const cache = geocodeCache();
   const key = query.trim().toLowerCase();
-  if(Object.prototype.hasOwnProperty.call(cache, key)) return cache[key];
+  if(cache[key]) return cache[key];
   let result = null;
   try{
     const res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=1&q=${encodeURIComponent(query)}`, 8000, {headers:{'Accept':'application/json'}});
@@ -132,8 +153,9 @@ async function geocodeCity(query){
       }
     }
   }catch(e){}
-  cache[key] = result;
-  writeJSONCache(GEOCODE_CACHE_KEY, cache);
+  // Same rule as the photo cache: only persist a confirmed real result, so a transient failure
+  // retries next time instead of permanently sticking.
+  if(result){ cache[key] = result; writeJSONCache(GEOCODE_CACHE_KEY, cache); }
   return result;
 }
 
@@ -252,7 +274,7 @@ async function enrichGenericDestination(dest){
   dest.__enriching = true;
   try{
     const cache = enrichCache();
-    if(cache[dest.id]){ applyEnrichment(dest, cache[dest.id]); return true; }
+    if(cache[dest.id] && cache[dest.id].attractions && cache[dest.id].attractions.length){ applyEnrichment(dest, cache[dest.id]); return true; }
     const geo = await geocodeCity(dest.name + (dest.country ? ', '+dest.country : ''));
     const lat = geo ? geo.lat : dest.lat, lng = geo ? geo.lng : dest.lng;
     const pois = await fetchNearbyWikiPOIs(lat, lng, 40);
@@ -278,8 +300,10 @@ async function enrichGenericDestination(dest){
       };
     });
     const payload = { lat, lng, country: geo && geo.country, attractions };
-    cache[dest.id] = payload;
-    writeJSONCache(ENRICH_CACHE_KEY, cache);
+    // Only persist once there's real attraction data to show for it — an empty list here is
+    // just as likely a transient POI-fetch failure as a genuinely quiet destination, so leave
+    // it to retry on the next visit rather than caching a permanent dead end.
+    if(attractions.length){ cache[dest.id] = payload; writeJSONCache(ENRICH_CACHE_KEY, cache); }
     applyEnrichment(dest, payload);
     return true;
   } finally { dest.__enriching = false; }
@@ -863,7 +887,11 @@ async function ensureRealAttractionSupply(dest){
   try{
     const cache = readJSONCache(REAL_SUPPLEMENT_CACHE_KEY);
     let extras = cache[dest.id];
-    if(!extras){
+    // An empty cached result means the very first attempt found nothing — which can just as
+    // easily mean "the request failed" as "there really are no more real places nearby". Only
+    // treat a NON-empty cached result as settled; otherwise retry, the same rule as the photo
+    // and geocode caches, so one bad network moment doesn't suppress real data forever.
+    if(!extras || !extras.length){
       const pois = await fetchNearbyWikiPOIs(dest.lat, dest.lng, 40);
       const seen = new Set();
       extras = pois.filter(p=>{
@@ -880,8 +908,7 @@ async function ensureRealAttractionSupply(dest){
           tags: inferTagsFromExtract(p.extract), duration:75, photo: p.image || null,
         };
       });
-      cache[dest.id] = extras;
-      writeJSONCache(REAL_SUPPLEMENT_CACHE_KEY, cache);
+      if(extras.length){ cache[dest.id] = extras; writeJSONCache(REAL_SUPPLEMENT_CACHE_KEY, cache); }
     }
     dest.__supplemented = true;
     if(!extras.length) return false;
