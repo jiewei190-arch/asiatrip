@@ -106,6 +106,29 @@ function prunePhotoCache(cache){
   for(const k of misses){ if(over<=0) break; delete cache[k]; over--; }
   for(const k of Object.keys(cache)){ if(over<=0) break; delete cache[k]; over--; }
 }
+/* A page can ask for dozens of photos at once, and a browser will happily fire every one of
+ * them in parallel. That stampede is self-defeating: requests time out under their own weight,
+ * and each timeout used to be recorded as a miss, so a busy page could lock in a whole screen
+ * of placeholders. Lookups now queue through a small number of slots — slightly slower to fill
+ * in, dramatically more likely to actually succeed. */
+const PHOTO_CONCURRENCY = 5;
+let __photoActive = 0;
+const __photoQueue = [];
+function withPhotoSlot(task){
+  return new Promise(resolve=>{
+    const run = async ()=>{
+      __photoActive++;
+      let out = null;
+      try{ out = await task(); }catch(e){}
+      __photoActive--;
+      const next = __photoQueue.shift();
+      if(next) next();
+      resolve(out);
+    };
+    if(__photoActive < PHOTO_CONCURRENCY) run();
+    else __photoQueue.push(run);
+  });
+}
 async function fetchWikiThumbnail(query){
   const cache = photoCache();
   const key = query.trim().toLowerCase();
@@ -115,7 +138,19 @@ async function fetchWikiThumbnail(query){
   // null, written before misses carried a timestamp) is treated as "not resolved yet" and
   // always retries, so caches poisoned by the old behavior heal themselves.
   if(hit && typeof hit === 'object' && hit.miss && (Date.now() - hit.miss) < PHOTO_MISS_TTL_MS) return null;
+  return withPhotoSlot(()=>lookupWikiThumbnail(key, query));
+}
+async function lookupWikiThumbnail(key, query){
+  const cache = photoCache();
+  // Another queued lookup for the same query may have resolved while this one waited its turn.
+  const queued = cache[key];
+  if(typeof queued === 'string' && queued) return queued;
+
   let result = null;
+  // Did Wikipedia actually ANSWER? "It replied, and that page has no image" is a real answer
+  // worth remembering. "The request timed out / was refused / never completed" is not an answer
+  // at all, and must never be cached — that's what froze whole pages on placeholders.
+  let answered = false;
   try{
     // A fuzzy, relevance-ranked SEARCH (not an exact-title lookup) so descriptive names like
     // "Nusa Penida Day Trip" still resolve to the real "Nusa Penida" article instead of 404ing —
@@ -124,19 +159,27 @@ async function fetchWikiThumbnail(query){
     const res = await fetchWithTimeout(url, 7000, {headers:{'Accept':'application/json'}});
     if(res && res.ok){
       const data = await res.json();
+      answered = true;
       const pages = (data.query && data.query.pages) || {};
       const page = Object.values(pages)[0];
       if(page && page.thumbnail && page.thumbnail.source){
         result = capWikiThumb(page.thumbnail.source, 720);
       }
     }
-  }catch(e){ /* offline / blocked / not found — keep placeholder */ }
-  // A real photo is kept indefinitely; a miss is kept only as a short-lived timestamp so it
-  // stops being re-fetched every load without ever becoming permanent.
-  cache[key] = result || { miss: Date.now() };
+  }catch(e){ /* offline, blocked, timed out — deliberately left uncached so it retries */ }
+
+  if(result) cache[key] = result;
+  else if(answered) cache[key] = { miss: Date.now() };
+  else return null;                       // transient: leave no trace, try again next time
   prunePhotoCache(cache);
   writeJSONCache(PHOTO_CACHE_KEY, cache);
   return result;
+}
+/** Clears every remembered photo lookup so the next render re-fetches from scratch. The escape
+ * hatch for a browser whose cache filled up with misses during a bad network moment. */
+function clearPhotoCache(){
+  __photoCache = {};
+  try{ localStorage.removeItem(PHOTO_CACHE_KEY); }catch(e){}
 }
 /** Destination image priority chain, so ANY destination — a city, a coastline, a mountain
  * range, an island, a small town, a region — gets a real, relevant photo without ever being
