@@ -49,6 +49,25 @@ function isOpenNow(hours){
 function catColor(type){ return {attraction:'var(--cat-attraction)',restaurant:'var(--cat-restaurant)',hotel:'var(--cat-hotel)',custom:'var(--cat-explore)'}[type] || 'var(--cat-attraction)'; }
 function catEmoji(type){ return {attraction:'📍',restaurant:'🍜',hotel:'🏨',custom:'✦'}[type] || '📍'; }
 
+/* ---------------- live photo hydration ---------------- */
+function photoQuery(name, destName){ return destName ? `${name} ${destName}` : name; }
+function hydratePhotos(container){
+  if(!container) return;
+  container.querySelectorAll('img[data-photo-q]').forEach(imgEl=>{
+    if(imgEl.dataset.photoResolved) return;
+    const src = imgEl.getAttribute('src')||'';
+    if(src.indexOf('data:image/svg')!==0){ imgEl.dataset.photoResolved='1'; return; } // already a real photo
+    const q = imgEl.dataset.photoQ;
+    if(!q) return;
+    imgEl.dataset.photoResolved = '1';
+    fetchWikiThumbnail(q).then(url=>{ if(url && !imgEl.dataset.photoLocked) imgEl.src = url; }).catch(()=>{});
+  });
+}
+function enrichDestinationInBackground(dest, onDone){
+  if(!dest || !dest.id.startsWith('gen-') || dest.__enriched || dest.__enriching) return;
+  enrichGenericDestination(dest).then(changed=>{ if(changed && onDone) onDone(); }).catch(()=>{});
+}
+
 /* ---------------- persistence ---------------- */
 const LS_KEY = 'tripflow_state_v1';
 const LS_GEMINI = 'tripflow_gemini_key';
@@ -121,7 +140,7 @@ function buildAutoTrip(destId, title, start, end, travelers, style){
   }
   const totalBudget = Math.round((dest.avgDailyBudget[style]||dest.avgDailyBudget.moderate) * nDays * travelers);
   return {
-    id: uid('trip'), destId, title, start, end, travelers, cover: dest.hero,
+    id: uid('trip'), destId, destName: dest.name+(dest.country?', '+dest.country:''), title, start, end, travelers, cover: dest.hero,
     days,
     budget:{ total: totalBudget, style: style||'moderate', expenses:[] },
     collaborators:[ mkCollaborator('Jie Wei (you)', 'jiewei190@gmail.com', 'Owner') ],
@@ -165,6 +184,12 @@ function recomputeDayTimes(day){
 
 /* ---------------- trip helpers ---------------- */
 function getTrip(id){ return STATE.trips.find(t=>t.id===id); }
+/** Generic (worldwide) destinations aren't persisted between sessions — only their
+    resolved id/name are. Re-resolve (and re-enrich) on demand so a trip saved to
+    localStorage still opens correctly after a reload. */
+function destForTrip(trip){
+  return DESTINATIONS.find(d=>d.id===trip.destId) || findDestination(trip.destName || trip.destId);
+}
 function tripsForDest(destId){ return STATE.trips.filter(t=>t.destId===destId); }
 function getOrCreateDraftTrip(destId){
   let trip = tripsForDest(destId)[0];
@@ -173,7 +198,7 @@ function getOrCreateDraftTrip(destId){
   const start = toDateInput(new Date(Date.now()+30*86400000));
   const end = addDays(start,3);
   trip = {
-    id: uid('trip'), destId, title:`${dest.name} Trip`, start, end, travelers:2, cover: dest.hero,
+    id: uid('trip'), destId, destName: dest.name+(dest.country?', '+dest.country:''), title:`${dest.name} Trip`, start, end, travelers:2, cover: dest.hero,
     days:[{date:start,stops:[]},{date:addDays(start,1),stops:[]},{date:addDays(start,2),stops:[]},{date:addDays(start,3),stops:[]}],
     budget:{ total: Math.round((dest.avgDailyBudget.moderate)*4*2), style:'moderate', expenses:[] },
     collaborators:[ mkCollaborator('Jie Wei (you)', STATE.settings.email, 'Owner') ],
@@ -230,6 +255,14 @@ function applyTheme(){
   else if(t==='light') document.documentElement.setAttribute('data-theme','light');
   else document.documentElement.removeAttribute('data-theme');
   const tt = $('themeToggle'); if(tt) tt.checked = (t==='dark');
+  refreshMapThemesIfOpen();
+}
+function refreshMapThemesIfOpen(){
+  [window.__destMapState, window.__plannerMapState].forEach(state=>{
+    if(state && state.map && state.mode==='map'){
+      try{ state.map.removeLayer(state.layer); state.layer = createBaseTileLayer('map').addTo(state.map); state.layer.bringToBack(); }catch(e){}
+    }
+  });
 }
 
 /* ---------------- router ---------------- */
@@ -299,7 +332,7 @@ function runGlobalSearch(q){
   if(destMatches.length){
     html += `<div class="gsearch-group">Destinations</div>`;
     destMatches.forEach(d=>{
-      html += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${d.hero}" alt=""><div><div>${d.flag} ${esc(d.name)}, ${esc(d.country)}</div><div class="small">Explore destination</div></div></button>`;
+      html += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${d.hero}" alt="" data-photo-q="${esc(d.name+' skyline')}"><div><div>${d.flag} ${esc(d.name)}, ${esc(d.country)}</div><div class="small">Explore destination</div></div></button>`;
     });
     const d0 = destMatches[0];
     html += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d0.id)}/hotels"><div class="ic">🏨</div><div>Hotels in ${esc(d0.name)}</div></button>`;
@@ -310,13 +343,14 @@ function runGlobalSearch(q){
     html += `<div class="gsearch-group">Places</div>`;
     placeMatches.forEach(p=>{
       const tab = p.type==='attraction'?'things':(p.type==='restaurant'?'restaurants':'hotels');
-      html += `<button class="gsearch-row" data-place="${p.id}"><img src="${p.image}" alt=""><div><div>${esc(p.name)}</div><div class="small">${esc(DESTINATIONS.find(d=>d.id===p.destId).name)} · ${tab==='things'?'Attraction':(tab==='restaurants'?'Restaurant':'Hotel')}</div></div></button>`;
+      html += `<button class="gsearch-row" data-place="${p.id}"><img src="${p.image}" alt="" data-photo-q="${esc(photoQuery(p.name, DESTINATIONS.find(d=>d.id===p.destId).name))}"><div><div>${esc(p.name)}</div><div class="small">${esc(DESTINATIONS.find(d=>d.id===p.destId).name)} · ${tab==='things'?'Attraction':(tab==='restaurants'?'Restaurant':'Hotel')}</div></div></button>`;
     });
   }
   if(!destMatches.length && !placeMatches.length){
     html = `<div class="empty" style="padding:26px">No matches. Press Enter to explore "${esc(q)}" as a destination.</div>`;
   }
   results.innerHTML = html;
+  hydratePhotos(results);
   results.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{ closeDropdowns(); navigate(b.dataset.go); });
   results.querySelectorAll('[data-place]').forEach(b=>b.onclick=()=>{ closeDropdowns(); openPlaceDetail(b.dataset.place); });
   $('globalSearchInput').onkeydown = (e)=>{ if(e.key==='Enter'){ const d=findDestination(q); closeDropdowns(); navigate(`#/destination/${encodeURIComponent(d.id)}`); } };
@@ -390,7 +424,7 @@ function placeCardHTML(p, opts){
   return `
   <div class="placeCard" data-place="${p.id}">
     <div class="placeImgWrap">
-      <img src="${p.image}" alt="${esc(p.name)}" loading="lazy">
+      <img src="${p.image}" alt="${esc(p.name)}" loading="lazy" data-photo-q="${esc(photoQuery(p.name, dest&&dest.name))}">
       <span class="placeCatBadge">${esc(catLabel)}</span>
       <button class="placeSaveBtn" data-save="${p.id}" title="Save">${isSaved?'♥':'♡'}</button>
     </div>
@@ -418,6 +452,7 @@ function wirePlaceCards(container){
   container.querySelectorAll('[data-add]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openAddToTrip(b.dataset.add); });
   container.querySelectorAll('[data-detail]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openPlaceDetail(b.dataset.detail); });
   container.querySelectorAll('[data-mapview]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); viewPlaceOnMap(b.dataset.mapview); });
+  hydratePhotos(container);
 }
 function viewPlaceOnMap(placeId){
   const p = placeById(placeId);
@@ -458,7 +493,7 @@ function openPlaceDetail(placeId){
       </div>
       <button class="xbtn" data-close="modal-placeDetail">×</button>
     </div>
-    <div class="pdHero"><img src="${p.image}" alt=""></div>
+    <div class="pdHero"><img src="${p.image}" alt="" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
     <div class="pdGrid">
       <div>
         <p>${esc(p.desc)}</p>
@@ -478,6 +513,7 @@ function openPlaceDetail(placeId){
   $('pdAddBtn').onclick = ()=>{ closeModal('modal-placeDetail'); openAddToTrip(p.id); };
   $('pdSaveBtn').onclick = ()=>{ openSaveTo(p.id); };
   $('pdMapBtn').onclick = ()=>{ closeModal('modal-placeDetail'); viewPlaceOnMap(p.id); };
+  hydratePhotos($('placeDetailContent'));
   openModal('modal-placeDetail');
 }
 
@@ -623,12 +659,13 @@ function renderHomeView(){
 function destCardHTML(d, tagLabel){
   return `<button class="destCard" data-dest="${d.id}">
     ${tagLabel?`<span class="destCardTag">${esc(tagLabel)}</span>`:''}
-    <img src="${d.hero}" alt="${esc(d.name)}" loading="lazy">
+    <img src="${d.hero}" alt="${esc(d.name)}" loading="lazy" data-photo-q="${esc(d.name+' skyline')}">
     <div class="destCardBody"><h4>${d.flag} ${esc(d.name)}</h4><span>${esc(d.country)}</span></div>
   </button>`;
 }
 function wireDestCards(container){
   container.querySelectorAll('[data-dest]').forEach(b=>b.onclick=()=>navigate(`#/destination/${encodeURIComponent(b.dataset.dest)}`));
+  hydratePhotos(container);
 }
 
 function initHero(){
@@ -709,7 +746,7 @@ function renderDestinationView(idOrName, tab){
   destState.tab = tab || destState.tab || 'overview';
 
   $('destHero').innerHTML = `
-    <img src="${dest.hero}" alt="${esc(dest.name)}">
+    <img src="${dest.hero}" alt="${esc(dest.name)}" data-photo-q="${esc(dest.name+' skyline')}">
     <div class="destHeroActions">
       <button class="btn" id="destSaveBtn"><i class="fa-solid fa-heart"></i> Save destination</button>
     </div>
@@ -718,6 +755,15 @@ function renderDestinationView(idOrName, tab){
       <h1>${esc(dest.name)}</h1>
       <p>${esc(dest.tagline)}</p>
     </div>`;
+  hydratePhotos($('destHero'));
+  if(dest.id.startsWith('gen-')){
+    enrichDestinationInBackground(dest, ()=>{
+      if(location.hash.includes('/destination/'+encodeURIComponent(dest.id))){
+        toast(`Found real places near ${dest.name}!`);
+        renderDestinationView(dest.id, destState.tab);
+      }
+    });
+  }
   $('destSaveBtn').onclick = ()=>{
     const c = STATE.collections[0];
     if(!c.placeIds.includes('dest:'+dest.id)){ c.placeIds.push('dest:'+dest.id); toast(`Saved ${dest.name} to ${c.name}.`); }
@@ -768,7 +814,7 @@ function renderDestOverview(dest, body){
   `;
   wirePlaceCards(body);
   body.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>navigate(`#/destination/${encodeURIComponent(dest.id)}/${b.dataset.tab}`));
-  const ideas = generateAllIdeas(dest.id).slice(0,2);
+  const ideas = getCurrentIdeas(dest.id).slice(0,2);
   $('ovIdeaPreview').innerHTML = ideas.map(idea=>ideaCardHTML(idea)).join('');
   wireIdeaCards($('ovIdeaPreview'));
 }
@@ -951,7 +997,7 @@ function renderDestMap(dest, body){
   try{ map = L.map('destMap',{zoomControl:true}).setView([dest.lat,dest.lng],13); }
   catch(e){ $('destMap').innerHTML = mapUnavailableHTML(); return; }
   window.__destMap = map;
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+  window.__destMapState = addMapTypeToggle(map, $('destMap'));
   window.__destMarkerById = {};
   function draw(){
     Object.values(window.__destMarkerById).forEach(m=>map.removeLayer(m));
@@ -960,12 +1006,12 @@ function renderDestMap(dest, body){
     list.forEach(p=>{
       const icon = L.divIcon({className:'custom-map-pin', html:`<span>${catEmoji(p.type)}</span>`, iconSize:[28,28], iconAnchor:[14,28]});
       const marker = L.marker([p.lat,p.lng],{icon}).addTo(map);
-      marker.getElement && setTimeout(()=>{ const el = marker.getElement(); if(el) el.querySelector('.custom-map-pin').style.background = catColor(p.type); },0);
+      marker.getElement && setTimeout(()=>{ const el = marker.getElement(); if(el) el.style.background = catColor(p.type); },0);
       const popupEl = document.createElement('div');
       popupEl.className='mapPopup';
-      popupEl.innerHTML = `<img src="${p.image}"><h4>${esc(p.name)}</h4><p>${p.rating?('★ '+p.rating+' · '):''}${esc(p.area)}</p><button class="btn primary sm" data-popadd="${p.id}">＋ Add to Trip</button>`;
+      popupEl.innerHTML = `<img src="${p.image}" data-photo-q="${esc(photoQuery(p.name, dest.name))}"><h4>${esc(p.name)}</h4><p>${p.rating?('★ '+p.rating+' · '):''}${esc(p.area)}</p><button class="btn primary sm" data-popadd="${p.id}">＋ Add to Trip</button>`;
       marker.bindPopup(popupEl);
-      marker.on('popupopen', ()=>{ popupEl.querySelector('[data-popadd]').onclick=()=>openAddToTrip(p.id); });
+      marker.on('popupopen', ()=>{ popupEl.querySelector('[data-popadd]').onclick=()=>openAddToTrip(p.id); hydratePhotos(popupEl); });
       window.__destMarkerById[p.id] = marker;
     });
   }
@@ -982,51 +1028,81 @@ function renderDestMap(dest, body){
 
 /* ---------------- Trip Ideas tab ---------------- */
 function renderDestIdeas(dest, body){
-  body.innerHTML = `<div id="destIdeasGrid" class="ideaCardGrid"></div>`;
-  const ideas = generateAllIdeas(dest.id);
-  $('destIdeasGrid').innerHTML = ideas.map(idea=>ideaCardHTML(idea)).join('');
-  wireIdeaCards($('destIdeasGrid'));
+  body.innerHTML = `
+    <div class="panelHead" style="padding:0 0 14px;border:0">
+      <p class="small" style="margin:0">${TRIP_ARCHETYPES.length} themed trip concepts for ${esc(dest.name)}.</p>
+      <button class="btn primary" id="destIdeasRegen">🔄 Generate New Ideas</button>
+    </div>
+    <div id="destIdeasGrid" class="ideaCardGrid"></div>`;
+  function render(ideas){
+    $('destIdeasGrid').innerHTML = ideas.map(idea=>ideaCardHTML(idea)).join('');
+    wireIdeaCards($('destIdeasGrid'));
+    hydratePhotos($('destIdeasGrid'));
+  }
+  render(getCurrentIdeas(dest.id));
+  $('destIdeasRegen').onclick = ()=>{ render(regenerateIdeas(dest.id)); toast('Generated a fresh set of trip ideas!'); };
 }
 
 /* ============================================================
    AI TRIP IDEA GENERATOR
 ============================================================ */
 const IDEA_STORE = {};
-const IDEA_DEFAULT_DAYS = {food:3, culture:4, nightlife:2, shopping:2, relax:3};
-function generateIdea(destId, archetype, overrides){
-  const id = `${destId}-idea-${archetype.key}`;
-  if(IDEA_STORE[id] && !overrides) return IDEA_STORE[id];
-  const dest = DESTINATIONS.find(d=>d.id===destId);
-  const days = (overrides && overrides.days) || (IDEA_STORE[id]?.days) || IDEA_DEFAULT_DAYS[archetype.key] || 3;
-  const budgetStyle = (overrides && overrides.budgetStyle) || (IDEA_STORE[id]?.budgetStyle) || 'moderate';
-  const pace = (overrides && overrides.pace) || (IDEA_STORE[id]?.pace) || 'Balanced';
-  const interests = (overrides && overrides.interests) || archetype.tags.slice();
+const DEST_CURRENT_IDEA_IDS = {}; // destId -> [ideaId,...] — the "current" stable batch shown until the user explicitly regenerates
+const IDEA_DEFAULT_DAYS = {food:3, culture:4, nightlife:2, shopping:2, relax:3, art:2, adventure:3, romantic:2, hidden:3};
+
+function shuffle(arr){
+  const a = arr.slice();
+  for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
+  return a;
+}
+function pickPlacesForIdea(destId, interests, budgetStyle, days){
   let pool = PLACES.filter(p=>p.destId===destId && (p.type==='attraction'||p.type==='restaurant') && (p.tags||[]).some(t=>interests.includes(t)));
-  if(pool.length<4) pool = placesFor(destId,'attraction').concat(placesFor(destId,'restaurant').slice(0,2));
-  const priceOk = p=>{
-    const lvl = p.priceLevel||0;
-    if(budgetStyle==='budget') return lvl<=2;
-    return true;
-  };
-  let list = pool.filter(priceOk).sort((a,b)=>b.rating-a.rating);
-  if(list.length<4) list = pool.slice().sort((a,b)=>b.rating-a.rating);
-  list = list.slice(0, Math.max(5, days*2));
+  if(pool.length<4) pool = placesFor(destId,'attraction').concat(placesFor(destId,'restaurant').slice(0,3));
+  const priceOk = p=> budgetStyle==='budget' ? (p.priceLevel||0)<=2 : true;
+  let filtered = pool.filter(priceOk);
+  if(filtered.length<4) filtered = pool;
+  const desiredCount = Math.max(5, Math.min(10, days*2));
+  // bias toward higher-rated places, but shuffle within that quality band so repeated
+  // generations surface a genuinely different mix of places, not the same top-N every time
+  const byRating = filtered.slice().sort((a,b)=>b.rating-a.rating);
+  const candidatePool = byRating.slice(0, Math.min(byRating.length, desiredCount + 6));
+  return shuffle(candidatePool).slice(0, Math.min(desiredCount, candidatePool.length));
+}
+function buildIdea(destId, archetype, overrides){
+  const dest = DESTINATIONS.find(d=>d.id===destId);
+  const days = (overrides && overrides.days) || IDEA_DEFAULT_DAYS[archetype.key] || 3;
+  const budgetStyle = (overrides && overrides.budgetStyle) || 'moderate';
+  const pace = (overrides && overrides.pace) || 'Balanced';
+  const interests = (overrides && overrides.interests) || archetype.tags.slice();
+  const id = (overrides && overrides.__keepId) || uid('idea');
   const idea = { id, destId, key:archetype.key, emoji:archetype.emoji,
     title: archetype.titleTpl.replace('{city}', dest.name),
     desc: archetype.descTpl.replace(/{city}/g, dest.name),
-    days, budgetStyle, pace, interests, places:list };
+    days, budgetStyle, pace, interests,
+    places: pickPlacesForIdea(destId, interests, budgetStyle, days) };
   IDEA_STORE[id] = idea;
   return idea;
 }
-function generateAllIdeas(destId){ return TRIP_ARCHETYPES.map(a=>generateIdea(destId,a)); }
+/** Explicit "Generate" action — always produces a brand-new, randomized batch of ideas. */
+function regenerateIdeas(destId){
+  const ideas = TRIP_ARCHETYPES.map(a=>buildIdea(destId, a));
+  DEST_CURRENT_IDEA_IDS[destId] = ideas.map(i=>i.id);
+  return ideas;
+}
+/** Passive view (tab switch, overview preview) — stable until the user asks to regenerate. */
+function getCurrentIdeas(destId){
+  const ids = DEST_CURRENT_IDEA_IDS[destId];
+  if(ids && ids.length && ids.every(id=>IDEA_STORE[id])) return ids.map(id=>IDEA_STORE[id]);
+  return regenerateIdeas(destId);
+}
 
 function ideaCardHTML(idea){
   const dest = DESTINATIONS.find(d=>d.id===idea.destId);
-  const imgs = idea.places.slice(0,3).map(p=>p.image);
-  while(imgs.length<3) imgs.push(dest.hero);
+  const imgs = idea.places.slice(0,3).map(p=>({src:p.image, q:photoQuery(p.name, dest.name)}));
+  while(imgs.length<3) imgs.push({src:dest.hero, q:dest.name+' skyline'});
   const budgetLabel = idea.budgetStyle.charAt(0).toUpperCase()+idea.budgetStyle.slice(1);
   return `<div class="ideaCard" data-idea="${idea.id}">
-    <div class="ideaCoverRow">${imgs.map(i=>`<img src="${i}" alt="" loading="lazy">`).join('')}</div>
+    <div class="ideaCoverRow">${imgs.map(i=>`<img src="${i.src}" alt="" loading="lazy" data-photo-q="${esc(i.q)}">`).join('')}</div>
     <div class="ideaBody">
       <h3>${idea.emoji} ${esc(idea.title)}</h3>
       <p>${esc(idea.desc)}</p>
@@ -1049,6 +1125,7 @@ function wireIdeaCards(container){
     toast(`Saved "${trip.title}" to My Trips.`);
     navigate('#/trips');
   });
+  hydratePhotos(container);
 }
 
 function distributeIntoDays(places, nDays){
@@ -1111,7 +1188,7 @@ function createTripFromIdea(idea, precomputedDays){
   const travelers = (hp && hp.travelers) || 2;
   const total = Math.round((dest.avgDailyBudget[idea.budgetStyle]||dest.avgDailyBudget.moderate) * idea.days * travelers);
   const trip = {
-    id: uid('trip'), destId: dest.id, title: idea.title, start, end: addDays(start, idea.days-1), travelers,
+    id: uid('trip'), destId: dest.id, destName: dest.name+(dest.country?', '+dest.country:''), title: idea.title, start, end: addDays(start, idea.days-1), travelers,
     cover: (idea.places[0] && idea.places[0].image) || dest.hero,
     days: days.map((dayPlaces,i)=>({ date: addDays(start,i), stops: dayPlaces.map(({place,time})=>mkStopFromPlace(place,time)) })),
     budget:{ total, style: idea.budgetStyle, expenses:[] },
@@ -1147,7 +1224,8 @@ function initCustomizeModal(){
       pace: $('custPace').value,
       interests: interests.length? interests : archetype.tags.slice(),
     };
-    generateIdea(idea.destId, archetype, overrides);
+    overrides.__keepId = __customizeIdeaId;
+    buildIdea(idea.destId, archetype, overrides);
     closeModal('modal-customize');
     toast('Trip idea updated with your preferences!');
     refreshCurrentView();
@@ -1169,11 +1247,14 @@ function renderIdeasView(destIdParam){
   if(destIdParam){
     const dest = DESTINATIONS.find(d=>d.id===destIdParam) || findDestination(destIdParam);
     $('ideasDestInput').value = `${dest.name}, ${dest.country}`.replace(/, $/, '');
-    const ideas = generateAllIdeas(dest.id);
+    // navigating here represents an explicit "generate" action — always give a fresh, varied batch
+    const ideas = regenerateIdeas(dest.id);
     $('ideasGrid').innerHTML = ideas.map(idea=>ideaCardHTML(idea)).join('');
     wireIdeaCards($('ideasGrid'));
+    hydratePhotos($('ideasGrid'));
+    if(dest.id.startsWith('gen-')) enrichDestinationInBackground(dest, ()=>{ if(location.hash.includes('/ideas/'+encodeURIComponent(dest.id))){ const fresh = regenerateIdeas(dest.id); $('ideasGrid').innerHTML = fresh.map(idea=>ideaCardHTML(idea)).join(''); wireIdeaCards($('ideasGrid')); hydratePhotos($('ideasGrid')); } });
   } else {
-    $('ideasGrid').innerHTML = '<div class="empty" style="grid-column:1/-1">Search a destination above to generate 5 themed trip ideas — food, culture, nightlife, shopping and relaxation.</div>';
+    $('ideasGrid').innerHTML = `<div class="empty" style="grid-column:1/-1">Search a destination above to generate ${TRIP_ARCHETYPES.length} themed trip ideas — food, culture, nightlife, shopping, relaxation, art, adventure, romance and hidden gems.</div>`;
   }
 }
 
@@ -1191,12 +1272,12 @@ function renderTripsView(){
   $('newTripBtn2').onclick = openNewTripModal;
 }
 function tripCardHTML(t){
-  const dest = DESTINATIONS.find(d=>d.id===t.destId);
+  const dest = destForTrip(t);
   const planned = tripPlannedTotal(t);
   const pct = clamp(Math.round(planned/(t.budget.total||1)*100),0,140);
   const over = planned>t.budget.total;
   return `<div class="tripCard2" data-trip="${t.id}">
-    <div class="tripCoverWrap"><img src="${t.cover||dest.hero}" alt=""><span class="badge2">${dest.flag} ${esc(dest.name)}</span></div>
+    <div class="tripCoverWrap"><img src="${t.cover||dest.hero}" alt="" data-photo-q="${esc(dest.name+' skyline')}"><span class="badge2">${dest.flag} ${esc(dest.name)}</span></div>
     <div class="tripCardBody">
       <h3>${esc(t.title)}</h3>
       <div class="tripMetaRow"><span>📅 ${fmtDateShort(t.start)} – ${fmtDateShort(t.end)}</span><span>${t.days.length} days</span></div>
@@ -1230,6 +1311,7 @@ function wireTripCards(container){
       renderTripsView();
     });
   });
+  hydratePhotos(container);
 }
 function duplicateTrip(id){
   const t = getTrip(id);
@@ -1351,7 +1433,7 @@ function renderSavedView(collId){
   }).filter(Boolean);
   grid.innerHTML = items.map(p=>{
     if(p.__isDest){
-      return `<div class="placeCard"><div class="placeImgWrap"><img src="${p.hero}" alt=""><span class="placeCatBadge">Destination</span></div><div class="placeBody"><h4>${p.flag} ${esc(p.name)}</h4><p class="placeDesc">${esc(p.tagline)}</p><div class="placeFoot"><button class="btn primary block" data-godest="${p.id}">Explore</button><button class="btn" data-unsavedest="${p.id}">Remove</button></div></div></div>`;
+      return `<div class="placeCard"><div class="placeImgWrap"><img src="${p.hero}" alt="" data-photo-q="${esc(p.name+' skyline')}"><span class="placeCatBadge">Destination</span></div><div class="placeBody"><h4>${p.flag} ${esc(p.name)}</h4><p class="placeDesc">${esc(p.tagline)}</p><div class="placeFoot"><button class="btn primary block" data-godest="${p.id}">Explore</button><button class="btn" data-unsavedest="${p.id}">Remove</button></div></div></div>`;
     }
     return placeCardHTML(p,{showDest:true});
   }).join('');
@@ -1370,7 +1452,8 @@ function renderPlannerView(tripId, ptab){
   const trip = getTrip(tripId);
   if(!trip){ navigate('#/trips'); return; }
   if(plannerState.tripId !== tripId) plannerState = { tripId, day:0 };
-  const dest = DESTINATIONS.find(d=>d.id===trip.destId);
+  const dest = destForTrip(trip);
+  if(dest.id.startsWith('gen-')) enrichDestinationInBackground(dest, ()=>{ if(plannerState.tripId===trip.id) renderPlannerView(trip.id, location.hash.split('/')[3]||'itinerary'); });
 
   $('plannerEyebrow').textContent = `${dest.flag} ${dest.name} trip workspace`;
   $('plannerTitle').textContent = trip.title;
@@ -1544,7 +1627,7 @@ function wireStopEvents(trip, day){
   });
 }
 function openAddPlaceSearch(trip){
-  const dest = DESTINATIONS.find(d=>d.id===trip.destId);
+  const dest = destForTrip(trip);
   $('addToTripSub').textContent = `Search places in ${dest.name} to add to Day ${plannerState.day+1}`;
   const usedIds = new Set(trip.days.flatMap(d=>d.stops.map(s=>s.placeId)));
   function render(q){
@@ -1554,7 +1637,7 @@ function openAddPlaceSearch(trip){
     $('addToTripBody').innerHTML = `
       <input id="addPlaceSearchInput" placeholder="Search attractions, restaurants, hotels…" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:12px;font-weight:600;background:var(--surface2);color:var(--ink)" value="${esc(q||'')}">
       <div class="list" style="max-height:360px;overflow:auto">
-        ${arr.length? arr.map(p=>`<div class="listRow"><div class="left"><img src="${p.image}" style="width:38px;height:38px;border-radius:8px;object-fit:cover;flex-shrink:0"><div><div>${esc(p.name)}</div><div class="small">${catEmoji(p.type)} ${esc(p.category||p.cuisine||'Hotel')} · ★ ${p.rating||p.guestRating}</div></div></div><button class="btn primary sm" data-quickadd="${p.id}">＋ Add</button></div>`).join('') : '<div class="empty">No matching places.</div>'}
+        ${arr.length? arr.map(p=>`<div class="listRow"><div class="left"><img src="${p.image}" style="width:38px;height:38px;border-radius:8px;object-fit:cover;flex-shrink:0" data-photo-q="${esc(photoQuery(p.name, dest.name))}"><div><div>${esc(p.name)}</div><div class="small">${catEmoji(p.type)} ${esc(p.category||p.cuisine||'Hotel')} · ★ ${p.rating||p.guestRating}</div></div></div><button class="btn primary sm" data-quickadd="${p.id}">＋ Add</button></div>`).join('') : '<div class="empty">No matching places.</div>'}
       </div>`;
     $('addPlaceSearchInput').oninput = debounce(e=>render(e.target.value),150);
     $('addToTripBody').querySelectorAll('[data-quickadd]').forEach(b=>b.onclick=()=>{
@@ -1562,6 +1645,7 @@ function openAddPlaceSearch(trip){
       addPlaceToTrip(trip, plannerState.day, p);
       closeModal('modal-addToTrip');
     });
+    hydratePhotos($('addToTripBody'));
   }
   render('');
   openModal('modal-addToTrip');
@@ -1575,6 +1659,43 @@ function mapUnavailableHTML(){
     <div class="small" style="margin-top:4px">Everything else in TripFlow still works normally.</div>
   </div>`;
 }
+
+/* ---------------- Google-Maps-style basemap (keyless: CARTO + Esri) ---------------- */
+function isDarkMode(){
+  const attr = document.documentElement.getAttribute('data-theme');
+  if(attr==='dark') return true;
+  if(attr==='light') return false;
+  return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+}
+function createBaseTileLayer(mode){
+  if(mode==='satellite'){
+    return L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom:19, attribution:'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics'
+    });
+  }
+  const url = isDarkMode()
+    ? 'https://{s}.basemaps.cartocdn.com/dark_matter/{z}/{x}/{y}{r}.png'
+    : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+  return L.tileLayer(url, { maxZoom:20, attribution:'&copy; OpenStreetMap contributors &copy; CARTO', subdomains:'abcd' });
+}
+/** Adds a Google-Maps-style Map/Satellite switcher (bottom-left) to a Leaflet map. Returns a state object {map, mode, layer}. */
+function addMapTypeToggle(map, mountEl){
+  const state = { map, mode:'map', layer: createBaseTileLayer('map').addTo(map) };
+  const el = document.createElement('div');
+  el.className = 'mapTypeToggle';
+  el.innerHTML = `<button class="active" data-type="map">Map</button><button data-type="satellite">Satellite</button>`;
+  mountEl.appendChild(el);
+  el.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    const mode = b.dataset.type;
+    if(state.mode===mode) return;
+    state.mode = mode;
+    el.querySelectorAll('button').forEach(x=>x.classList.toggle('active', x===b));
+    map.removeLayer(state.layer);
+    state.layer = createBaseTileLayer(mode).addTo(map);
+    if(mode==='map') state.layer.bringToBack();
+  });
+  return state;
+}
 function renderPlannerMap(trip, day){
   if(typeof L === 'undefined'){ $('map2').innerHTML = mapUnavailableHTML(); renderPlannerStatsMapFallback(); return; }
   try{ renderPlannerMapInner(trip, day); }
@@ -1582,10 +1703,10 @@ function renderPlannerMap(trip, day){
 }
 function renderPlannerStatsMapFallback(){ $('mapLegend2').innerHTML=''; }
 function renderPlannerMapInner(trip, day){
-  const dest = DESTINATIONS.find(d=>d.id===trip.destId);
+  const dest = destForTrip(trip);
   if(!__plannerMap){
     __plannerMap = L.map('map2',{zoomControl:true}).setView([dest.lat,dest.lng],13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(__plannerMap);
+    window.__plannerMapState = addMapTypeToggle(__plannerMap, $('map2'));
   } else {
     __plannerMap.setView([dest.lat,dest.lng], __plannerMap.getZoom());
   }
@@ -1595,11 +1716,12 @@ function renderPlannerMapInner(trip, day){
   day.stops.forEach((s,i)=>{
     const icon = L.divIcon({className:'custom-map-pin', html:`<span>${i+1}</span>`, iconSize:[28,28], iconAnchor:[14,28]});
     const marker = L.marker([s.lat,s.lng],{icon}).addTo(__plannerMap);
-    setTimeout(()=>{ const elm=marker.getElement(); if(elm){ const pin=elm.querySelector('.custom-map-pin'); if(pin) pin.style.background=catColor(s.type); } },0);
+    setTimeout(()=>{ const elm=marker.getElement(); if(elm) elm.style.background=catColor(s.type); },0);
     const popupEl = document.createElement('div');
     popupEl.className='mapPopup';
-    popupEl.innerHTML = `<img src="${s.image}"><h4>${i+1}. ${esc(s.name)}</h4><p>${fmtTime12(s.time)} · ${esc(s.area||'')}${s.rating?` · ★ ${s.rating}`:''}</p>`;
+    popupEl.innerHTML = `<img src="${s.image}" data-photo-q="${esc(photoQuery(s.name, dest.name))}"><h4>${i+1}. ${esc(s.name)}</h4><p>${fmtTime12(s.time)} · ${esc(s.area||'')}${s.rating?` · ★ ${s.rating}`:''}</p>`;
     marker.bindPopup(popupEl);
+    marker.on('popupopen', ()=>hydratePhotos(popupEl));
     __plannerMarkers.push(marker);
   });
   if(day.stops.length>1){
@@ -1659,7 +1781,7 @@ function renderBudgetTab(trip){
   $('budgetStyleRow').innerHTML = ['budget','moderate','luxury'].map(s=>`<button class="styleBtn ${trip.budget.style===s?'active':''}" data-style="${s}">${s.charAt(0).toUpperCase()+s.slice(1)}</button>`).join('');
   $('budgetStyleRow').querySelectorAll('[data-style]').forEach(b=>b.onclick=()=>{
     trip.budget.style = b.dataset.style;
-    const dest = DESTINATIONS.find(d=>d.id===trip.destId);
+    const dest = destForTrip(trip);
     trip.budget.total = Math.round(dest.avgDailyBudget[b.dataset.style]*trip.days.length*trip.travelers);
     saveState();
     toast(`Budget style set to ${b.dataset.style} — suggested total is now ${fmt$(trip.budget.total)}.`);
@@ -1788,7 +1910,7 @@ async function sendAI(){
   }
   if(STATE.geminiKey){
     try{
-      const dest = trip ? DESTINATIONS.find(d=>d.id===trip.destId) : null;
+      const dest = trip ? destForTrip(trip) : null;
       const context = trip ? `The user is planning "${trip.title}" to ${dest.name}, ${trip.days.length} days, ${trip.budget.style} budget style, total budget ${fmt$(trip.budget.total)}.` : `The user hasn't opened a specific trip yet.`;
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${STATE.geminiKey}`, {
         method:'POST', headers:{'Content-Type':'application/json'},
@@ -1856,7 +1978,7 @@ function makeDayRelaxed(day){
 
 function handleIntent(text, trip){
   const t = text.toLowerCase().trim();
-  const dest = trip ? DESTINATIONS.find(d=>d.id===trip.destId) : null;
+  const dest = trip ? destForTrip(trip) : null;
 
   let m = t.match(/what should i do in ([a-z\s,]+?)(?: for (\d+)\s*days?)?[.?!]?$/);
   if(m && m[1].trim().length>1){

@@ -293,6 +293,10 @@ main{max-width:1280px;margin:0 auto;padding:0 24px 60px;min-height:60vh}
 
 .mapPanel{min-height:560px;position:relative}
 .map{flex:1;min-height:420px;border-radius:0 0 18px 18px;position:relative;z-index:1}
+.mapTypeToggle{position:absolute;left:10px;bottom:22px;z-index:900;display:flex;background:var(--surface);border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.25);overflow:hidden;font-family:Arial,Helvetica,sans-serif}
+.mapTypeToggle button{padding:8px 14px;font-size:12px;font-weight:700;color:var(--ink);background:transparent;border:0}
+.mapTypeToggle button.active{background:var(--green);color:#fff}
+.mapTypeToggle button:not(.active):hover{background:var(--soft)}
 .mapLegend{display:flex;gap:8px;padding:10px 14px;flex-wrap:wrap;border-bottom:1px solid var(--line)}
 .legend{padding:6px 10px;border-radius:99px;background:var(--soft);font-size:11px;color:var(--muted);font-weight:700;display:flex;align-items:center;gap:5px}
 .legend.active{background:var(--dark);color:#fff}

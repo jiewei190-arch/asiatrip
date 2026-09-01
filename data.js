@@ -40,12 +40,179 @@ function img(seed,w,h,label){
   return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
 }
 
+/* ============================================================
+   LIVE DATA — keyless, worldwide, best-effort with graceful fallback.
+   Every call is cached (memory + localStorage) and wrapped so a slow,
+   blocked, or offline network never breaks the app — callers always
+   get the gradient placeholder / procedurally-generated data until
+   (and unless) real data arrives, then the UI is upgraded in place.
+============================================================ */
+function readJSONCache(key){ try{ return JSON.parse(localStorage.getItem(key)) || {}; }catch(e){ return {}; } }
+function writeJSONCache(key, obj){ try{ localStorage.setItem(key, JSON.stringify(obj)); }catch(e){} }
+async function fetchWithTimeout(url, ms, opts){
+  const ctrl = new AbortController();
+  const timer = setTimeout(()=>ctrl.abort(), ms||8000);
+  try{ return await fetch(url, Object.assign({signal:ctrl.signal}, opts||{})); }
+  finally{ clearTimeout(timer); }
+}
+function upsizeWikiThumb(url, width){
+  return url.replace(/\/(\d+)px-/, `/${width||720}px-`);
+}
+
+/* ---- Real photos via Wikipedia's public REST API (no key, CORS-enabled) ---- */
+const PHOTO_CACHE_KEY = 'tripflow_photo_cache_v1';
+let __photoCache = null;
+function photoCache(){ if(!__photoCache) __photoCache = readJSONCache(PHOTO_CACHE_KEY); return __photoCache; }
+async function fetchWikiThumbnail(query){
+  const cache = photoCache();
+  const key = query.trim().toLowerCase();
+  if(Object.prototype.hasOwnProperty.call(cache, key)) return cache[key];
+  let result = null;
+  try{
+    const res = await fetchWithTimeout(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query)}`, 7000, {headers:{'Accept':'application/json'}});
+    if(res && res.ok){
+      const data = await res.json();
+      if(data && data.type !== 'disambiguation' && data.thumbnail && data.thumbnail.source){
+        result = upsizeWikiThumb(data.thumbnail.source, 720);
+      }
+    }
+  }catch(e){ /* offline / blocked / not found — keep placeholder */ }
+  cache[key] = result;
+  writeJSONCache(PHOTO_CACHE_KEY, cache);
+  return result;
+}
+
+/* ---- Geocoding via OpenStreetMap Nominatim (no key) — real coordinates for ANY place typed, worldwide ---- */
+const GEOCODE_CACHE_KEY = 'tripflow_geocode_cache_v1';
+let __geocodeCache = null;
+function geocodeCache(){ if(!__geocodeCache) __geocodeCache = readJSONCache(GEOCODE_CACHE_KEY); return __geocodeCache; }
+async function geocodeCity(query){
+  const cache = geocodeCache();
+  const key = query.trim().toLowerCase();
+  if(Object.prototype.hasOwnProperty.call(cache, key)) return cache[key];
+  let result = null;
+  try{
+    const res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=1&q=${encodeURIComponent(query)}`, 8000, {headers:{'Accept':'application/json'}});
+    if(res && res.ok){
+      const arr = await res.json();
+      if(arr && arr[0]){
+        const a = arr[0];
+        const addr = a.address || {};
+        result = {
+          lat: parseFloat(a.lat), lng: parseFloat(a.lon),
+          city: addr.city || addr.town || addr.village || addr.municipality || addr.county || a.name || query,
+          country: addr.country || '',
+        };
+      }
+    }
+  }catch(e){}
+  cache[key] = result;
+  writeJSONCache(GEOCODE_CACHE_KEY, cache);
+  return result;
+}
+
+/* ---- Real nearby landmarks via Wikipedia GeoSearch (no key) — worldwide points of interest, each with a real name, description and photo, in a single request ---- */
+async function fetchNearbyWikiPOIs(lat, lng, limit){
+  try{
+    const url = `https://en.wikipedia.org/w/api.php?action=query&generator=geosearch&ggscoord=${lat}%7C${lng}&ggsradius=10000&ggslimit=${limit||24}&prop=pageimages%7Cextracts%7Ccoordinates&piprop=thumbnail&pithumbsize=720&exintro=1&explaintext=1&exchars=220&format=json&origin=*`;
+    const res = await fetchWithTimeout(url, 9000);
+    if(!res || !res.ok) return [];
+    const data = await res.json();
+    const pages = (data.query && data.query.pages) || {};
+    return Object.values(pages)
+      .filter(p=>p.title && p.coordinates && p.coordinates[0])
+      .map(p=>({
+        title: p.title,
+        lat: p.coordinates[0].lat, lng: p.coordinates[0].lon,
+        image: (p.thumbnail && p.thumbnail.source) ? upsizeWikiThumb(p.thumbnail.source,720) : null,
+        extract: p.extract || '',
+      }));
+  }catch(e){ return []; }
+}
+function inferCategoryFromExtract(text){
+  const t=(text||'').toLowerCase();
+  if(/temple|shrine|church|cathedral|mosque|synagogue/.test(t)) return 'Culture';
+  if(/museum|gallery/.test(t)) return 'Museum';
+  if(/park|garden|nature reserve|forest|botanical/.test(t)) return 'Nature';
+  if(/palace|castle|fort(ress)?|monument|memorial|historic|ruins/.test(t)) return 'History';
+  if(/market|bazaar|mall/.test(t)) return 'Market';
+  if(/bridge|tower|skyscraper|building|square|plaza/.test(t)) return 'Landmark';
+  return 'Landmark';
+}
+function inferTagsFromExtract(text){
+  const t=(text||'').toLowerCase(); const tags=[];
+  if(/temple|shrine|church|cathedral|mosque|palace|castle|fort|museum|monument|historic|heritage|ruins/.test(t)) tags.push('culture','history');
+  if(/park|garden|forest|lake|mountain|beach|nature reserve|national park|island/.test(t)) tags.push('nature');
+  if(/market|mall|shopping|bazaar|boutique/.test(t)) tags.push('shopping');
+  if(/bar|nightclub|club|nightlife|live music/.test(t)) tags.push('nightlife');
+  if(/gallery|art|theatre|theater|opera|studio/.test(t)) tags.push('art');
+  if(!tags.length) tags.push('culture','hidden');
+  return [...new Set(tags)];
+}
+
+/* ---- Progressive enrichment: upgrade a fallback destination with real, worldwide data in the background ---- */
+const ENRICH_CACHE_KEY = 'tripflow_enrich_cache_v1';
+function enrichCache(){ return readJSONCache(ENRICH_CACHE_KEY); }
+function applyEnrichment(dest, payload){
+  dest.lat = payload.lat; dest.lng = payload.lng;
+  if(payload.country) dest.country = payload.country;
+  if(payload.attractions && payload.attractions.length){
+    for(let i=PLACES.length-1;i>=0;i--){ if(PLACES[i].destId===dest.id && PLACES[i].type==='attraction') PLACES.splice(i,1); }
+    payload.attractions.forEach((p,i)=>{
+      PLACES.push(Object.assign({ id:`${dest.id}-a${i+1}`, destId:dest.id, type:'attraction' }, p,
+        { image: p.image || img(dest.id+'-attr-'+i, 640,480, p.name) }));
+    });
+  }
+  dest.__enriched = true;
+}
+async function enrichGenericDestination(dest){
+  if(dest.__enriched || dest.__enriching) return false;
+  dest.__enriching = true;
+  try{
+    const cache = enrichCache();
+    if(cache[dest.id]){ applyEnrichment(dest, cache[dest.id]); return true; }
+    const geo = await geocodeCity(dest.name + (dest.country ? ', '+dest.country : ''));
+    const lat = geo ? geo.lat : dest.lat, lng = geo ? geo.lng : dest.lng;
+    const pois = await fetchNearbyWikiPOIs(lat, lng, 24);
+    if(!geo && !pois.length){ dest.__enriched = true; return false; }
+    const seen = new Set();
+    const attractions = pois.filter(p=>{
+      const k = p.title.toLowerCase(); if(seen.has(k)) return false; seen.add(k); return true;
+    }).slice(0,12).map(p=>{
+      const firstSentence = (p.extract||'').split(/(?<=[.!?])\s/)[0];
+      return {
+        name: p.title,
+        category: inferCategoryFromExtract(p.extract),
+        rating: +(4.1 + (hashStr(p.title)%50)/100).toFixed(1),
+        reviews: 300 + (hashStr(p.title+'r') % 14000),
+        priceLevel: hashStr(p.title+'p') % 3,
+        price: [0,8,15][hashStr(p.title+'p')%3],
+        area: (geo && geo.city) || dest.name,
+        lat: p.lat, lng: p.lng,
+        desc: (firstSentence || `A notable landmark near ${dest.name}.`).slice(0,160),
+        tags: inferTagsFromExtract(p.extract),
+        duration: 75,
+        image: p.image,
+      };
+    });
+    const payload = { lat, lng, country: geo && geo.country, attractions };
+    cache[dest.id] = payload;
+    writeJSONCache(ENRICH_CACHE_KEY, cache);
+    applyEnrichment(dest, payload);
+    return true;
+  } finally { dest.__enriching = false; }
+}
+
 const TRIP_ARCHETYPES = [
   { key:'food',      emoji:'🍜', titleTpl:"Food Lover's {city}",   tags:['food'],             descTpl:"Street food stalls, izakayas, local markets and the tables locals actually eat at in {city}." },
   { key:'culture',    emoji:'🏯', titleTpl:"Culture & History",     tags:['culture','history'],descTpl:"Temples, museums, monuments and old neighborhoods that tell {city}'s story." },
   { key:'nightlife',  emoji:'🌃', titleTpl:"{city} Nightlife",      tags:['nightlife'],        descTpl:"Rooftop bars, live music, night markets and the best views after dark in {city}." },
   { key:'shopping',   emoji:'🛍️', titleTpl:"Shopping Adventure",    tags:['shopping'],         descTpl:"From flagship boutiques to flea-market finds — a shopper's route through {city}." },
   { key:'relax',      emoji:'🌿', titleTpl:"Relaxing {city} Escape",tags:['relax','nature'],   descTpl:"Gardens, cafés, spas and slow mornings — the unhurried side of {city}." },
+  { key:'art',        emoji:'🎨', titleTpl:"{city} Art & Design",    tags:['art'],              descTpl:"Galleries, studios and design spaces that show off {city}'s creative side." },
+  { key:'adventure',  emoji:'⛰️', titleTpl:"{city} Adventure",       tags:['adventure','nature'],descTpl:"Outdoor thrills and nature escapes in and around {city}." },
+  { key:'romantic',   emoji:'💑', titleTpl:"Romantic {city}",        tags:['romantic'],         descTpl:"Sunset views, candlelit dinners and quiet corners made for two in {city}." },
+  { key:'hidden',     emoji:'📸', titleTpl:"Hidden {city}",          tags:['hidden'],           descTpl:"Skip the crowds — the lesser-known spots locals actually love in {city}." },
 ];
 
 const INTERESTS = [
@@ -535,6 +702,7 @@ function makeGenericDestination(name){
     bestTime:"Year-round — varies by season",
     currency:"Local currency", language:"Local language",
     avgDailyBudget:{budget:50,moderate:120,luxury:280},
+    __enriched:false, __enriching:false,
     hero: img(id+'-hero',1600,900,clean)
   };
   DESTINATIONS.push(dest);
