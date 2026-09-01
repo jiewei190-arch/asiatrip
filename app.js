@@ -344,7 +344,7 @@ function navigate(hash){
 function showView(name){
   $$('.view').forEach(v=>v.classList.remove('active'));
   $('view-'+name).classList.add('active');
-  const map = {home:'#/', discover:'#/discover', trips:'#/trips', saved:'#/saved', ideas:'#/ideas'};
+  const map = {home:'#/', discover:'#/discover', trips:'#/trips', saved:'#/saved', ideas:'#/ideas', travel:'#/travel'};
   $$('.navbtn').forEach(b=>b.classList.toggle('active', b.dataset.route===map[name]));
   window.scrollTo(0,0);
 }
@@ -357,6 +357,7 @@ function route(){
   else if(parts[0]==='saved'){ showView('saved'); renderSavedView(parts[1]); }
   else if(parts[0]==='ideas'){ showView('ideas'); renderIdeasView(decodeURIComponent(parts[1]||'')); }
   else if(parts[0]==='destination'){ showView('destination'); renderDestinationView(decodeURIComponent(parts[1]||''), parts[2]||'overview'); }
+  else if(parts[0]==='travel'){ showView('travel'); renderTravelView(); }
   else if(parts[0]==='trip'){ showView('planner'); renderPlannerView(parts[1], parts[2]||'dashboard'); }
   else { showView('home'); renderHomeView(); }
 }
@@ -1830,6 +1831,178 @@ function renderSavedView(collId){
   grid.querySelectorAll('[data-godest]').forEach(b=>b.onclick=()=>navigate(`#/destination/${encodeURIComponent(b.dataset.godest)}`));
   grid.querySelectorAll('[data-unsavedest]').forEach(b=>b.onclick=()=>{ active.placeIds = active.placeIds.filter(id=>id!=='dest:'+b.dataset.unsavedest); saveState(); renderSavedView(active.id); });
   wirePlaceCards(grid);
+  wireSavedViewToggle(active, items);
+}
+/** List/Map toggle for a collection. Only items with real coordinates can appear on the map —
+ * a saved destination (rather than a place) has no single pin, so the map covers the places and
+ * says plainly how many items it couldn't plot instead of quietly dropping them. */
+let savedViewMode = 'list';
+function wireSavedViewToggle(collection, items){
+  const listBtn = $('savedListBtn'), mapBtn = $('savedMapBtn');
+  if(!listBtn || !mapBtn) return;
+  const mappable = items.filter(p=>!p.__isDest && typeof p.lat === 'number' && typeof p.lng === 'number');
+  const apply = ()=>{
+    const isMap = savedViewMode === 'map';
+    listBtn.classList.toggle('active', !isMap);
+    mapBtn.classList.toggle('active', isMap);
+    $('savedGrid').classList.toggle('hidden', isMap);
+    $('savedMapWrap').classList.toggle('hidden', !isMap);
+    if(isMap) renderSavedMap(collection, mappable, items.length - mappable.length);
+  };
+  listBtn.onclick = ()=>{ savedViewMode='list'; apply(); };
+  mapBtn.onclick = ()=>{ savedViewMode='map'; apply(); };
+  apply();
+}
+function renderSavedMap(collection, places, unmappable){
+  const frame = $('savedMapFrame'), list = $('savedMapList');
+  if(!frame || !list) return;
+  if(!places.length){
+    list.innerHTML = `<div class="empty">Nothing in this collection has a location to plot yet.</div>`;
+    frame.src = gmapsSearchEmbedUrl('world', 1);
+    return;
+  }
+  // Centre on the average of the saved pins so the initial view actually frames them.
+  const avgLat = places.reduce((a,p)=>a+p.lat,0)/places.length;
+  const avgLng = places.reduce((a,p)=>a+p.lng,0)/places.length;
+  const spread = Math.max(
+    ...places.map(p=>Math.max(Math.abs(p.lat-avgLat), Math.abs(p.lng-avgLng))), 0.01);
+  const zoom = spread > 5 ? 4 : spread > 1 ? 7 : spread > 0.2 ? 10 : spread > 0.05 ? 12 : 13;
+  frame.src = gmapsCoordEmbedUrl(avgLat.toFixed(5), avgLng.toFixed(5), zoom);
+  list.innerHTML = `
+    ${unmappable ? `<p class="small" style="margin:0 0 10px">${unmappable} saved ${unmappable===1?'item has':'items have'} no single location to plot (saved destinations), so ${unmappable===1?"it isn't":"they aren't"} shown here.</p>` : ''}
+    ${places.map(p=>`<button class="mapPlaceRow" data-savedfocus="${p.id}">
+      <div class="stopThumb"><img src="${p.image}" alt="" data-photo-q="${esc(photoQuery(p.name, (findDestination(p.destId)||{}).name))}"></div>
+      <div><div>${esc(p.name)}</div><div class="small">${esc(p.area||'')}${p.rating?` · ★ ${p.rating}`:''}</div></div>
+    </button>`).join('')}`;
+  list.querySelectorAll('[data-savedfocus]').forEach(b=>b.onclick=()=>{
+    const p = places.find(x=>x.id===b.dataset.savedfocus);
+    if(!p) return;
+    frame.src = gmapsCoordEmbedUrl(p.lat, p.lng, 16);
+    list.querySelectorAll('.mapPlaceRow').forEach(r=>r.classList.remove('active'));
+    b.classList.add('active');
+  });
+  hydratePhotos(list);
+}
+
+/* ============================================================
+   TRAVEL MODE — the in-trip view
+============================================================ */
+function todayISO(){ return toDateInput(new Date()); }
+/** The trip you're actually on right now, if any: today falls between its start and end. */
+function activeTripToday(){
+  const today = todayISO();
+  return STATE.trips.find(t=>t.start <= today && today <= t.end) || null;
+}
+function nextUpcomingTrip(){
+  const today = todayISO();
+  return STATE.trips.filter(t=>t.start > today).sort((a,b)=>a.start.localeCompare(b.start))[0] || null;
+}
+/** Splits a day's stops around the current clock time, so the view can lead with what's on now
+ * rather than making the user find their place in a list. A stop counts as "now" while its
+ * duration is still running. */
+function splitDayByNow(day, nowMinutes){
+  const done = [], now = [], upcoming = [];
+  day.stops.forEach(s=>{
+    const start = timeToMin(s.time);
+    const end = start + (s.duration || 90);
+    if(nowMinutes >= end) done.push(s);
+    else if(nowMinutes >= start) now.push(s);
+    else upcoming.push(s);
+  });
+  return { done, now, upcoming };
+}
+function travelStopRowHTML(s, destName, state){
+  return `<div class="travelStop ${state}">
+    <div class="travelTime">${fmtTime12(s.time)}</div>
+    <div class="stopThumb"><img src="${s.image}" alt="" data-photo-q="${esc(photoQuery(s.name, destName))}"></div>
+    <div class="travelInfo">
+      <h4>${esc(s.name)}</h4>
+      <div class="small">${esc(s.category||'')}${s.area?` · ${esc(s.area)}`:''}${s.duration?` · ${s.duration} min`:''}</div>
+      ${s.note?`<div class="small travelNote">📝 ${esc(s.note)}</div>`:''}
+    </div>
+    <a class="btn sm" target="_blank" rel="noopener" href="${gmapsExternalLink(s.name)}"><i class="fa-solid fa-diamond-turn-right"></i></a>
+  </div>`;
+}
+function renderTravelView(){
+  const body = $('travelBody');
+  const trip = activeTripToday();
+
+  if(!trip){
+    const next = nextUpcomingTrip();
+    if(!next){
+      body.innerHTML = `<div class="empty" style="padding:50px 20px">
+        <div style="font-size:30px;margin-bottom:8px">🧭</div>
+        <div>You're not on a trip right now.</div>
+        <div class="small" style="margin-top:4px">When today falls inside one of your trips, this page turns into your live day-by-day guide.</div>
+        <button class="btn primary" style="margin-top:14px" data-gotrips="1">See my trips</button>
+      </div>`;
+      body.querySelectorAll('[data-gotrips]').forEach(b=>b.onclick=()=>navigate('#/trips'));
+      return;
+    }
+    const days = Math.max(0, Math.round((new Date(next.start) - new Date(todayISO()))/86400000));
+    const dest = destForTrip(next);
+    const firstDay = next.days[0];
+    body.innerHTML = `
+      <div class="card travelCountdown">
+        <div class="countNum">${days}</div>
+        <div>
+          <h3 style="margin:0">${days===1?'day':'days'} until ${esc(next.title)}</h3>
+          <p class="small" style="margin:2px 0 0">${dest.flag} ${esc(dest.name)} · starts ${fmtDateFull(next.start)}</p>
+        </div>
+        <button class="btn primary" data-opentrip="${next.id}">Open trip</button>
+      </div>
+      ${firstDay && firstDay.stops.length ? `<div class="card" style="margin-top:16px">
+        <h3>First day, once you land</h3>
+        ${firstDay.stops.map(s=>travelStopRowHTML(s, dest.name, 'upcoming')).join('')}
+      </div>` : ''}`;
+    body.querySelectorAll('[data-opentrip]').forEach(b=>b.onclick=()=>navigate(`#/trip/${b.dataset.opentrip}`));
+    hydratePhotos(body);
+    return;
+  }
+
+  const dest = destForTrip(trip);
+  const today = todayISO();
+  const dayIdx = trip.days.findIndex(d=>d.date === today);
+  const day = dayIdx >= 0 ? trip.days[dayIdx] : null;
+  const nowD = new Date();
+  const nowMinutes = nowD.getHours()*60 + nowD.getMinutes();
+
+  if(!day){
+    body.innerHTML = `<div class="card"><h3>${esc(trip.title)}</h3>
+      <p class="small">You're on this trip, but today (${fmtDateFull(today)}) doesn't have a day planned in the itinerary yet.</p>
+      <button class="btn primary" style="margin-top:10px" data-opentrip="${trip.id}">Open itinerary</button></div>`;
+    body.querySelectorAll('[data-opentrip]').forEach(b=>b.onclick=()=>navigate(`#/trip/${b.dataset.opentrip}/itinerary`));
+    return;
+  }
+
+  const { done, now, upcoming } = splitDayByNow(day, nowMinutes);
+  const spend = day.stops.reduce((a,s)=>a+(s.cost||0),0);
+
+  body.innerHTML = `
+    <div class="card travelHead">
+      <div>
+        <div class="small" style="font-weight:800">${dest.flag} ${esc(dest.name)} · Day ${dayIdx+1} of ${trip.days.length}</div>
+        <h3 style="margin:2px 0 0">${esc(trip.title)}</h3>
+        <p class="small" style="margin:2px 0 0">${fmtDateFull(today)} · ${day.stops.length} stop${day.stops.length===1?'':'s'} · ${fmt$(spend)} planned today</p>
+      </div>
+      <button class="btn" data-opentrip="${trip.id}">Full itinerary</button>
+    </div>
+    ${day.note ? `<div class="card travelDayNote" style="margin-top:14px"><b>📝 Note for today</b><p class="small" style="margin:4px 0 0">${esc(day.note)}</p></div>` : ''}
+    ${now.length ? `<div class="card" style="margin-top:14px">
+      <div class="travelSectionTitle">Happening now</div>
+      ${now.map(s=>travelStopRowHTML(s, dest.name, 'now')).join('')}
+    </div>` : ''}
+    ${upcoming.length ? `<div class="card" style="margin-top:14px">
+      <div class="travelSectionTitle">${now.length?'Up next':'Coming up today'}</div>
+      ${upcoming.map(s=>travelStopRowHTML(s, dest.name, 'upcoming')).join('')}
+    </div>` : ''}
+    ${!now.length && !upcoming.length ? `<div class="card" style="margin-top:14px"><div class="empty">That's everything planned for today — ${done.length?'all done':'nothing scheduled'}. Enjoy the evening.</div></div>` : ''}
+    ${done.length ? `<div class="card" style="margin-top:14px">
+      <div class="travelSectionTitle">Earlier today</div>
+      ${done.map(s=>travelStopRowHTML(s, dest.name, 'done')).join('')}
+    </div>` : ''}`;
+  body.querySelectorAll('[data-opentrip]').forEach(b=>b.onclick=()=>navigate(`#/trip/${b.dataset.opentrip}/itinerary`));
+  hydratePhotos(body);
 }
 
 /* ============================================================

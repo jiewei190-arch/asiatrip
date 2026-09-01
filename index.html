@@ -29,6 +29,7 @@
         <button class="navbtn" data-route="#/trips">My Trips</button>
         <button class="navbtn" data-route="#/saved">Saved</button>
         <button class="navbtn" data-route="#/ideas">Trip Ideas</button>
+        <button class="navbtn" data-route="#/travel">Travel Mode</button>
       </nav>
 
       <div class="topbar-right">
@@ -73,6 +74,7 @@
       <button class="navbtn" data-route="#/trips">Trips</button>
       <button class="navbtn" data-route="#/saved">Saved</button>
       <button class="navbtn" data-route="#/ideas">Ideas</button>
+      <button class="navbtn" data-route="#/travel">Travel</button>
     </nav>
   </header>
 
@@ -296,7 +298,27 @@
         <button class="btn primary" id="newCollectionBtn"><i class="fa-solid fa-plus"></i> New collection</button>
       </div>
       <div class="collectionTabs" id="collectionTabs"></div>
+      <div class="savedViewToggle">
+        <button class="pill active" id="savedListBtn">☰ List</button>
+        <button class="pill" id="savedMapBtn">🗺 Map</button>
+      </div>
       <div class="savedGrid" id="savedGrid"></div>
+      <div class="hidden" id="savedMapWrap">
+        <div class="savedMapLayout">
+          <div class="savedMapList" id="savedMapList"></div>
+          <div class="savedMapPanel"><iframe id="savedMapFrame" title="Saved places map" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen></iframe></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ TRAVEL MODE ============ -->
+    <section class="view" id="view-travel">
+      <div class="pageHero">
+        <div class="eyebrow">While you're there</div>
+        <h1>Travel Mode</h1>
+        <p>Your day, right now — what's on, what's next, and how to get there.</p>
+      </div>
+      <div id="travelBody"></div>
     </section>
 
     <!-- ============ TRIP IDEAS ============ -->
@@ -322,6 +344,7 @@
       <div class="footerLinks">
         <button data-route="#/">Explore</button>
         <button data-route="#/discover">Discover</button>
+        <button data-route="#/travel">Travel Mode</button>
         <button data-route="#/trips">My Trips</button>
         <button data-route="#/saved">Saved</button>
         <button data-route="#/ideas">Trip Ideas</button>
