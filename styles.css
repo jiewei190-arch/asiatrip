@@ -206,6 +206,10 @@ main{max-width:1280px;margin:0 auto;padding:0 24px 60px;min-height:60vh}
 .pill.active{background:var(--green);color:#fff}
 .toggleChip{display:flex;align-items:center;gap:6px;background:var(--soft);padding:8px 12px;border-radius:999px;font-size:12.5px;font-weight:700;color:var(--muted)}
 .toggleChip.active{background:var(--mint);color:var(--green)}
+.activeFilters{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:-8px 0 16px}
+.filterChip{display:flex;align-items:center;gap:6px;background:var(--mint);color:var(--green);padding:6px 10px;border-radius:999px;font-size:11.5px;font-weight:700}
+.filterChip i{font-size:10px}
+.filterChip:hover{background:var(--green);color:#fff}
 
 /* ---------- Destination dashboard ---------- */
 .destHero{position:relative;height:340px;border-radius:24px;overflow:hidden;margin:20px 0;color:#fff;background:var(--soft)}
@@ -226,6 +230,9 @@ main{max-width:1280px;margin:0 auto;padding:0 24px 60px;min-height:60vh}
 .ovCard{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px}
 .ovCard .k{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:800;margin-bottom:5px}
 .ovCard .v{font-weight:700;font-size:14px;line-height:1.4}
+.ovCard .v.small{font-weight:600;line-height:1.5}
+.knowBeforeGrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}
+@media(max-width:650px){ .knowBeforeGrid{grid-template-columns:1fr} }
 
 .destTabs{display:flex;gap:6px;overflow-x:auto;border-bottom:1px solid var(--line);margin-bottom:22px;padding-bottom:2px}
 .dtab{padding:11px 15px;border-radius:11px 11px 0 0;font-weight:700;color:var(--muted);white-space:nowrap;border-bottom:3px solid transparent}
