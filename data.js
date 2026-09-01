@@ -90,15 +90,36 @@ function capWikiThumb(url, maxWidth){
 
 /* ---- Real photos via Wikipedia's public REST API (no key, CORS-enabled) ---- */
 const PHOTO_CACHE_KEY = 'tripflow_photo_cache_v1';
+// A miss is remembered, but only briefly. Never remembering one means a query that genuinely
+// has no photo (plenty of small restaurants and hotels don't) is re-fetched on every single
+// page load — real devices accumulate hundreds of these, so that's hundreds of pointless
+// requests per load. Remembering one forever is the bug that froze placeholders in place.
+// A short expiry gets both: no repeat hammering, and anything that failed for a transient
+// reason retries on its own soon after.
+const PHOTO_MISS_TTL_MS = 24 * 3600 * 1000;
+const PHOTO_CACHE_MAX = 600;
 let __photoCache = null;
 function photoCache(){ if(!__photoCache) __photoCache = readJSONCache(PHOTO_CACHE_KEY); return __photoCache; }
+/** Keeps the cache from growing without bound in localStorage. Remembered misses are evicted
+ * first (oldest first) — they're the cheapest to re-derive — before any real photo URL. */
+function prunePhotoCache(cache){
+  const keys = Object.keys(cache);
+  let over = keys.length - PHOTO_CACHE_MAX;
+  if(over <= 0) return;
+  const misses = keys.filter(k=>{ const v = cache[k]; return v && typeof v === 'object' && v.miss; })
+                     .sort((a,b)=> cache[a].miss - cache[b].miss);
+  for(const k of misses){ if(over<=0) break; delete cache[k]; over--; }
+  for(const k of Object.keys(cache)){ if(over<=0) break; delete cache[k]; over--; }
+}
 async function fetchWikiThumbnail(query){
   const cache = photoCache();
   const key = query.trim().toLowerCase();
-  // A falsy cached entry (including one left over from before this self-healing fix existed)
-  // is treated as "not resolved yet", not "confirmed no photo" — so it always retries below
-  // rather than staying stuck on whatever a previous session's failed lookup left behind.
-  if(cache[key]) return cache[key];
+  const hit = cache[key];
+  if(typeof hit === 'string' && hit) return hit;
+  // A remembered miss suppresses the retry only while it's still fresh. A legacy entry (a bare
+  // null, written before misses carried a timestamp) is treated as "not resolved yet" and
+  // always retries, so caches poisoned by the old behavior heal themselves.
+  if(hit && typeof hit === 'object' && hit.miss && (Date.now() - hit.miss) < PHOTO_MISS_TTL_MS) return null;
   let result = null;
   try{
     // A fuzzy, relevance-ranked SEARCH (not an exact-title lookup) so descriptive names like
@@ -115,11 +136,11 @@ async function fetchWikiThumbnail(query){
       }
     }
   }catch(e){ /* offline / blocked / not found — keep placeholder */ }
-  // Only cache a confirmed real photo. A miss (network failure, timeout, temporarily blocked)
-  // must never be cached — that would freeze the placeholder in place forever, surviving even a
-  // hard refresh, the moment one lookup happened to fail once (e.g. right as the page first
-  // loaded). Every future hydratePhotos() call simply retries instead.
-  if(result){ cache[key] = result; writeJSONCache(PHOTO_CACHE_KEY, cache); }
+  // A real photo is kept indefinitely; a miss is kept only as a short-lived timestamp so it
+  // stops being re-fetched every load without ever becoming permanent.
+  cache[key] = result || { miss: Date.now() };
+  prunePhotoCache(cache);
+  writeJSONCache(PHOTO_CACHE_KEY, cache);
   return result;
 }
 /** Destination image priority chain, so ANY destination — a city, a coastline, a mountain
