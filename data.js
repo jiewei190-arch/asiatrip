@@ -6,7 +6,39 @@
 ============================================================ */
 
 function slugify(s){ return s.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,''); }
-function img(seed,w,h){ return `https://picsum.photos/seed/${slugify(seed)}/${w||640}/${h||480}`; }
+
+/* Self-contained SVG placeholder "photos" — zero network requests, so they
+   always render (no dependency on an external image CDN that can be
+   blocked, rate-limited, or offline). Deterministic per seed so the same
+   place always gets the same look across reloads. */
+const IMG_PALETTE = [
+  ['#0d654c','#51c59f'], ['#c2410c','#fb923c'], ['#4338ca','#818cf8'], ['#b45309','#fbbf24'],
+  ['#0f766e','#5eead4'], ['#9d174d','#f472b6'], ['#1d4ed8','#60a5fa'], ['#6d28d9','#c4b5fd'],
+  ['#166534','#86efac'], ['#a21caf','#e879f9'], ['#0e7490','#67e8f9'], ['#b91c1c','#fca5a5'],
+];
+function hashStr(s){ let h=0; s=String(s); for(let i=0;i<s.length;i++){ h=(h*31+s.charCodeAt(i))|0; } return Math.abs(h); }
+function escapeXML(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function img(seed,w,h,label){
+  w=w||640; h=h||480;
+  const hash = hashStr(seed);
+  const [c1,c2] = IMG_PALETTE[hash % IMG_PALETTE.length];
+  const angle = (hash % 4) * 45;
+  const maxChars = Math.max(10, Math.floor(w/18));
+  let text = String(label||'').trim();
+  if(text.length > maxChars) text = text.slice(0, maxChars-1) + '…';
+  const fontSize = Math.round(w/17);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+<defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%" gradientTransform="rotate(${angle} 0.5 0.5)">
+<stop offset="0%" stop-color="${c1}"/><stop offset="100%" stop-color="${c2}"/>
+</linearGradient></defs>
+<rect width="${w}" height="${h}" fill="url(#g)"/>
+<circle cx="${Math.round(w*0.84)}" cy="${Math.round(h*0.2)}" r="${Math.round(w*0.16)}" fill="#ffffff" opacity="0.08"/>
+<circle cx="${Math.round(w*0.12)}" cy="${Math.round(h*0.88)}" r="${Math.round(w*0.24)}" fill="#000000" opacity="0.08"/>
+<text x="50%" y="47%" font-family="Arial,Helvetica,sans-serif" font-size="${Math.round(fontSize*1.6)}" text-anchor="middle" dominant-baseline="middle" opacity="0.9">📍</text>
+<text x="50%" y="60%" font-family="Arial,Helvetica,sans-serif" font-size="${fontSize}" font-weight="700" fill="#ffffff" text-anchor="middle" dominant-baseline="middle">${escapeXML(text)}</text>
+</svg>`;
+  return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+}
 
 const TRIP_ARCHETYPES = [
   { key:'food',      emoji:'🍜', titleTpl:"Food Lover's {city}",   tags:['food'],             descTpl:"Street food stalls, izakayas, local markets and the tables locals actually eat at in {city}." },
@@ -469,11 +501,11 @@ DESTINATIONS_RAW.forEach(d=>{
     id:d.id, name:d.name, country:d.country, flag:d.flag, tagline:d.tagline, description:d.description,
     tags:d.tags, lat:d.lat, lng:d.lng, weather:d.weather, bestTime:d.bestTime, currency:d.currency,
     language:d.language, avgDailyBudget:d.avgDailyBudget,
-    hero: img(d.id+'-hero',1600,900)
+    hero: img(d.id+'-hero',1600,900,d.name)
   });
-  (d.attractions||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-a${i+1}`, destId:d.id, type:'attraction', image:img(d.id+'-attr-'+i,640,480)}, p)));
-  (d.restaurants||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-r${i+1}`, destId:d.id, type:'restaurant', image:img(d.id+'-food-'+i,640,480)}, p)));
-  (d.hotels||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-h${i+1}`, destId:d.id, type:'hotel', image:img(d.id+'-hotel-'+i,640,480)}, p)));
+  (d.attractions||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-a${i+1}`, destId:d.id, type:'attraction', image:img(d.id+'-attr-'+i,640,480,p.name)}, p)));
+  (d.restaurants||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-r${i+1}`, destId:d.id, type:'restaurant', image:img(d.id+'-food-'+i,640,480,p.name)}, p)));
+  (d.hotels||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-h${i+1}`, destId:d.id, type:'hotel', image:img(d.id+'-hotel-'+i,640,480,p.name)}, p)));
 });
 
 /* ---------------- Generic fallback destination generator ---------------- */
@@ -503,19 +535,19 @@ function makeGenericDestination(name){
     bestTime:"Year-round — varies by season",
     currency:"Local currency", language:"Local language",
     avgDailyBudget:{budget:50,moderate:120,luxury:280},
-    hero: img(id+'-hero',1600,900)
+    hero: img(id+'-hero',1600,900,clean)
   };
   DESTINATIONS.push(dest);
   const attrNames = ['Old Town Walking Tour','Central Museum','City Cathedral','Riverside Promenade','Panoramic Viewpoint','Historic Market Square'];
   const attrCats = ['Culture','Museum','History','Nature','Viewpoint','Market'];
   const attrTags = [['culture','history'],['culture','art'],['history','photography'],['nature','relax'],['photography'],['shopping','food']];
-  attrNames.forEach((n,i)=>PLACES.push({ id:`${id}-a${i+1}`, destId:id, type:'attraction', name:`${clean} ${n}`, category:attrCats[i], rating:+(4.3+rnd()*0.5).toFixed(1), reviews:800+Math.floor(rnd()*9000), priceLevel:i%3, price:[0,10,18,0,0,5][i], area:'City Center', lat:base.lat+(rnd()*0.06-0.03), lng:base.lng+(rnd()*0.06-0.03), desc:`A well-loved local favorite for visitors exploring ${clean}.`, tags:attrTags[i], duration:75, image:img(id+'-attr-'+i,640,480) }));
+  attrNames.forEach((n,i)=>PLACES.push({ id:`${id}-a${i+1}`, destId:id, type:'attraction', name:`${clean} ${n}`, category:attrCats[i], rating:+(4.3+rnd()*0.5).toFixed(1), reviews:800+Math.floor(rnd()*9000), priceLevel:i%3, price:[0,10,18,0,0,5][i], area:'City Center', lat:base.lat+(rnd()*0.06-0.03), lng:base.lng+(rnd()*0.06-0.03), desc:`A well-loved local favorite for visitors exploring ${clean}.`, tags:attrTags[i], duration:75, image:img(id+'-attr-'+i,640,480,`${clean} ${n}`) }));
   const restNames = ['The Local Table','Market Street Kitchen','Grandma\'s Corner Café','The Harborview Grill','Spice & Sea','The Old Bakery'];
   const cuisines = ['Local Cuisine','Fusion','Café','Seafood','International','Bakery & Café'];
-  restNames.forEach((n,i)=>PLACES.push({ id:`${id}-r${i+1}`, destId:id, type:'restaurant', name:n, cuisine:cuisines[i], rating:+(4.2+rnd()*0.6).toFixed(1), reviews:300+Math.floor(rnd()*4000), priceLevel:1+(i%3), price:[10,18,8,28,15,7][i], area:'City Center', lat:base.lat+(rnd()*0.05-0.025), lng:base.lng+(rnd()*0.05-0.025), desc:`A favorite spot locals and visitors both recommend in ${clean}.`, tags:['food'], dietary: i%2? ['vegetarian']:[], hours:'11:00 AM – 10:00 PM', image:img(id+'-food-'+i,640,480) }));
+  restNames.forEach((n,i)=>PLACES.push({ id:`${id}-r${i+1}`, destId:id, type:'restaurant', name:n, cuisine:cuisines[i], rating:+(4.2+rnd()*0.6).toFixed(1), reviews:300+Math.floor(rnd()*4000), priceLevel:1+(i%3), price:[10,18,8,28,15,7][i], area:'City Center', lat:base.lat+(rnd()*0.05-0.025), lng:base.lng+(rnd()*0.05-0.025), desc:`A favorite spot locals and visitors both recommend in ${clean}.`, tags:['food'], dietary: i%2? ['vegetarian']:[], hours:'11:00 AM – 10:00 PM', image:img(id+'-food-'+i,640,480,n) }));
   const hotelNames = [`Grand ${clean} Hotel`,`${clean} Boutique Inn`,`${clean} Central Suites`,`${clean} Budget Stay`];
   const stars=[5,4,3,2];
-  hotelNames.forEach((n,i)=>PLACES.push({ id:`${id}-h${i+1}`, destId:id, type:'hotel', name:n, stars:stars[i], guestRating:+(7.9+rnd()*1.4).toFixed(1), price:[280,150,95,40][i], area:'City Center', lat:base.lat+(rnd()*0.04-0.02), lng:base.lng+(rnd()*0.04-0.02), desc:`Comfortable, well-located stay for exploring ${clean}.`, amenities:['Free WiFi','Breakfast'].concat(i<2?['Pool','Bar']:[]), image:img(id+'-hotel-'+i,640,480) }));
+  hotelNames.forEach((n,i)=>PLACES.push({ id:`${id}-h${i+1}`, destId:id, type:'hotel', name:n, stars:stars[i], guestRating:+(7.9+rnd()*1.4).toFixed(1), price:[280,150,95,40][i], area:'City Center', lat:base.lat+(rnd()*0.04-0.02), lng:base.lng+(rnd()*0.04-0.02), desc:`Comfortable, well-located stay for exploring ${clean}.`, amenities:['Free WiFi','Breakfast'].concat(i<2?['Pool','Bar']:[]), image:img(id+'-hotel-'+i,640,480,n) }));
   return dest;
 }
 

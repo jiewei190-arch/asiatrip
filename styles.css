@@ -104,10 +104,12 @@ h1,h2,h3,h4{font-family:'Plus Jakarta Sans',sans-serif}
 
 /* ---------- Landing / hero ---------- */
 .hero-land{position:relative;padding:90px 24px 70px;overflow:hidden;color:#fff}
-.hero-land-bg{position:absolute;inset:0;background:
-  linear-gradient(180deg,rgba(8,22,17,.55),rgba(8,22,17,.85)),
-  url('https://picsum.photos/seed/tripflow-hero-world/1800/1000') center/cover;
-  z-index:0}
+.hero-land-bg{position:absolute;inset:0;z-index:0;background:
+  radial-gradient(circle at 15% 20%, rgba(81,197,159,.35), transparent 45%),
+  radial-gradient(circle at 85% 15%, rgba(255,132,93,.28), transparent 50%),
+  radial-gradient(circle at 75% 85%, rgba(94,168,214,.25), transparent 55%),
+  radial-gradient(circle at 20% 90%, rgba(224,165,39,.2), transparent 50%),
+  linear-gradient(160deg,#0b1f19,#10251e 55%,#0d2a22)}
 .hero-land-inner{position:relative;z-index:1;max-width:880px;margin:0 auto;text-align:center}
 .eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.14em;color:var(--green);font-weight:800}
 .eyebrow.light{color:#bdf3da}
