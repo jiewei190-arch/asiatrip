@@ -1906,10 +1906,21 @@ function renderDashboardTab(trip){
           <div class="ovCard"><div class="k">Collaborators</div><div class="v" style="font-size:22px">${trip.collaborators.length}</div></div>
           <div class="ovCard"><div class="k">Planned spend</div><div class="v" style="font-size:22px">${fmt$(tripPlannedTotal(trip))}</div></div>
         </div>
+        <h3 style="margin:26px 0 12px">Trip notes</h3>
+        <div class="card">
+          <p class="small" style="margin:0 0 8px">Confirmation numbers, packing reminders, ideas — anything about this trip as a whole.</p>
+          <textarea class="notesTextarea" id="tripNotesInput" placeholder="Add a note for this trip…">${esc(trip.notes||'')}</textarea>
+          <button class="btn sm primary" id="saveTripNotesBtn" style="margin-top:8px">Save</button>
+        </div>
       </div>
     </div>`;
   nextSteps.forEach((s,i)=>{ const b = body.querySelector(`[data-nextstep="${i}"]`); if(b) b.onclick = s.go; });
   body.querySelectorAll('[data-goitin]').forEach(b=>b.onclick=()=>navigate(`#/trip/${trip.id}/itinerary`));
+  body.querySelector('#saveTripNotesBtn').onclick = ()=>{
+    trip.notes = body.querySelector('#tripNotesInput').value.trim();
+    saveState();
+    toast('Trip notes saved.');
+  };
   hydratePhotos(body);
 }
 
@@ -2150,9 +2161,12 @@ function renderPlannerItinerary(trip){
   });
 
   const day = trip.days[plannerState.day];
-  $('dayToolbar').innerHTML = `<label class="small" style="font-weight:700">Date</label><input type="date" id="dayDateInput" value="${day.date}"><span class="small">${day.stops.length} stop${day.stops.length===1?'':'s'} · drag cards to reorder</span>`;
+  $('dayToolbar').innerHTML = `<label class="small" style="font-weight:700">Date</label><input type="date" id="dayDateInput" value="${day.date}"><span class="small">${day.stops.length} stop${day.stops.length===1?'':'s'} · drag cards to reorder</span><button class="btn sm" id="dayNoteToggle" style="margin-left:auto"><i class="fa-regular fa-note-sticky"></i> Day note${day.note?' •':''}</button>`;
   $('dayDateInput').onchange = (e)=>{ day.date = e.target.value; saveState(); toast('Day date updated.'); };
+  $('dayNoteToggle').onclick = ()=>$('dayNoteBox').classList.toggle('hidden');
 
+  renderDayNote(trip, day);
+  renderConflictWarning(trip, day);
   renderRouteWarning(trip, day);
   renderTimeline(trip, day);
   renderPlannerMap(trip, day);
@@ -2185,6 +2199,57 @@ function renderRouteWarning(trip, day){
     </div>
     <button class="btn primary sm" id="routeWarnOptimize">Optimize My Route</button>`;
   $('routeWarnOptimize').onclick = ()=>openOptimizeModal(trip, plannerState.day);
+}
+function timeToMin(t){ const [h,m] = (t||'09:00').split(':').map(Number); return h*60+m; }
+/** Detects two stops on the same day whose occupied time windows (duration + transit to the
+ * next stop) actually overlap — e.g. a stop scheduled to run until 11:30 with the next stop
+ * starting at 11:00 — regardless of how they got that way (manual time edit, the time-of-day
+ * picker, or an AI-organized day). */
+function detectTimeConflicts(day){
+  if(day.stops.length<2) return [];
+  const sorted = day.stops.slice().sort((a,b)=>timeToMin(a.time)-timeToMin(b.time));
+  const conflicts = [];
+  for(let i=0;i<sorted.length-1;i++){
+    const cur = sorted[i], next = sorted[i+1];
+    const endMin = timeToMin(cur.time) + (cur.duration||90) + (cur.transitToNext?.mins||15);
+    const nextMin = timeToMin(next.time);
+    if(endMin > nextMin) conflicts.push({ a: cur, b: next, overlapMins: endMin - nextMin });
+  }
+  return conflicts;
+}
+function renderConflictWarning(trip, day){
+  const el = $('conflictWarning');
+  if(!el) return;
+  const conflicts = detectTimeConflicts(day);
+  if(!conflicts.length){ el.classList.add('hidden'); el.innerHTML=''; return; }
+  el.classList.remove('hidden');
+  const first = conflicts[0];
+  const extra = conflicts.length>1 ? ` (+${conflicts.length-1} more conflict${conflicts.length>2?'s':''} this day)` : '';
+  el.innerHTML = `
+    <div class="warnIcon">⏰</div>
+    <div class="warnBody">
+      <b>Scheduling conflict on this day</b>
+      <p class="small">"${esc(first.a.name)}" runs about ${first.overlapMins} min past when "${esc(first.b.name)}" starts.${extra}</p>
+    </div>
+    <button class="btn primary sm" id="conflictAutoFix">Auto-fix Times</button>`;
+  $('conflictAutoFix').onclick = ()=>{
+    recomputeDayTimes(day);
+    saveState();
+    renderPlannerItinerary(trip);
+    toast('Times adjusted to remove the conflict.');
+  };
+}
+function renderDayNote(trip, day){
+  const el = $('dayNoteBox');
+  if(!el) return;
+  el.classList.toggle('hidden', !day.note);
+  el.innerHTML = `<div class="stopNote" style="align-items:stretch"><textarea class="notesTextarea" style="border:1px solid var(--line);background:var(--surface2);min-height:44px" id="dayNoteInput" placeholder="Add a note for this day…">${esc(day.note||'')}</textarea><button class="btn sm primary" id="saveDayNoteBtn">Save</button></div>`;
+  $('saveDayNoteBtn').onclick = ()=>{
+    day.note = $('dayNoteInput').value.trim();
+    saveState();
+    el.classList.toggle('hidden', !day.note);
+    toast('Day note saved.');
+  };
 }
 function stopHTML(s, i, total, destName){
   const showTransit = i < total-1;
@@ -2261,6 +2326,7 @@ function wireStopEvents(trip, day){
   });
   el.querySelectorAll('[data-time]').forEach(inp=>inp.onchange=()=>{
     const s = day.stops.find(x=>x.id===inp.dataset.time); s.time = inp.value; saveState(); renderPlannerMap(trip,day);
+    renderConflictWarning(trip, day); renderRouteWarning(trip, day);
   });
   el.querySelectorAll('[data-vote]').forEach(b=>b.onclick=()=>{
     const [sid,kind] = b.dataset.vote.split('::');
