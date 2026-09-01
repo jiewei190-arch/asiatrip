@@ -258,6 +258,10 @@
           <div class="list" id="budgetCatList"></div>
         </div>
         <div class="card" style="margin-top:16px">
+          <h3>Who owes who</h3>
+          <div id="splitPanel"></div>
+        </div>
+        <div class="card" style="margin-top:16px">
           <h3>All expenses</h3>
           <div class="list" id="expenseList"></div>
         </div>
@@ -274,6 +278,13 @@
             <h3>Activity &amp; comments</h3>
             <div class="list" id="activityList" style="max-height:360px;overflow:auto"></div>
           </div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <div class="panelHead" style="padding:0 0 10px;border:0">
+            <div><h3 style="margin:0">Group decisions</h3><p class="small" style="margin:2px 0 0">Put a choice to the group and settle it with votes instead of a chat thread.</p></div>
+            <button class="btn primary sm" id="newPollBtn"><i class="fa-solid fa-plus"></i> New poll</button>
+          </div>
+          <div id="pollList"></div>
         </div>
       </div>
     </section>
@@ -439,8 +450,24 @@
       <div class="field grow2"><label>Description</label><input id="expenseDesc" placeholder="e.g. Airport taxi"/></div>
       <div class="field"><label>Category</label><select id="expenseCat"></select></div>
       <div class="field"><label>Amount ($)</label><input type="number" id="expenseAmount" min="0"/></div>
+      <div class="field grow2"><label>Paid by</label><select id="expensePaidBy"></select></div>
     </div>
+    <div class="field" style="margin-top:12px"><label>Split between</label><div class="splitRow" id="expenseSplit"></div></div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" data-close="modal-expense">Cancel</button><button class="btn primary" id="saveExpenseBtn">Save expense</button></div>
+  </div>
+</div>
+
+<div class="modalBack" id="modal-poll">
+  <div class="modal">
+    <div class="modalHeader"><div><h2>New group poll</h2><p class="small">Everyone picks an option; the tally decides it.</p></div><button class="xbtn" data-close="modal-poll">×</button></div>
+    <div class="field" style="margin-top:14px"><label>Question</label><input id="pollQuestion" placeholder="e.g. Which day should we do the day trip?"/></div>
+    <div class="modalGrid" style="margin-top:12px">
+      <div class="field grow2"><label>Option 1</label><input id="pollOpt1" placeholder="e.g. Day 2"/></div>
+      <div class="field grow2"><label>Option 2</label><input id="pollOpt2" placeholder="e.g. Day 4"/></div>
+      <div class="field grow2"><label>Option 3 <span class="small">(optional)</span></label><input id="pollOpt3"/></div>
+      <div class="field grow2"><label>Option 4 <span class="small">(optional)</span></label><input id="pollOpt4"/></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" data-close="modal-poll">Cancel</button><button class="btn primary" id="createPollBtn">Create poll</button></div>
   </div>
 </div>
 
