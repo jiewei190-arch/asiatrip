@@ -3,1342 +3,467 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TripShuffle — Travel, your way.</title>
+<title>TripFlow — Plan your entire trip in one place.</title>
+<meta name="description" content="Discover destinations, build itineraries, find hotels and restaurants, and let AI plan your perfect adventure — all in one place.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%9C%A6%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
-
-<style>
-:root{--ink:#14231f;--muted:#5c6b65;--line:#e5eeea;--soft:#f4f8f6;--mint:#def7ed;--green:#0d6e53;--green2:#0d654c;--dark:#10251e;--orange:#ff845d;--yellow:#fff3c9;--white:#fff;--danger:#c94c4c;--focus:#1a56db;--shadow:0 18px 60px rgba(14,45,35,.08)}
-*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:'DM Sans',sans-serif;color:var(--ink);background:#fbfcfb;overflow-x:hidden;}button,input,select,textarea{font:inherit}button{cursor:pointer;border:0}
-.app{min-height:100vh}
-
-/* Accessibility helpers */
-.skip-link{position:absolute;left:12px;top:-60px;background:var(--dark);color:#fff;padding:12px 18px;border-radius:10px;z-index:3000;font-weight:700;text-decoration:none;transition:top .15s}
-.skip-link:focus{top:12px}
-.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-:is(button,a,input,select,textarea,[tabindex]):focus-visible{outline:3px solid var(--focus);outline-offset:2px;border-radius:6px}
-.map:focus-visible{outline:3px solid var(--focus);outline-offset:-3px}
-@media (prefers-reduced-motion: reduce){*{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}
-
-/* Mobile menu button */
-.menuBtn{display:none;width:40px;height:40px;border-radius:10px;background:var(--soft);align-items:center;justify-content:center;font-size:18px;color:var(--ink);}
-.menuBtn:hover{background:var(--mint)}
-.drawerBackdrop{display:none;position:fixed;inset:0;background:rgba(10,30,24,.45);z-index:1050}
-.drawerBackdrop.show{display:block}
-
-/* Top Navigation */
-.topbar{height:74px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 28px;position:sticky;top:0;z-index:1100;gap:12px}
-.topbarLeft{display:flex;align-items:center;gap:12px;min-width:0}
-.brand{display:flex;align-items:center;gap:10px;font-family:'Plus Jakarta Sans';font-weight:800;font-size:21px;cursor:pointer;background:transparent;color:var(--ink);}
-.brandmark{width:34px;height:34px;border-radius:11px;background:linear-gradient(135deg,#11795c,#51c59f);display:grid;place-items:center;color:#fff}
-.topnav{display:flex;gap:6px}
-.navbtn{background:transparent;padding:10px 14px;border-radius:10px;color:#3c4a45;font-weight:600;}
-.navbtn.active,.navbtn:hover{background:var(--soft);color:var(--ink)}
-.navbtn.active{box-shadow:inset 0 0 0 1.5px var(--green)}
-.profile{display:flex;align-items:center;gap:12px}
-.avatar{width:38px;height:38px;border-radius:50%;background:#20342e;color:#fff;display:grid;place-items:center;font-weight:700}
-
-/* Layout */
-.layout{display:grid;grid-template-columns:275px minmax(0,1fr);height:calc(100vh - 74px)}
-.sidebar{border-right:1px solid var(--line);background:#fff;padding:24px 18px;position:sticky;top:74px;height:100%;overflow:auto}
-.sidebarHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
-.closeDrawerBtn{display:none;width:34px;height:34px;border-radius:9px;background:var(--soft);align-items:center;justify-content:center;color:var(--muted);}
-.sideTitle{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:#94a19c;margin:10px 10px 12px;font-weight:700;}
-.tripCard{border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:10px;transition:.2s;width:100%;text-align:left;background:#fff;}
-.tripCard:hover{transform:translateY(-1px);box-shadow:0 10px 30px rgba(10,40,30,.05)}
-.tripCard.active{background:var(--soft);border-color:#cfe5dc}
-.tripName{font-weight:700;font-size:15px;}
-.small{font-size:12px;color:var(--muted)}
-.sideItem{width:100%;display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:12px;color:#3c4a45;margin:3px 0;background:transparent;text-align:left;font-weight:600;}
-.sideItem.active,.sideItem:hover{background:var(--soft);color:var(--ink)}
-.sideItem.active{box-shadow:inset 0 0 0 1.5px var(--green)}
-
-/* Main Content Area */
-.main{padding:24px 26px 60px;min-width:0;height:100%;overflow-y:auto;position:relative;}
-.view{display:none}
-.view.active{display:block}
-
-/* Hero Section */
-.hero{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:22px}
-.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.13em;color:var(--green);font-weight:700}
-.hero h1{font:800 34px/1.1 'Plus Jakarta Sans';margin:6px 0}
-.hero p{margin:0;color:var(--muted)}
-.actions{display:flex;gap:8px;flex-wrap:wrap}
-
-/* Buttons */
-.btn{padding:11px 14px;border-radius:11px;background:#fff;border:1px solid var(--line);font-weight:600;transition:.15s;display:inline-flex;align-items:center;gap:6px;}
-.btn:hover{transform:translateY(-1px);box-shadow:0 8px 22px rgba(14,45,35,.06)}
-.btn.primary{background:var(--green);color:#fff;border-color:var(--green)}
-.btn.primary:hover{background:var(--green2)}
-.btn.magic{background:var(--dark);color:#fff}
-.btn.danger{color:var(--danger)}
-
-/* Controls & Chips */
-.controlRow{display:grid;grid-template-columns:1.25fr 1fr .8fr auto;gap:10px;margin-bottom:14px}
-.control{background:#fff;border:1px solid var(--line);border-radius:13px;padding:11px 13px}
-.control label{display:block;font-size:11px;color:#95a19d;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;font-weight:700;}
-.control select,.control input{width:100%;border:0;outline:0;background:transparent;color:var(--ink);font-weight:700}
-.chips{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 20px}
-.chip{padding:9px 12px;border-radius:99px;background:var(--soft);color:#607069;font-weight:600;}
-.chip.selected{background:var(--mint);color:var(--green);font-weight:700}
-
-/* Plan Dashboard Layout */
-.dashboard{display:grid;grid-template-columns:1.1fr .9fr;gap:16px;min-height:500px;}
-.panel{background:#fff;border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);display:flex;flex-direction:column;}
-.panelHead{display:flex;justify-content:space-between;align-items:center;padding:17px 18px;border-bottom:1px solid var(--line)}
-.panelHead h3{margin:0;font:700 17px 'Plus Jakarta Sans'}
-.dayTabs{display:flex;gap:7px;overflow-x:auto;padding:12px 18px;border-bottom:1px solid var(--line)}
-.dayTab{min-width:82px;padding:9px 10px;border-radius:10px;background:var(--soft);text-align:center;font-weight:600;}
-.dayTab.active{background:var(--dark);color:#fff}
-.timeline{padding:16px 18px;flex:1;overflow-y:auto;max-height:400px;}
-.stop{display:grid;grid-template-columns:32px 1fr auto;gap:12px;position:relative;padding:12px 0}
-.stop:not(:last-child):after{content:"";position:absolute;left:15px;top:44px;bottom:-8px;width:2px;background:#dfe9e5}
-.num{width:30px;height:30px;border-radius:50%;background:var(--mint);color:var(--green);display:grid;place-items:center;font-weight:800;z-index:1}
-.stop h4{margin:0 0 4px;font-size:15px}
-.stop p{margin:0;color:var(--muted);font-size:12px;line-height:1.4;}
-.meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:7px;color:#74827d;font-size:11px;font-weight:600;}
-.score{font-size:13px;font-weight:800;color:var(--green);}
-
-/* Map Panel */
-.mapPanel{min-height:570px;display:flex;flex-direction:column;position:relative;}
-.map{flex:1;min-height:460px;border-radius:0 0 18px 18px;position:relative;z-index:1;}
-.mapLegend{display:flex;gap:8px;padding:10px 14px;flex-wrap:wrap;border-bottom:1px solid var(--line);}
-.legend{padding:6px 9px;border-radius:99px;background:var(--soft);font-size:11px;color:#596861;font-weight:600;}
-
-/* Google Maps Style Turn-by-Turn HUD */
-.turn-hud { position:absolute; top:14px; left:14px; right:14px; background:#10251e; color:white; border-radius:14px; box-shadow:0 10px 30px rgba(0,0,0,0.3); z-index:1000; padding:12px 14px; display:none; }
-.turn-header { display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:6px; margin-bottom:8px; font-size:11px; color:var(--mint); font-weight:700; }
-.turn-body { display:flex; gap:10px; align-items:center; }
-.turn-icon-box { width:36px; height:36px; border-radius:8px; background:var(--green); display:grid; place-items:center; font-size:16px; flex-shrink:0; }
-.turn-controls { display:flex; gap:6px; margin-top:8px; }
-.turn-btn { flex:1; padding:6px; border-radius:8px; font-size:11px; font-weight:700; background:rgba(255,255,255,0.12); color:white; border:none; cursor:pointer;}
-.turn-btn:hover { background:rgba(255,255,255,0.2); }
-
-/* Custom Map Pins */
-.custom-map-pin { background:#11795c; color:white; border-radius:50%; width:26px; height:26px; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:800; border:2px solid white; box-shadow:0 2px 6px rgba(0,0,0,0.3); }
-.custom-map-pin.explore { background:#ff845d; }
-
-.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
-.stat{padding:14px;background:#fff;border:1px solid var(--line);border-radius:14px}
-.stat .v{font-size:22px;font-weight:800}
-.stat .k{font-size:11px;color:var(--muted);font-weight:600;margin-top:2px;}
-
-/* Views (Explore, Saved, Budget, etc) */
-.sectionGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-.card{background:#fff;border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:var(--shadow)}
-.card h3{margin:0 0 6px;font:700 18px 'Plus Jakarta Sans'}
-.metric{font-size:30px;font-weight:800;margin-top:10px;color:var(--green);}
-.list{display:flex;flex-direction:column;gap:9px;margin-top:14px}
-.listRow{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:12px;padding:11px;font-weight:600;font-size:14px;}
-.listRow .left{display:flex;align-items:center;gap:10px;min-width:0}
-
-/* Explore Grid */
-.searchBar{display:flex;gap:10px;margin-bottom:16px}
-.searchBar input{flex:1;padding:13px 15px;border:1px solid var(--line);border-radius:12px;outline:0;font-weight:600;}
-.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
-.pill{background:var(--soft);padding:8px 11px;border-radius:999px;color:#596861;font-size:12px;font-weight:600;}
-.pill.active{background:var(--green);color:white;}
-.savedGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
-.place{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:#fff;display:flex;flex-direction:column;}
-.place img{display:block;width:100%;height:140px;object-fit:cover;background:#e5eeea;}
-.placeBody{padding:11px;flex:1;display:flex;flex-direction:column;}
-.place h4{margin:0 0 4px;font-size:15px}
-button.linkish{background:transparent;border:0;padding:0;font:inherit;font-weight:700;color:inherit;text-align:left;cursor:pointer;display:inline;}
-button.linkish:hover,button.linkish:focus-visible{text-decoration:underline}
-.place p{margin:0;color:var(--muted);font-size:12px;flex:1;}
-.placeFoot{display:flex;justify-content:space-between;align-items:center;margin-top:10px;gap:6px;}
-.add{background:var(--soft);padding:8px 12px;border-radius:9px;color:var(--green);font-weight:700;font-size:12px;flex:1;}
-.add:hover{background:var(--mint);}
-
-.booking{display:flex;justify-content:space-between;align-items:center;gap:12px}
-.recGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;padding:14px 18px 18px}
-.recGrid .place img{height:90px}
-.recGrid .place h4{font-size:13px}
-.mapSearch{display:flex;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line)}
-.mapSearch input{flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:10px;outline:0;font-weight:600;font-size:13px}
-.bpane{display:none}
-.bpane.active{display:block}
-.stars{color:#f5a623;font-weight:800;letter-spacing:1px}
-.reviewCard{border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:8px}
-.reviewCard .ru{display:flex;justify-content:space-between;font-weight:700;font-size:13px}
-.reviewCard p{margin:6px 0 0;color:var(--muted);font-size:13px}
-.detailImg{width:100%;height:220px;object-fit:cover;border-radius:16px;margin-bottom:14px;background:var(--soft)}
-.detailTags{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
-.detailTags span{background:var(--soft);color:#596861;padding:5px 10px;border-radius:99px;font-size:11px;font-weight:700}
-.flightRow,.hotelResult{display:flex;justify-content:space-between;align-items:center;gap:12px;border:1px solid var(--line);border-radius:14px;padding:14px}
-.flightRow .fmid{flex:1;text-align:center;color:var(--muted);font-size:12px}
-.priceTag{font-size:20px;font-weight:800;color:var(--green)}
-.empty{padding:40px;text-align:center;color:var(--muted);font-weight:600;background:var(--soft);border-radius:16px;border:2px dashed var(--line);}
-.packingGrid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.progress{height:10px;border-radius:99px;background:#eef4f1;overflow:hidden}
-.progress>div{height:100%;background:var(--green);width:0;transition:0.3s;}
-.check{accent-color:var(--green);width:18px;height:18px;cursor:pointer;}
-
-/* Gemini AI Chat Widget */
-.aiLauncher{position:fixed;right:22px;bottom:22px;z-index:1800;display:flex;align-items:center;gap:8px;background:var(--dark);color:#fff;border-radius:999px;padding:13px 16px;box-shadow:0 20px 60px rgba(9,35,27,.25);font-weight:700;transition:.2s;}
-.aiLauncher:hover{transform:translateY(-2px);background:#20342e;}
-.ai{position:fixed;right:22px;bottom:22px;width:390px;max-width:calc(100vw - 30px);background:#fff;border:1px solid var(--line);border-radius:20px;box-shadow:0 24px 80px rgba(9,35,27,.2);z-index:1801;overflow:hidden;display:flex;flex-direction:column;}
-.ai.hidden{display:none}
-.aiHead{background:var(--dark);color:#fff;padding:15px 16px;display:flex;align-items:center;justify-content:space-between}
-.aiTitle{font-weight:800}
-.aiSub{font-size:11px;opacity:.7}
-.aiBtns{display:flex;gap:6px}
-.aiIcon{width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,.08);color:#fff;display:grid;place-items:center;}
-.aiIcon:hover{background:rgba(255,255,255,.15);}
-.aiBody{height:430px;display:flex;flex-direction:column}
-.messages{flex:1;overflow:auto;padding:14px;background:#fbfcfb;}
-.msg{max-width:88%;padding:11px 12px;border-radius:14px;margin:7px 0;font-size:13px;line-height:1.45;white-space:pre-wrap}
-.msg.user{margin-left:auto;background:var(--dark);color:#fff;border-bottom-right-radius:5px}
-.msg.bot{background:var(--soft);border-bottom-left-radius:5px;border:1px solid var(--line);}
-.suggestions{display:flex;gap:6px;flex-wrap:wrap;padding:0 14px 10px;background:#fbfcfb;}
-.suggestion{font-size:11px;padding:7px 9px;border-radius:99px;background:#fff;border:1px solid var(--line);font-weight:600;}
-.suggestion:hover{background:var(--soft);}
-.aiInput{display:flex;gap:8px;padding:12px;border-top:1px solid var(--line);background:#fff;}
-.aiInput textarea{flex:1;resize:none;height:46px;border:1px solid var(--line);border-radius:12px;padding:11px;outline:0;font-family:inherit;}
-.send{width:46px;border-radius:12px;background:var(--green);color:#fff;font-size:18px;display:grid;place-items:center;}
-
-/* Modals */
-.modalBack{position:fixed;inset:0;background:rgba(10,30,24,.45);display:none;align-items:center;justify-content:center;z-index:2000;padding:15px}
-.modalBack.show{display:flex}
-.modal{width:min(820px,calc(100vw - 30px));max-height:90vh;overflow:auto;background:#fff;border-radius:24px;padding:22px;box-shadow:var(--shadow);}
-.modal h2{margin:0 0 8px;font-family:'Plus Jakarta Sans'}
-.modalHeader{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
-.xbtn{width:34px;height:34px;border-radius:10px;background:var(--soft);font-weight:800;color:var(--muted);}
-.preferenceGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:16px 0}
-.pref{border:1px solid var(--line);border-radius:14px;padding:13px;text-align:left;background:#fff;}
-.pref.active{background:var(--mint);border-color:#bce9d6}
-.pref b{display:block;color:var(--ink);font-size:14px;}
-.pref span{font-size:11px;color:var(--muted)}
-.modalGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-.field{border:1px solid var(--line);border-radius:12px;padding:10px}
-.field label{display:block;font-size:11px;color:var(--muted);margin-bottom:4px;font-weight:700;}
-.field select, .field input{width:100%;border:0;outline:0;font-weight:700;background:transparent;color:var(--ink);}
-
-.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,20px);background:var(--dark);color:#fff;padding:11px 16px;border-radius:999px;opacity:0;pointer-events:none;transition:.25s;z-index:2500;font-size:13px;font-weight:600;box-shadow:0 10px 30px rgba(0,0,0,0.2);}
-.toast.show{opacity:1;transform:translate(-50%,0)}
-
-.leaflet-routing-container{display:none!important}
-
-@media(max-width:1200px){.dashboard{grid-template-columns:1fr}.mapPanel{min-height:500px}.sectionGrid{grid-template-columns:1fr 1fr}.savedGrid{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:900px){
-  .layout{grid-template-columns:1fr}
-  .topnav{display:none}
-  .menuBtn{display:flex}
-  .brand span{display:none}
-  .sidebar{
-    display:block;position:fixed;top:0;left:0;bottom:0;height:100%;width:min(300px,84vw);
-    transform:translateX(-100%);transition:transform .22s ease;z-index:1150;box-shadow:0 0 0 rgba(0,0,0,0);
-  }
-  .sidebar.open{transform:translateX(0);box-shadow:24px 0 60px rgba(0,0,0,.18)}
-  .closeDrawerBtn{display:flex}
-  .controlRow{grid-template-columns:1fr 1fr}
-  .sectionGrid,.savedGrid{grid-template-columns:1fr 1fr}
-  .packingGrid{grid-template-columns:1fr}
-}
-@media(min-width:901px){.menuBtn{display:none}.drawerBackdrop{display:none!important}}
-@media(max-width:650px){.main{padding:16px}.hero{display:block}.actions{margin-top:14px}.controlRow{grid-template-columns:1fr}.savedGrid{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr 1fr}.preferenceGrid{grid-template-columns:1fr 1fr}.modalGrid{grid-template-columns:1fr}.ai{right:10px;bottom:10px;width:calc(100vw - 20px)}.aiLauncher{right:10px;bottom:10px}.stop{grid-template-columns:30px 1fr}.stop>div:last-child{grid-column:2}.recGrid{grid-template-columns:1fr}}
-</style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+<link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
-<a class="skip-link" href="#main">Skip to main content</a>
+<div class="app" id="app">
 
-<div class="app">
+  <!-- ============ TOP NAV ============ -->
   <header class="topbar">
-    <div class="topbarLeft">
-      <button class="menuBtn" id="menuBtn" aria-label="Open navigation menu" aria-expanded="false" aria-controls="sidebar"><i class="fa-solid fa-bars" aria-hidden="true"></i></button>
-      <button class="brand" id="brandBtn" type="button" aria-label="TripShuffle home, go to trip plan"><div class="brandmark" aria-hidden="true">✦</div><span>TripShuffle</span></button>
+    <div class="topbar-inner">
+      <button class="brand" id="brandBtn" aria-label="TripFlow home">
+        <div class="brandmark">✦</div><span>TripFlow</span>
+      </button>
+
+      <nav class="topnav" id="topnav">
+        <button class="navbtn" data-route="#/">Explore</button>
+        <button class="navbtn" data-route="#/discover">Discover</button>
+        <button class="navbtn" data-route="#/trips">My Trips</button>
+        <button class="navbtn" data-route="#/saved">Saved</button>
+        <button class="navbtn" data-route="#/ideas">Trip Ideas</button>
+      </nav>
+
+      <div class="topbar-right">
+        <div class="gsearch" id="gsearchWrap">
+          <button class="iconbtn" id="searchToggle" aria-label="Search"><i class="fa-solid fa-magnifying-glass"></i></button>
+          <div class="gsearch-panel" id="gsearchPanel">
+            <div class="gsearch-input">
+              <i class="fa-solid fa-magnifying-glass"></i>
+              <input id="globalSearchInput" placeholder="Search cities, attractions, restaurants, hotels…" autocomplete="off">
+              <button class="xbtn sm" id="gsearchClose">×</button>
+            </div>
+            <div class="gsearch-results" id="gsearchResults"></div>
+          </div>
+        </div>
+
+        <div class="dropdownWrap">
+          <button class="iconbtn" id="notifToggle" aria-label="Notifications"><i class="fa-regular fa-bell"></i><span class="badge" id="notifBadge">0</span></button>
+          <div class="dropdown" id="notifDropdown">
+            <div class="dropdown-head"><strong>Notifications</strong><button class="linklike" id="markAllRead">Mark all read</button></div>
+            <div class="dropdown-list" id="notifList"></div>
+          </div>
+        </div>
+
+        <div class="dropdownWrap">
+          <button class="avatar" id="profileToggle">JW</button>
+          <div class="dropdown" id="profileDropdown">
+            <div class="dropdown-head profileHead">
+              <div class="avatar md">JW</div>
+              <div><strong id="profileName">Jie Wei</strong><div class="small" id="profileEmail">jiewei190@gmail.com</div></div>
+            </div>
+            <button class="dropdown-item" data-route="#/trips"><i class="fa-solid fa-suitcase-rolling"></i> My Trips</button>
+            <button class="dropdown-item" data-route="#/saved"><i class="fa-solid fa-heart"></i> Saved Places</button>
+            <button class="dropdown-item" id="settingsBtn"><i class="fa-solid fa-gear"></i> Settings</button>
+            <button class="dropdown-item" id="signOutBtn"><i class="fa-solid fa-right-from-bracket"></i> Sign out</button>
+          </div>
+        </div>
+      </div>
     </div>
-    <nav class="topnav" id="topnav" aria-label="Primary">
-      <button class="navbtn active" data-view="plan" aria-current="page">Plan</button>
-      <button class="navbtn" data-view="explore">Explore</button>
-      <button class="navbtn" data-view="saved">Saved</button>
-      <button class="navbtn" data-view="budget">Budget</button>
+    <nav class="topnav-mobile" id="topnavMobile">
+      <button class="navbtn" data-route="#/">Explore</button>
+      <button class="navbtn" data-route="#/discover">Discover</button>
+      <button class="navbtn" data-route="#/trips">Trips</button>
+      <button class="navbtn" data-route="#/saved">Saved</button>
+      <button class="navbtn" data-route="#/ideas">Ideas</button>
     </nav>
-    <div class="profile"><button class="btn" id="newTripBtn">＋ New trip</button><div class="avatar" aria-hidden="true">JW</div></div>
   </header>
 
-  <div class="drawerBackdrop" id="drawerBackdrop"></div>
+  <main id="mainRoot">
 
-  <div class="layout">
-    <aside class="sidebar" id="sidebar" aria-label="Trips and workspace navigation">
-      <div class="sidebarHead">
-        <div class="sideTitle" style="margin:10px 0 12px">Your trips</div>
-        <button class="closeDrawerBtn" id="closeDrawerBtn" aria-label="Close navigation menu"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button>
-      </div>
-      <div id="tripList" role="list" aria-label="Your trips"></div>
+    <!-- ============ HOME / LANDING ============ -->
+    <section class="view" id="view-home">
+      <section class="hero-land">
+        <div class="hero-land-bg"></div>
+        <div class="hero-land-inner">
+          <div class="eyebrow light">✦ Plan smarter, travel better</div>
+          <h1>Plan your entire trip<br>in one place.</h1>
+          <p>Discover destinations, build itineraries, find hotels and restaurants, and let AI plan your perfect adventure.</p>
 
-      <div class="sideTitle" style="margin-top:24px">Workspace</div>
-      <nav aria-label="Workspace">
-        <button class="sideItem active" data-view="plan" aria-current="page"><span aria-hidden="true">🗺️</span> <span>Trip plan</span></button>
-        <button class="sideItem" data-view="explore"><span aria-hidden="true">🔎</span> <span>Discover places</span></button>
-        <button class="sideItem" data-view="saved"><span aria-hidden="true">❤️</span> <span>Saved places</span></button>
-        <button class="sideItem" data-view="budget"><span aria-hidden="true">💸</span> <span>Budget</span></button>
-        <button class="sideItem" data-view="packing"><span aria-hidden="true">🎒</span> <span>Packing list</span></button>
-        <button class="sideItem" data-view="bookings"><span aria-hidden="true">✈️</span> <span>Bookings</span></button>
-      </nav>
-    </aside>
-
-    <main class="main" id="main" tabindex="-1">
-      <section class="view active" id="view-plan">
-        <section class="hero">
-          <div><div class="eyebrow">AI-powered trip workspace</div><h1 id="heroTitle">Tokyo, your way.</h1><p id="heroSub">Plan it yourself, ask the copilot, or let TripShuffle build a day around your taste.</p></div>
-          <div class="actions">
-            <button class="btn" id="optBtn"><i class="fa-solid fa-arrow-trend-up" aria-hidden="true"></i> Optimize route</button>
-            <button class="btn magic" id="surpriseBtn"><span aria-hidden="true">✦</span> Surprise Me</button>
+          <div class="planbox" id="planbox">
+            <div class="planbox-field grow">
+              <label>Where do you want to go?</label>
+              <input id="heroDestination" placeholder="Search a city or country…" autocomplete="off">
+              <div class="autolist" id="heroDestAuto"></div>
+            </div>
+            <div class="planbox-field">
+              <label>Start date</label>
+              <input type="date" id="heroStart">
+            </div>
+            <div class="planbox-field">
+              <label>End date</label>
+              <input type="date" id="heroEnd">
+            </div>
+            <div class="planbox-field narrow">
+              <label>Travelers</label>
+              <select id="heroTravelers"><option>1 traveler</option><option selected>2 travelers</option><option>3 travelers</option><option>4 travelers</option><option>5+ travelers</option></select>
+            </div>
           </div>
-        </section>
-
-        <div class="controlRow">
-          <div class="control"><label for="destination">Destination</label><input id="destination" value="Tokyo, Japan"/></div>
-          <div class="control"><label for="dates">Dates</label><input id="dates" value="Oct 4 – Oct 10, 2026"/></div>
-          <div class="control"><label for="pace">Pace</label><select id="pace"><option>Relaxed</option><option selected>Balanced</option><option>Packed</option></select></div>
-          <button class="btn primary" id="buildBtn">Build plan</button>
+          <div class="planbox-actions">
+            <button class="btn primary lg" id="exploreDestBtn"><i class="fa-solid fa-compass"></i> Explore Destination</button>
+            <button class="btn magic lg" id="surpriseMeBtn">✨ Surprise Me / Generate Trip Ideas</button>
+          </div>
         </div>
-        
-        <div><div class="small" style="font-weight:700; margin-bottom:6px;">Trip personality</div><div class="chips" id="quickChips"></div></div>
+      </section>
 
+      <section class="landSection">
+        <div class="landSectionHead"><h2>🔥 Trending destinations</h2><p>Where travelers are heading right now</p></div>
+        <div class="destStrip" id="trendingStrip"></div>
+      </section>
+
+      <section class="landSection alt">
+        <div class="landSectionHead center"><h2>Everything you need, one platform</h2><p>Stop juggling five different travel apps.</p></div>
+        <div class="featureGrid">
+          <div class="featureCard"><div class="fIcon">📍</div><h3>Discover</h3><p>Attractions, restaurants and hidden gems with ratings and reviews — like Tripadvisor & Yelp combined.</p></div>
+          <div class="featureCard"><div class="fIcon">🗺️</div><h3>Plan &amp; map</h3><p>Drag-and-drop day-by-day itineraries visualized on an interactive map, Wanderlog-style.</p></div>
+          <div class="featureCard"><div class="fIcon">🏨</div><h3>Book smart</h3><p>Compare hotels by price, rating and amenities — Expedia-style search &amp; filters.</p></div>
+          <div class="featureCard"><div class="fIcon">💸</div><h3>Track budget</h3><p>Automatic cost breakdowns with live warnings when you go over budget.</p></div>
+          <div class="featureCard"><div class="fIcon">✨</div><h3>AI trip ideas</h3><p>One click generates multiple themed trip concepts tailored to any destination.</p></div>
+          <div class="featureCard"><div class="fIcon">🤝</div><h3>Collaborate</h3><p>Invite friends, vote on activities, and plan the whole trip together.</p></div>
+        </div>
+      </section>
+
+      <section class="landSection">
+        <div class="landSectionHead"><h2>How TripFlow works</h2></div>
+        <div class="stepsGrid">
+          <div class="stepCard"><div class="stepNum">1</div><h4>Search a destination</h4><p>Type any city — we surface weather, budget, culture and top-rated places instantly.</p></div>
+          <div class="stepCard"><div class="stepNum">2</div><h4>Generate trip ideas</h4><p>Get 5 themed trip concepts, or build it yourself from attractions, food and stays.</p></div>
+          <div class="stepCard"><div class="stepNum">3</div><h4>Plan on the map</h4><p>Drag stops between days, optimize your route, and track your budget in real time.</p></div>
+        </div>
+      </section>
+    </section>
+
+    <!-- ============ DISCOVER ============ -->
+    <section class="view" id="view-discover">
+      <div class="pageHero">
+        <div class="eyebrow">Explore the world</div>
+        <h1>Discover your next trip.</h1>
+        <p>Curated collections of the world's best destinations.</p>
+      </div>
+      <div id="discoverSections"></div>
+    </section>
+
+    <!-- ============ DESTINATION DASHBOARD ============ -->
+    <section class="view" id="view-destination">
+      <div class="destHero" id="destHero"></div>
+      <div class="destTabs" id="destTabs"></div>
+      <div class="destTabBody" id="destTabBody"></div>
+    </section>
+
+    <!-- ============ MY TRIPS ============ -->
+    <section class="view" id="view-trips">
+      <div class="pageHero row">
+        <div><div class="eyebrow">Your journeys</div><h1>My Trips</h1><p>Every trip you're planning, all in one dashboard.</p></div>
+        <button class="btn primary" id="newTripBtn2"><i class="fa-solid fa-plus"></i> New trip</button>
+      </div>
+      <div class="tripsGrid" id="tripsGrid"></div>
+    </section>
+
+    <!-- ============ TRIP PLANNER ============ -->
+    <section class="view" id="view-planner">
+      <div class="plannerHead">
+        <div>
+          <div class="eyebrow" id="plannerEyebrow">Trip workspace</div>
+          <h1 id="plannerTitle">Trip</h1>
+          <div class="plannerSub" id="plannerSub"></div>
+        </div>
+        <div class="actions">
+          <div class="avatarStack" id="collabStack"></div>
+          <button class="btn" id="shareTripBtn"><i class="fa-solid fa-share-nodes"></i> Share</button>
+          <button class="btn" id="optimizeBtn"><i class="fa-solid fa-route"></i> Optimize My Trip</button>
+          <button class="btn magic" id="aiRegenBtn">✨ Ask AI to adjust</button>
+        </div>
+      </div>
+
+      <div class="plannerTabs" id="plannerTabs">
+        <button class="ptab active" data-ptab="itinerary">Itinerary &amp; Map</button>
+        <button class="ptab" data-ptab="budget">Budget</button>
+        <button class="ptab" data-ptab="collab">Collaborators</button>
+      </div>
+
+      <div class="ptabBody active" id="ptab-itinerary">
         <div class="dashboard">
           <section class="panel">
             <div class="panelHead">
-              <h2 style="margin:0;font:700 17px 'Plus Jakarta Sans'">Itinerary</h2>
-              <div style="display:flex;gap:7px"><button class="btn" id="addStopBtn">＋ Add place</button></div>
+              <h3>Itinerary</h3>
+              <div class="rowgap">
+                <button class="btn sm" id="addDayBtn"><i class="fa-solid fa-plus"></i> Day</button>
+                <button class="btn sm" id="addStopBtn2"><i class="fa-solid fa-map-pin"></i> Add place</button>
+              </div>
             </div>
-            <div class="dayTabs" id="dayTabs" role="tablist" aria-label="Trip days"></div>
-            <div class="timeline" id="timeline" role="tabpanel" aria-label="Day itinerary"></div>
-            <div class="panelHead" style="border-top:1px solid var(--line)">
-              <h3 style="font-size:15px;margin:0">Recommended nearby</h3>
-            </div>
-            <div class="recGrid" id="recommendations"></div>
+            <div class="dayTabs" id="dayTabs2"></div>
+            <div class="dayToolbar" id="dayToolbar"></div>
+            <div class="timeline" id="timeline2"></div>
           </section>
 
           <section class="panel mapPanel">
             <div class="panelHead">
-              <h2 style="margin:0;font:700 17px 'Plus Jakarta Sans'">Map & route</h2>
-              <div style="display:flex;gap:7px"><button class="btn" id="locateBtn" aria-label="Use my current location"><i class="fa-solid fa-location-crosshairs" aria-hidden="true"></i></button><button class="btn" id="centerBtn"><span aria-hidden="true">◎</span> Center</button></div>
-            </div>
-            <form class="mapSearch" id="mapSearchForm" role="search">
-              <label for="mapSearchInput" class="visually-hidden">Search a place or address on the map</label>
-              <input id="mapSearchInput" placeholder="Search a place or address, or click the map..."/>
-              <button class="btn primary" type="submit" id="mapSearchBtn" aria-label="Search the map"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i></button>
-            </form>
-            <div class="mapLegend"><span class="legend"><span aria-hidden="true">•</span> Planned</span><span class="legend"><span aria-hidden="true">★</span> Top rated</span><span class="legend"><span aria-hidden="true">✦</span> Local Discovery</span></div>
-
-            <div class="turn-hud" id="turnHud" role="region" aria-label="Turn-by-turn navigation">
-              <div class="turn-header">
-                <span><i class="fa-solid fa-location-arrow" aria-hidden="true"></i> LIVE NAVIGATION</span>
-                <span id="turn-dist-total">0.0 km</span>
-              </div>
-              <div class="turn-body">
-                <div class="turn-icon-box" id="turn-icon" aria-hidden="true"><i class="fa-solid fa-arrow-up"></i></div>
-                <div>
-                  <div style="font-size:13px; font-weight:700;" id="turn-text">Follow route</div>
-                  <div style="font-size:11px; opacity:0.8;" id="turn-sub">Step 1</div>
-                </div>
-              </div>
-              <div class="turn-controls">
-                <button class="turn-btn" onclick="prevTurn()"><i class="fa-solid fa-backward-step" aria-hidden="true"></i> Prev</button>
-                <button class="turn-btn" onclick="nextTurn()">Next <i class="fa-solid fa-forward-step" aria-hidden="true"></i></button>
-                <button class="turn-btn" style="background:var(--danger);" onclick="stopTurnNav()"><span aria-hidden="true">✕</span> Exit</button>
+              <h3>Map</h3>
+              <div class="rowgap">
+                <button class="btn sm" id="mapSearchToggle"><i class="fa-solid fa-magnifying-glass"></i></button>
+                <button class="btn sm" id="centerBtn2"><i class="fa-solid fa-crosshairs"></i></button>
               </div>
             </div>
-
-            <div class="map" id="map" role="application" aria-label="Trip map. Use the search box or route buttons on each place to navigate; click the map to drop a pin." tabindex="0"></div>
+            <div class="mapSearchBar hidden" id="mapSearchBar"><input id="mapSearchInput" placeholder="Search a place on the map…"><button class="btn sm primary" id="mapSearchGo">Go</button></div>
+            <div class="mapLegend" id="mapLegend2"></div>
+            <div class="map" id="map2"></div>
           </section>
         </div>
 
         <div class="stats">
-          <div class="stat"><div class="v" id="distance">0 km</div><div class="k">Estimated walking</div></div>
-          <div class="stat"><div class="v" id="budgetStat">¥0</div><div class="k">Planned spend</div></div>
-          <div class="stat"><div class="v" id="matchStat">0%</div><div class="k">Preference match</div></div>
+          <div class="stat"><div class="v" id="distance2">0 km</div><div class="k">Est. walking distance</div></div>
+          <div class="stat"><div class="v" id="stopsStat">0</div><div class="k">Planned stops</div></div>
+          <div class="stat"><div class="v" id="budgetStat2">$0</div><div class="k">Planned spend</div></div>
         </div>
-      </section>
+      </div>
 
-      <section class="view" id="view-explore">
-        <div class="hero">
-          <div><div class="eyebrow">Discover</div><h1>Find somewhere you'll love.</h1><p>Search the live map for cafes, temples, ramen, and shopping.</p></div>
-        </div>
-        <form class="searchBar" id="exploreSearchForm" role="search">
-          <label for="exploreSearch" class="visually-hidden">Search places to discover</label>
-          <input id="exploreSearch" placeholder="Search ramen, temples, shopping, nightlife..."/>
-          <button class="btn primary" type="submit" id="exploreSearchBtn"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Search Map</button>
-        </form>
-        <div class="toolbar" id="exploreFilters" role="group" aria-label="Filter by category"></div>
-        <div class="savedGrid" id="exploreGrid" aria-live="polite"></div>
-      </section>
-
-      <section class="view" id="view-saved">
-        <div class="hero">
-          <div><div class="eyebrow">Your collection</div><h1>Saved places.</h1><p>Keep your favorites here and add them to any day.</p></div>
-          <button class="btn" id="clearSavedBtn"><i class="fa-solid fa-trash-can" aria-hidden="true"></i> Clear saved</button>
-        </div>
-        <div class="savedGrid" id="savedGrid" aria-live="polite"></div>
-      </section>
-
-      <section class="view" id="view-budget">
-        <div class="hero">
-          <div><div class="eyebrow">Trip finance</div><h1>Budget at a glance.</h1><p>Track the whole trip and see where the money is going.</p></div>
-          <button class="btn primary" id="budgetAdjustBtn"><i class="fa-solid fa-coins" aria-hidden="true"></i> Adjust budget</button>
-        </div>
-        <div class="sectionGrid">
-          <div class="card"><div class="small">Trip budget</div><div class="metric" id="budgetTotal">¥120,000</div><div class="small">Target for this trip</div></div>
-          <div class="card"><div class="small">Planned</div><div class="metric" id="budgetPlanned" style="color:var(--orange);">¥0</div><div class="small">From itinerary + bookings</div></div>
-          <div class="card"><div class="small">Remaining</div><div class="metric" id="budgetRemaining">¥120,000</div><div class="small">Before shopping & extras</div></div>
+      <div class="ptabBody" id="ptab-budget">
+        <div class="sectionGrid budgetTop">
+          <div class="card"><div class="small">Budget style</div>
+            <div class="budgetStyleRow" id="budgetStyleRow"></div>
+          </div>
+          <div class="card"><div class="small">Total trip budget</div><div class="metric" id="budgetTotal2">$0</div><button class="linklike" id="editBudgetTotalBtn">Edit target</button></div>
+          <div class="card"><div class="small">Planned</div><div class="metric" style="color:var(--orange)" id="budgetPlanned2">$0</div><div class="small" id="budgetOverWarn"></div></div>
+          <div class="card"><div class="small">Remaining</div><div class="metric" id="budgetRemaining2">$0</div><div class="progress" style="margin-top:8px"><div id="budgetBar2"></div></div></div>
         </div>
         <div class="card" style="margin-top:16px">
-          <h3>Spend categories</h3>
-          <div class="list" id="budgetList"></div>
-        </div>
-      </section>
-
-      <section class="view" id="view-packing">
-        <div class="hero">
-          <div><div class="eyebrow">Packing</div><h1>Don't forget a thing.</h1><p>Tap each item as you pack it.</p></div>
-          <button class="btn primary" id="addPackingBtn"><i class="fa-solid fa-plus" aria-hidden="true"></i> Add item</button>
-        </div>
-        <div class="card">
-          <div style="display:flex;justify-content:space-between;gap:12px;align-items:center">
-            <strong id="packingProgress">0 / 0 packed</strong>
-            <span class="small" id="packingPercent">0%</span>
+          <div class="panelHead" style="padding:0 0 12px;border:0">
+            <h3>Spend by category</h3>
+            <button class="btn sm primary" id="addExpenseBtn"><i class="fa-solid fa-plus"></i> Add expense</button>
           </div>
-          <div class="progress" style="margin-top:10px" role="progressbar" aria-labelledby="packingProgress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="packingBarWrap"><div id="packingBar"></div></div>
-          <div class="list" id="packingList" style="margin-top:18px;"></div>
+          <div class="list" id="budgetCatList"></div>
         </div>
-      </section>
+        <div class="card" style="margin-top:16px">
+          <h3>All expenses</h3>
+          <div class="list" id="expenseList"></div>
+        </div>
+      </div>
 
-      <section class="view" id="view-bookings">
-        <div class="hero">
-          <div><div class="eyebrow">Bookings</div><h1>Your trip, confirmed.</h1><p>Search flights and stays, then keep every reservation together.</p></div>
-          <button class="btn primary" id="addBookingBtn"><i class="fa-solid fa-plane-up" aria-hidden="true"></i> Add manual booking</button>
+      <div class="ptabBody" id="ptab-collab">
+        <div class="sectionGrid">
+          <div class="card">
+            <h3>Collaborators</h3>
+            <div class="list" id="collabList"></div>
+            <button class="btn primary" style="margin-top:12px" id="inviteBtn"><i class="fa-solid fa-user-plus"></i> Invite collaborator</button>
+          </div>
+          <div class="card">
+            <h3>Activity &amp; comments</h3>
+            <div class="list" id="activityList" style="max-height:360px;overflow:auto"></div>
+          </div>
         </div>
-        <div class="toolbar" role="tablist" aria-label="Bookings sections">
-          <button class="pill active" role="tab" id="btab-mine" aria-selected="true" aria-controls="bpane-mine" data-btab="mine">My bookings</button>
-          <button class="pill" role="tab" id="btab-flights" aria-selected="false" aria-controls="bpane-flights" data-btab="flights"><i class="fa-solid fa-plane" aria-hidden="true"></i> Flights</button>
-          <button class="pill" role="tab" id="btab-hotels" aria-selected="false" aria-controls="bpane-hotels" data-btab="hotels"><i class="fa-solid fa-bed" aria-hidden="true"></i> Hotels</button>
-        </div>
+      </div>
+    </section>
 
-        <div class="bpane active" id="bpane-mine" role="tabpanel" aria-labelledby="btab-mine">
-          <div class="list" id="bookingList"></div>
-        </div>
+    <!-- ============ SAVED ============ -->
+    <section class="view" id="view-saved">
+      <div class="pageHero row">
+        <div><div class="eyebrow">Your collection</div><h1>Saved places</h1><p>Organize favorites into collections, Google Maps-style.</p></div>
+        <button class="btn primary" id="newCollectionBtn"><i class="fa-solid fa-plus"></i> New collection</button>
+      </div>
+      <div class="collectionTabs" id="collectionTabs"></div>
+      <div class="savedGrid" id="savedGrid"></div>
+    </section>
 
-        <div class="bpane" id="bpane-flights" role="tabpanel" aria-labelledby="btab-flights">
-          <form class="card" id="flightSearchForm">
-            <div class="modalGrid">
-              <div class="field"><label for="flightFrom">From</label><input id="flightFrom" value="Home"/></div>
-              <div class="field"><label for="flightTo">To</label><input id="flightTo" value="Tokyo"/></div>
-              <div class="field"><label for="flightDate">Depart</label><input id="flightDate" value="Oct 4, 2026"/></div>
-            </div>
-            <button class="btn primary" style="margin-top:12px" type="submit" id="searchFlightsBtn"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Search flights</button>
-          </form>
-          <div class="list" id="flightResults" style="margin-top:14px" aria-live="polite"></div>
-        </div>
+    <!-- ============ TRIP IDEAS ============ -->
+    <section class="view" id="view-ideas">
+      <div class="pageHero">
+        <div class="eyebrow">AI trip idea generator</div>
+        <h1>Generate trip ideas ✨</h1>
+        <p>Pick a destination and we'll build 5 themed trip concepts instantly.</p>
+      </div>
+      <div class="ideasSearch">
+        <input id="ideasDestInput" placeholder="Search a destination…" autocomplete="off">
+        <div class="autolist" id="ideasDestAuto"></div>
+        <button class="btn primary" id="ideasGenBtn">Generate Trip Ideas ✨</button>
+      </div>
+      <div class="ideasGrid" id="ideasGrid"></div>
+    </section>
 
-        <div class="bpane" id="bpane-hotels" role="tabpanel" aria-labelledby="btab-hotels">
-          <form class="card" id="hotelSearchForm">
-            <div class="modalGrid">
-              <div class="field"><label for="hotelDest">Destination</label><input id="hotelDest" value="Tokyo"/></div>
-              <div class="field"><label for="hotelCheckin">Check-in</label><input id="hotelCheckin" value="Oct 4, 2026"/></div>
-              <div class="field"><label for="hotelNights">Nights</label><input id="hotelNights" type="number" min="1" value="6"/></div>
-            </div>
-            <button class="btn primary" style="margin-top:12px" type="submit" id="searchHotelsBtn"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i> Search hotels</button>
-          </form>
-          <div class="savedGrid" id="hotelResults" style="margin-top:14px" aria-live="polite"></div>
-        </div>
-      </section>
+  </main>
 
-    </main>
-  </div>
+  <footer class="siteFooter">
+    <div class="footerInner">
+      <div class="brand"><div class="brandmark">✦</div><span>TripFlow</span></div>
+      <div class="footerLinks">
+        <button data-route="#/">Explore</button>
+        <button data-route="#/discover">Discover</button>
+        <button data-route="#/trips">My Trips</button>
+        <button data-route="#/saved">Saved</button>
+        <button data-route="#/ideas">Trip Ideas</button>
+      </div>
+      <div class="small">© 2026 TripFlow. All destinations, prices and reviews are illustrative demo data.</div>
+    </div>
+  </footer>
 </div>
 
-<button class="aiLauncher" id="aiLauncher" aria-haspopup="dialog" aria-expanded="false" aria-controls="ai"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i> Ask TripShuffle</button>
-<div class="ai hidden" id="ai" role="dialog" aria-modal="false" aria-labelledby="aiTitle">
+<!-- ============ FLOATING AI ASSISTANT ============ -->
+<button class="aiLauncher" id="aiLauncher"><i class="fa-solid fa-wand-magic-sparkles"></i> Ask your travel assistant ✨</button>
+<div class="aiPanel hidden" id="ai">
   <div class="aiHead">
-    <div>
-      <div class="aiTitle" id="aiTitle"><span aria-hidden="true">✦</span> TripShuffle Copilot (Gemini)</div>
-      <div class="aiSub">Ask about places, food, routes, budgets.</div>
-    </div>
+    <div><div class="aiTitle">✦ TripFlow AI Assistant</div><div class="aiSub" id="aiContextLabel">Ask about places, itineraries, budgets.</div></div>
     <div class="aiBtns">
-      <button class="aiIcon" id="apiSetupBtn" aria-label="Set up Gemini API key"><i class="fa-solid fa-key" aria-hidden="true"></i></button>
-      <button class="aiIcon" id="minAI" aria-label="Minimize chat">−</button>
-      <button class="aiIcon" id="closeAI" aria-label="Close chat">×</button>
+      <button class="aiIcon" id="apiSetupBtn" title="Optional: connect Gemini API key"><i class="fa-solid fa-key"></i></button>
+      <button class="aiIcon" id="minAI" title="Minimize">−</button>
+      <button class="aiIcon" id="closeAI" title="Close">×</button>
     </div>
   </div>
   <div class="aiBody">
-    <div class="messages" id="messages" role="log" aria-live="polite" aria-label="Chat messages">
-      <div class="msg bot">Hey! I’m your Gemini-powered travel copilot. Ask me to build a foodie day, find hidden gems, or review your budget!</div>
+    <div class="messages" id="messages"></div>
+    <div class="suggestions" id="aiSuggestions"></div>
+    <div class="aiInput">
+      <textarea id="aiText" placeholder="Ask your trip assistant anything…"></textarea>
+      <button class="send" id="sendAI"><i class="fa-solid fa-paper-plane"></i></button>
     </div>
-    <div class="suggestions">
-      <button class="suggestion">Review my Day 1</button>
-      <button class="suggestion">Find cheap eats nearby</button>
-      <button class="suggestion">What should I pack?</button>
-      <button class="suggestion">Is this budget realistic?</button>
-    </div>
-    <form class="aiInput" id="aiForm">
-      <label for="aiText" class="visually-hidden">Ask your trip copilot anything</label>
-      <textarea id="aiText" placeholder="Ask your trip copilot anything..."></textarea>
-      <button class="send" type="submit" id="sendAI" aria-label="Send message"><i class="fa-solid fa-paper-plane" aria-hidden="true"></i></button>
-    </form>
   </div>
 </div>
 
-<div class="modalBack" id="surpriseModal">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="surpriseModalTitle">
-    <div class="modalHeader"><div><h2 id="surpriseModalTitle"><span aria-hidden="true">✨</span> Build my trip</h2><p class="small">Choose preferences. Every day will be generated with variety, pace, and logic.</p></div><button class="xbtn" data-close="surpriseModal" aria-label="Close dialog">×</button></div>
-    <div class="preferenceGrid" id="prefGrid" role="group" aria-label="Trip preferences"></div>
-    <div class="modalGrid">
-      <div class="field"><label for="modalPace">Trip vibe</label><select id="modalPace"><option>Relaxed</option><option selected>Balanced</option><option>Packed</option></select></div>
-      <div class="field"><label for="modalBudget">Budget</label><select id="modalBudget"><option>Value</option><option selected>Balanced</option><option>Treat myself</option></select></div>
-      <div class="field"><label for="modalWalk">Walking</label><select id="modalWalk"><option>Low</option><option selected>Medium</option><option>High</option></select></div>
-    </div>
-    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" data-close="surpriseModal">Cancel</button><button class="btn primary" id="generateBtn">Generate my full trip</button></div>
+<!-- ============ MODALS ============ -->
+<div class="modalBack" id="modal-placeDetail"><div class="modal wide" id="placeDetailContent"></div></div>
+
+<div class="modalBack" id="modal-addToTrip">
+  <div class="modal">
+    <div class="modalHeader"><div><h2>Add to trip</h2><p class="small" id="addToTripSub">Choose a day</p></div><button class="xbtn" data-close="modal-addToTrip">×</button></div>
+    <div id="addToTripBody"></div>
   </div>
 </div>
 
-<div class="modalBack" id="newTripModal">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="newTripModalTitle">
-    <div class="modalHeader"><div><h2 id="newTripModalTitle">＋ Create a new trip</h2><p class="small">Set the basics and TripShuffle will create a fresh draft.</p></div><button class="xbtn" data-close="newTripModal" aria-label="Close dialog">×</button></div>
+<div class="modalBack" id="modal-saveTo">
+  <div class="modal">
+    <div class="modalHeader"><div><h2>Save to collection</h2><p class="small">Pick where this goes</p></div><button class="xbtn" data-close="modal-saveTo">×</button></div>
+    <div id="saveToBody"></div>
+  </div>
+</div>
+
+<div class="modalBack" id="modal-newTrip">
+  <div class="modal">
+    <div class="modalHeader"><div><h2>＋ Create a new trip</h2><p class="small">Set the basics — you can change anything later.</p></div><button class="xbtn" data-close="modal-newTrip">×</button></div>
     <div class="modalGrid" style="margin-top:16px">
-      <div class="field"><label for="newDestination">Destination</label><input id="newDestination" value="Kyoto, Japan"/></div>
-      <div class="field"><label for="newDates">Dates</label><input id="newDates" value="Nov 1 – Nov 6, 2026"/></div>
-      <div class="field"><label for="newDays">Days</label><select id="newDays"><option>3</option><option>4</option><option selected>6</option><option>7</option></select></div>
+      <div class="field grow2"><label>Destination</label><input id="newTripDest" placeholder="e.g. Kyoto, Japan"/><div class="autolist" id="newTripDestAuto"></div></div>
+      <div class="field"><label>Start date</label><input type="date" id="newTripStart"/></div>
+      <div class="field"><label>End date</label><input type="date" id="newTripEnd"/></div>
+      <div class="field"><label>Travelers</label><select id="newTripTravelers"><option>1</option><option selected>2</option><option>3</option><option>4</option><option>5+</option></select></div>
     </div>
-    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" data-close="newTripModal">Cancel</button><button class="btn primary" id="createTripBtn">Create trip</button></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" data-close="modal-newTrip">Cancel</button><button class="btn primary" id="createTripBtn">Create trip</button></div>
   </div>
 </div>
 
-<div class="modalBack" id="budgetModal">
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="budgetModalTitle">
-    <div class="modalHeader"><div><h2 id="budgetModalTitle">Adjust trip budget</h2><p class="small">Set the tracking number for your dashboard.</p></div><button class="xbtn" data-close="budgetModal" aria-label="Close dialog">×</button></div>
-    <div class="field" style="margin-top:16px"><label for="budgetInput">Budget target (JPY)</label><input id="budgetInput" type="number" min="0" value="120000" style="font-size:20px;font-weight:800;"/></div>
-    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" data-close="budgetModal">Cancel</button><button class="btn primary" id="saveBudgetBtn">Save budget</button></div>
+<div class="modalBack" id="modal-editTrip">
+  <div class="modal">
+    <div class="modalHeader"><div><h2>Edit trip</h2></div><button class="xbtn" data-close="modal-editTrip">×</button></div>
+    <div class="modalGrid" style="margin-top:16px">
+      <div class="field grow2"><label>Trip name</label><input id="editTripName"/></div>
+      <div class="field"><label>Start date</label><input type="date" id="editTripStart"/></div>
+      <div class="field"><label>End date</label><input type="date" id="editTripEnd"/></div>
+      <div class="field"><label>Travelers</label><select id="editTripTravelers"><option>1</option><option>2</option><option>3</option><option>4</option><option>5+</option></select></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" data-close="modal-editTrip">Cancel</button><button class="btn primary" id="saveEditTripBtn">Save changes</button></div>
   </div>
 </div>
 
-<div class="modalBack" id="placeModal">
-  <div class="modal" id="placeModalBody" role="dialog" aria-modal="true" aria-labelledby="placeModalTitle"></div>
+<div class="modalBack" id="modal-share">
+  <div class="modal">
+    <div class="modalHeader"><div><h2>Share this trip</h2><p class="small">Anyone with the link can view. Invite people to edit together.</p></div><button class="xbtn" data-close="modal-share">×</button></div>
+    <div class="field" style="margin-top:14px"><label>Shareable link</label>
+      <div class="shareRow"><input id="shareLink" readonly><button class="btn primary" id="copyShareLink">Copy</button></div>
+    </div>
+    <div class="field" style="margin-top:14px"><label>Invite by email</label>
+      <div class="shareRow"><input id="shareEmail" placeholder="friend@email.com"><select id="shareRole"><option>Editor</option><option>Viewer</option></select><button class="btn primary" id="sendInvite">Invite</button></div>
+    </div>
+    <h3 style="margin-top:18px">People with access</h3>
+    <div class="list" id="shareCollabList"></div>
+  </div>
 </div>
 
-<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+<div class="modalBack" id="modal-customize">
+  <div class="modal">
+    <div class="modalHeader"><div><h2>Customize this trip idea</h2><p class="small">Tune it, then regenerate.</p></div><button class="xbtn" data-close="modal-customize">×</button></div>
+    <div class="modalGrid">
+      <div class="field"><label>Duration (days)</label><select id="custDuration"><option>2</option><option>3</option><option selected>4</option><option>5</option><option>6</option><option>7</option></select></div>
+      <div class="field"><label>Budget</label><select id="custBudget"><option>Budget</option><option selected>Moderate</option><option>Luxury</option></select></div>
+      <div class="field"><label>Pace</label><select id="custPace"><option>Relaxed</option><option selected>Balanced</option><option>Packed</option></select></div>
+    </div>
+    <div class="small" style="margin:14px 0 6px;font-weight:700">Interests</div>
+    <div class="preferenceGrid" id="custInterests"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" data-close="modal-customize">Cancel</button><button class="btn primary" id="regenIdeaBtn">Regenerate itinerary</button></div>
+  </div>
+</div>
+
+<div class="modalBack" id="modal-itineraryPreview">
+  <div class="modal wide" id="itineraryPreviewContent"></div>
+</div>
+
+<div class="modalBack" id="modal-optimize">
+  <div class="modal">
+    <div class="modalHeader"><div><h2>✨ Optimize this day</h2><p class="small">We reordered stops to cut down travel distance.</p></div><button class="xbtn" data-close="modal-optimize">×</button></div>
+    <div id="optimizeBody"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" id="keepOriginalBtn">Keep original</button><button class="btn primary" id="applyOptimizeBtn">Apply changes</button></div>
+  </div>
+</div>
+
+<div class="modalBack" id="modal-expense">
+  <div class="modal">
+    <div class="modalHeader"><div><h2 id="expenseModalTitle">Add expense</h2></div><button class="xbtn" data-close="modal-expense">×</button></div>
+    <div class="modalGrid" style="margin-top:14px">
+      <div class="field grow2"><label>Description</label><input id="expenseDesc" placeholder="e.g. Airport taxi"/></div>
+      <div class="field"><label>Category</label><select id="expenseCat"></select></div>
+      <div class="field"><label>Amount ($)</label><input type="number" id="expenseAmount" min="0"/></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" data-close="modal-expense">Cancel</button><button class="btn primary" id="saveExpenseBtn">Save expense</button></div>
+  </div>
+</div>
+
+<div class="modalBack" id="modal-editBudget">
+  <div class="modal">
+    <div class="modalHeader"><div><h2>Set total trip budget</h2></div><button class="xbtn" data-close="modal-editBudget">×</button></div>
+    <div class="field" style="margin-top:14px"><label>Budget target ($)</label><input id="budgetInput2" type="number" min="0" style="font-size:20px;font-weight:800"/></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" data-close="modal-editBudget">Cancel</button><button class="btn primary" id="saveBudgetBtn2">Save budget</button></div>
+  </div>
+</div>
+
+<div class="modalBack" id="modal-settings">
+  <div class="modal">
+    <div class="modalHeader"><div><h2>Settings</h2></div><button class="xbtn" data-close="modal-settings">×</button></div>
+    <div class="modalGrid" style="margin-top:14px">
+      <div class="field grow2"><label>Display name</label><input id="settingsName"/></div>
+      <div class="field"><label>Currency</label><select id="settingsCurrency"><option>USD ($)</option><option>EUR (€)</option><option>GBP (£)</option><option>JPY (¥)</option></select></div>
+    </div>
+    <div class="settingsRow">
+      <div><strong>Dark mode</strong><div class="small">Easier on the eyes at night</div></div>
+      <label class="switch"><input type="checkbox" id="themeToggle"><span class="slider"></span></label>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" data-close="modal-settings">Close</button><button class="btn primary" id="saveSettingsBtn">Save</button></div>
+  </div>
+</div>
+
+<div class="modalBack" id="modal-newCollection">
+  <div class="modal">
+    <div class="modalHeader"><div><h2>New collection</h2></div><button class="xbtn" data-close="modal-newCollection">×</button></div>
+    <div class="modalGrid" style="margin-top:14px">
+      <div class="field"><label>Icon</label><input id="collIcon" value="📌" maxlength="2" style="font-size:20px"/></div>
+      <div class="field grow2"><label>Collection name</label><input id="collName" placeholder="e.g. Japan 2027 Bucket List"/></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" data-close="modal-newCollection">Cancel</button><button class="btn primary" id="createCollectionBtn">Create</button></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="modalBack" id="modal-confirm">
+  <div class="modal sm">
+    <div class="modalHeader"><div><h2 id="confirmTitle">Are you sure?</h2><p class="small" id="confirmBody"></p></div></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" id="confirmCancel">Cancel</button><button class="btn danger solid" id="confirmOk">Delete</button></div>
+  </div>
+</div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-<script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
-<script>
-// --- HELPERS ---
-const $ = id => document.getElementById(id);
-function toast(msg) { const t=$('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), 2500); }
-function escapeHtml(s) { return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-let idCounter = 100000;
-function newId() { return idCounter++; }
-
-// --- INITIAL DATA ---
-const TOKYO_PLACES=[
-{id:1,name:'Senso-ji Temple',area:'Asakusa',type:'Culture',rating:4.7,cost:0,mins:90,desc:'Iconic temple complex with an atmospheric old-Tokyo approach.',lat:35.7148,lng:139.7967,img:'https://images.unsplash.com/photo-1545569341-9eb8b30979d9?auto=format&fit=crop&w=600&q=80',tags:['culture','photography','relaxed','must-see']},
-{id:2,name:'Tsukiji Outer Market',area:'Tsukiji',type:'Food',rating:4.6,cost:1800,mins:90,desc:'Snacks, sushi, tamagoyaki and tiny specialty stalls.',lat:35.6655,lng:139.7708,img:'https://images.unsplash.com/photo-1534422298391-e4f8c172dddb?auto=format&fit=crop&w=600&q=80',tags:['foodie','shopping','must-see']},
-{id:3,name:'Shibuya Sky',area:'Shibuya',type:'View',rating:4.6,cost:2500,mins:90,desc:'Sky-high Tokyo views, best around golden hour.',lat:35.6580,lng:139.7016,img:'https://images.unsplash.com/photo-1526481280695-3c687fd643ed?auto=format&fit=crop&w=600&q=80',tags:['photography','must-see','nightlife']},
-{id:4,name:'Kappabashi Kitchen Town',area:'Asakusa',type:'Shopping',rating:4.5,cost:1200,mins:75,desc:'Chef knives, ceramics, fake food and unusual souvenirs.',lat:35.7143,lng:139.7906,img:'https://images.unsplash.com/photo-1518005020951-eccb494ad742?auto=format&fit=crop&w=600&q=80',tags:['shopping','hidden gems','foodie']},
-{id:5,name:'Yanaka Ginza',area:'Yanaka',type:'Hidden gem',rating:4.4,cost:900,mins:80,desc:'Old-school shopping street with snacks and neighborhood charm.',lat:35.7263,lng:139.7661,img:'https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?auto=format&fit=crop&w=600&q=80',tags:['hidden gems','relaxed','foodie','photography']},
-{id:6,name:'Omoide Yokocho',area:'Shinjuku',type:'Nightlife',rating:4.4,cost:2200,mins:80,desc:'Tiny yakitori lanes tucked beside Shinjuku Station.',lat:35.6935,lng:139.6982,img:'https://images.unsplash.com/photo-1554797589-7241bb691973?auto=format&fit=crop&w=600&q=80',tags:['nightlife','foodie','hidden gems']},
-{id:7,name:'Meiji Jingu',area:'Harajuku',type:'Nature',rating:4.7,cost:0,mins:80,desc:'Forest sanctuary in the middle of Tokyo.',lat:35.6764,lng:139.6993,img:'https://images.unsplash.com/photo-1528360983277-13d401cdc186?auto=format&fit=crop&w=600&q=80',tags:['nature','relaxed','photography','must-see']},
-{id:8,name:'TeamLab Borderless',area:'Azabudai',type:'Art',rating:4.5,cost:3800,mins:120,desc:'Immersive digital art rooms that change as you move.',lat:35.6628,lng:139.7396,img:'https://images.unsplash.com/photo-1531058020387-3be344556be6?auto=format&fit=crop&w=600&q=80',tags:['art','photography','must-see']},
-{id:9,name:'Shimokitazawa Vintage',area:'Shimokitazawa',type:'Shopping',rating:4.5,cost:1500,mins:120,desc:'Vintage stores, record shops, and indie energy.',lat:35.6613,lng:139.6680,img:'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&w=600&q=80',tags:['shopping','hidden gems','photography']},
-{id:10,name:'Daikanyama T-Site',area:'Daikanyama',type:'Lifestyle',rating:4.5,cost:1300,mins:75,desc:'Design-forward bookstore and cafe in a stylish neighborhood.',lat:35.6483,lng:139.7037,img:'https://images.unsplash.com/photo-1495446815901-a7297e633e8d?auto=format&fit=crop&w=600&q=80',tags:['shopping','art','relaxed','photography']},
-];
-
-const PARIS_PLACES=[
-{id:101,name:'Eiffel Tower',area:'Champ de Mars',type:'View',rating:4.7,cost:2600,mins:90,desc:'The icon of Paris, unforgettable at sunset or lit up at night.',lat:48.8584,lng:2.2945,img:'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?auto=format&fit=crop&w=600&q=80',tags:['must-see','photography']},
-{id:102,name:'Louvre Museum',area:'1st Arrondissement',type:'Art',rating:4.7,cost:1700,mins:150,desc:'Home of the Mona Lisa and centuries of world art.',lat:48.8606,lng:2.3376,img:'https://images.unsplash.com/photo-1499856871958-5b9627545d1a?auto=format&fit=crop&w=600&q=80',tags:['art','culture','must-see']},
-{id:103,name:'Montmartre & Sacré-Cœur',area:'Montmartre',type:'Culture',rating:4.6,cost:0,mins:100,desc:'Cobbled streets, street artists and sweeping views over Paris.',lat:48.8867,lng:2.3431,img:'https://images.unsplash.com/photo-1550340499-a6c60fc8287c?auto=format&fit=crop&w=600&q=80',tags:['culture','photography','hidden gems']},
-{id:104,name:'Le Marais Food Walk',area:'Le Marais',type:'Food',rating:4.5,cost:2200,mins:100,desc:'Falafel, pastries and boutique-lined lanes.',lat:48.8575,lng:2.3622,img:'https://images.unsplash.com/photo-1550507992-eb63ffee0847?auto=format&fit=crop&w=600&q=80',tags:['foodie','shopping']},
-{id:105,name:"Musée d'Orsay",area:'7th Arrondissement',type:'Art',rating:4.7,cost:1600,mins:120,desc:'Impressionist masterpieces inside a converted railway station.',lat:48.8600,lng:2.3266,img:'https://images.unsplash.com/photo-1544413164-5f1b361f5211?auto=format&fit=crop&w=600&q=80',tags:['art','must-see']},
-{id:106,name:'Seine River Cruise',area:'Pont Neuf',type:'View',rating:4.5,cost:1900,mins:70,desc:"Glide past Notre-Dame and the Musée d'Orsay by boat.",lat:48.8566,lng:2.3428,img:'https://images.unsplash.com/photo-1499856871958-5b9627545d1a?auto=format&fit=crop&w=600&q=80',tags:['relaxed','photography']},
-{id:107,name:'Luxembourg Gardens',area:'6th Arrondissement',type:'Nature',rating:4.6,cost:0,mins:60,desc:'Manicured gardens perfect for a slow afternoon.',lat:48.8462,lng:2.3372,img:'https://images.unsplash.com/photo-1547483238-2cbf881a559f?auto=format&fit=crop&w=600&q=80',tags:['nature','relaxed']},
-{id:108,name:'Canal Saint-Martin',area:'10th Arrondissement',type:'Hidden gem',rating:4.4,cost:1200,mins:80,desc:'Indie boutiques, cafes and a laid-back local vibe.',lat:48.8709,lng:2.3654,img:'https://images.unsplash.com/photo-1541833602161-63b60f5f9b4c?auto=format&fit=crop&w=600&q=80',tags:['hidden gems','foodie','shopping']},
-];
-
-const PREFS=[['foodie','🍜','Foodie','markets, tastings, local spots'],['culture','🏮','Culture','temples, history, neighborhoods'],['nature','🌿','Nature','parks, gardens, views'],['hidden gems','📸','Hidden gems','less touristy, unique finds'],['shopping','🛍️','Shopping','vintage, design, streetwear'],['nightlife','🌙','Nightlife','bars, izakaya, late nights'],['art','🎨','Art','galleries, immersive spaces'],['photography','📷','Photography','views, streets, golden hour'],['relaxed','🫶','Relaxed','slow mornings, low pressure'],['must-see','⭐','Must-see','top landmarks and icons']];
-
-const REVIEWER_NAMES=['Aiko T.','Marcus L.','Priya S.','Tom H.','Elena R.','Noah K.','Fatima A.','Chris B.','Yuki M.','Sofia G.'];
-const REVIEW_TEMPLATES=['Absolutely worth the visit — go early to beat the crowds.','Loved this spot, exactly what we were looking for on our trip.','A little touristy but still charming. Bring cash for small vendors.','One of the highlights of our whole trip, highly recommend.','Good but not life-changing — still glad we stopped by.','Hidden gem! Barely anyone else was there when we went.','Great photo spot, especially in the late afternoon light.','Solid experience overall, would come back on a future trip.'];
-function getReviews(place) {
-  const seed = typeof place.id === 'number' ? place.id : 1;
-  const n = 2 + (seed % 3);
-  const out = [];
-  for(let i=0;i<n;i++) {
-    const ni = (seed*7 + i*13) % REVIEWER_NAMES.length;
-    const ti = (seed*5 + i*11) % REVIEW_TEMPLATES.length;
-    const rating = Math.max(3, Math.min(5, Math.round(place.rating) - (i%2===0?0:1)));
-    out.push({user:REVIEWER_NAMES[ni], rating, text:REVIEW_TEMPLATES[ti]});
-  }
-  return out;
-}
-
-const AIRLINES=['Nimbus Air','Pacific Wing','Skyline Express','Aurora Airlines','Continental Route'];
-const HOTEL_NAMES=['Grand Central Hotel','The Local House','Skyline Suites','Garden Boutique Inn','Riverside Stay','Metro Comfort Hotel'];
-const HOTEL_IMGS=['https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=600&q=80','https://images.unsplash.com/photo-1571003123894-1f0594d2b5d9?auto=format&fit=crop&w=600&q=80','https://images.unsplash.com/photo-1611892440504-42a792e24d32?auto=format&fit=crop&w=600&q=80','https://images.unsplash.com/photo-1618773928121-c32242e63f39?auto=format&fit=crop&w=600&q=80','https://images.unsplash.com/photo-1520250497591-112f2f40a3f4?auto=format&fit=crop&w=600&q=80','https://images.unsplash.com/photo-1445019980597-93fa8acb246c?auto=format&fit=crop&w=600&q=80'];
-
-function defaultPacking() { return [['Passport',false],['Phone charger',false],['Comfortable walking shoes',false],['Travel adapter',false],['Weather-appropriate layers',false]]; }
-
-function defaultTrips() {
-  return [
-    { id:1, name:'Tokyo • Fall 2026', destination:'Tokyo, Japan', dates:'Oct 4 – Oct 10, 2026', days:6, center:[35.6848,139.725],
-      places:TOKYO_PLACES.slice(), dayPlans:[], currentDay:0,
-      selectedPrefs:['foodie','culture','hidden gems'], savedIds:[3,5,9], tripBudget:120000,
-      packing:[['Passport',true],['Portable charger',true],['Comfortable walking shoes',false],['Travel adapter',false],['Rain jacket',false]],
-      bookings:[{type:'Stay',name:'Shinjuku Hotel',date:'Oct 4 – Oct 10',cost:72000},{type:'Flight',name:'Arrival Flight',date:'Oct 4',cost:48000}] },
-    { id:2, name:'Paris • Spring', destination:'Paris, France', dates:'Apr 12 – Apr 17, 2027', days:5, center:[48.8566,2.3522],
-      places:PARIS_PLACES.slice(), dayPlans:[], currentDay:0,
-      selectedPrefs:['art','culture','foodie'], savedIds:[102,105], tripBudget:150000,
-      packing: defaultPacking(), bookings:[] },
-  ];
-}
-
-// --- STATE (per-trip) ---
-let trips = [];
-let currentTripId = null;
-function ct() { return trips.find(t=>t.id===currentTripId) || trips[0]; }
-
-let geminiApiKey = localStorage.getItem('tripshuffle_gemini_key') || '';
-let map, routeLayer, markerLayers = [];
-let routingControl = null, routeInstructions = [], currentStepIndex = 0;
-
-// --- PERSISTENCE ---
-const STORAGE_KEY = 'tripshuffle_state_v2';
-function saveState() {
-  try {
-    const data = { currentTripId, trips: trips.map(t=>({...t, selectedPrefs:[...t.selectedPrefs], savedIds:[...t.savedIds]})) };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch(e) {}
-}
-function loadState() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if(!raw) return false;
-    const data = JSON.parse(raw);
-    if(!data.trips || !data.trips.length) return false;
-    trips = data.trips.map(t=>({...t, selectedPrefs:new Set(t.selectedPrefs||[]), savedIds:new Set(t.savedIds||[])}));
-    currentTripId = data.currentTripId || trips[0].id;
-    return true;
-  } catch(e) { return false; }
-}
-function recalcIdCounter() {
-  let max = 100000;
-  trips.forEach(t => (t.places||[]).forEach(p => { if(typeof p.id === 'number') max = Math.max(max, p.id); }));
-  idCounter = max + 1;
-}
-
-// --- VIEWS ---
-function showView(view, opts={}) {
-  document.querySelectorAll('.view').forEach(x => x.classList.remove('active'));
-  $('view-'+view).classList.add('active');
-  document.querySelectorAll('.navbtn, .sideItem').forEach(x => { x.classList.remove('active'); x.removeAttribute('aria-current'); });
-  document.querySelectorAll(`[data-view="${view}"]`).forEach(x => { x.classList.add('active'); x.setAttribute('aria-current','page'); });
-
-  if(view === 'plan' && map) setTimeout(()=>map.invalidateSize(), 200);
-  if(view === 'explore') renderExplore();
-  if(view === 'saved') renderSaved();
-  if(view === 'budget') renderBudget();
-  if(view === 'packing') renderPacking();
-  if(view === 'bookings') renderBookings();
-  window.scrollTo(0,0);
-  closeDrawer();
-  if(!opts.silent) {
-    const heading = document.querySelector('#view-'+view+' h1');
-    if(heading) { heading.setAttribute('tabindex','-1'); heading.focus({preventScroll:true}); }
-  }
-}
-function wireNav() {
-  document.querySelectorAll('.navbtn[data-view], .sideItem[data-view]').forEach(b => { b.onclick = () => showView(b.dataset.view); });
-}
-
-// --- MOBILE DRAWER ---
-function openDrawer() {
-  $('sidebar').classList.add('open');
-  $('drawerBackdrop').classList.add('show');
-  $('menuBtn').setAttribute('aria-expanded','true');
-  document.body.style.overflow = 'hidden';
-  $('closeDrawerBtn').focus();
-}
-function closeDrawer() {
-  if(!$('sidebar').classList.contains('open')) return;
-  $('sidebar').classList.remove('open');
-  $('drawerBackdrop').classList.remove('show');
-  $('menuBtn').setAttribute('aria-expanded','false');
-  document.body.style.overflow = '';
-  if(document.activeElement && $('sidebar').contains(document.activeElement)) $('menuBtn').focus();
-}
-$('menuBtn').onclick = openDrawer;
-$('closeDrawerBtn').onclick = closeDrawer;
-$('drawerBackdrop').onclick = closeDrawer;
-$('brandBtn').onclick = () => showView('plan');
-document.addEventListener('keydown', e => {
-  if(e.key === 'Escape' && $('sidebar').classList.contains('open')) closeDrawer();
-});
-trapFocusWithin('sidebar', () => $('sidebar').classList.contains('open'));
-
-function trapFocusWithin(elId, isActiveFn) {
-  document.addEventListener('keydown', e => {
-    if(e.key !== 'Tab' || !isActiveFn()) return;
-    const el = $(elId);
-    const focusables = [...el.querySelectorAll('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter(x=>x.offsetParent!==null);
-    if(!focusables.length) return;
-    const first = focusables[0], last = focusables[focusables.length-1];
-    if(e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-    else if(!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-  });
-}
-
-// --- TRIPS ---
-function renderTripList() {
-  $('tripList').innerHTML = trips.map(t => `
-    <div role="listitem">
-    <button class="tripCard ${t.id===currentTripId?'active':''}" data-trip="${t.id}" ${t.id===currentTripId?'aria-current="true"':''}>
-      <div class="tripName">${escapeHtml(t.name)}</div>
-      <div class="small">${escapeHtml(t.dates)} · ${t.days} day${t.days===1?'':'s'}</div>
-    </button>
-    </div>`).join('');
-  $('tripList').querySelectorAll('.tripCard').forEach(b => b.onclick = () => switchTrip(Number(b.dataset.trip)));
-}
-
-async function switchTrip(id, forceGenerate) {
-  currentTripId = id;
-  const t = ct();
-  renderTripList();
-  $('heroTitle').textContent = t.destination.split(',')[0] + ', your way.';
-  $('destination').value = t.destination;
-  $('dates').value = t.dates;
-  setupPrefs();
-  if(map && t.dayPlans.length === 0) map.setView(t.center, 12);
-  if(forceGenerate || t.dayPlans.length === 0) {
-    await generateDayPlans();
-  } else {
-    renderDays(); renderAll();
-  }
-  saveState();
-}
-
-async function createTrip(destination, dates, days) {
-  toast('Creating your trip to ' + destination + '...');
-  let center = [20, 0];
-  try {
-    const geo = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(destination)).then(r=>r.json());
-    if(geo && geo[0]) center = [parseFloat(geo[0].lat), parseFloat(geo[0].lon)];
-  } catch(e) {}
-  const t = {
-    id: newId(), name: destination.split(',')[0] + ' • ' + (dates.split('–')[0].trim() || 'New trip'),
-    destination, dates, days: Math.max(1, days), center,
-    places: [], dayPlans: [], currentDay: 0,
-    selectedPrefs: new Set(['must-see']), savedIds: new Set(), tripBudget: 100000,
-    packing: defaultPacking(), bookings: []
-  };
-  trips.unshift(t);
-  currentTripId = t.id;
-  renderTripList();
-  await switchTrip(t.id, true);
-}
-
-async function ensureTripPlaces(t) {
-  if(t.places && t.places.length >= 4) return;
-  toast('Finding places near ' + t.destination + '...');
-  try {
-    const [lat,lng] = t.center;
-    const q = `[out:json][timeout:15];(node["tourism"~"attraction|museum|viewpoint|gallery|zoo"](around:6000,${lat},${lng});node["amenity"~"restaurant|cafe|marketplace|bar"](around:4000,${lat},${lng}););out body 24;`;
-    const res = await fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(q));
-    const data = await res.json();
-    const found = (data.elements||[]).filter(e=>e.tags && e.tags.name).map(overpassToPlace);
-    if(found.length >= 4) { t.places = found; return; }
-  } catch(e) {}
-  t.places = TOKYO_PLACES.slice();
-  toast('Live places unavailable right now — showing sample places instead.');
-}
-function overpassToPlace(el) {
-  const tags = el.tags||{};
-  const type = tags.tourism || tags.amenity || 'Spot';
-  return {
-    id:newId(), name: tags['name:en']||tags.name, area: tags['addr:suburb']||tags['addr:city']||'',
-    type: type.charAt(0).toUpperCase()+type.slice(1),
-    rating: +(4 + Math.random()*0.8).toFixed(1),
-    cost: Math.round((500+Math.random()*3000)/100)*100,
-    mins: 60+Math.floor(Math.random()*60),
-    desc:'Popular local spot discovered on the live map.',
-    lat: el.lat, lng: el.lon,
-    img:'https://images.unsplash.com/photo-1493707553966-283afac8c358?auto=format&fit=crop&w=600&q=80',
-    tags:['hidden gems']
-  };
-}
-
-// --- SETUP PREFS ---
-function setupPrefs() {
-  const t = ct();
-  $('quickChips').innerHTML = PREFS.map(([key,icon,label])=>`<button class="chip ${t.selectedPrefs.has(key)?'selected':''}" type="button" aria-pressed="${t.selectedPrefs.has(key)}" data-pref="${key}"><span aria-hidden="true">${icon}</span> ${label}</button>`).join('');
-  $('quickChips').querySelectorAll('.chip').forEach(b=>b.onclick=()=>{
-    b.classList.toggle('selected');
-    b.setAttribute('aria-pressed', b.classList.contains('selected'));
-    t.selectedPrefs = new Set([...document.querySelectorAll('#quickChips .chip.selected')].map(x=>x.dataset.pref));
-    saveState(); renderStats();
-  });
-
-  $('prefGrid').innerHTML = PREFS.map(([key,icon,label,sub])=>`<button class="pref ${t.selectedPrefs.has(key)?'active':''}" type="button" aria-pressed="${t.selectedPrefs.has(key)}" data-pref="${key}"><b><span aria-hidden="true">${icon}</span> ${label}</b><span>${sub}</span></button>`).join('');
-  $('prefGrid').querySelectorAll('.pref').forEach(b=>b.onclick=()=>{ b.classList.toggle('active'); b.setAttribute('aria-pressed', b.classList.contains('active')); });
-}
-
-// --- GENERATE ITINERARY ---
-async function generateDayPlans() {
-  const t = ct();
-  await ensureTripPlaces(t);
-  t.dayPlans = [];
-  const pool = [...t.places].sort(() => Math.random() - 0.5);
-  let used = new Set();
-
-  for(let d=0; d<t.days; d++) {
-    let day = [];
-    for(let p of pool) {
-      if(day.length >= 4) break;
-      if(!used.has(p.id)) { day.push(p); used.add(p.id); }
-    }
-    if(day.length < 3) day = pool.slice(0, 3);
-    t.dayPlans.push(day);
-  }
-  t.currentDay = 0;
-  saveState();
-  renderDays();
-  renderAll();
-  toast(`Built ${t.days} fresh days for ${t.destination.split(',')[0]}.`);
-}
-
-function renderDays() {
-  const t = ct();
-  $('dayTabs').innerHTML = Array.from({length:t.days}, (_,i)=>`<button class="dayTab ${i===t.currentDay?'active':''}" role="tab" id="dayTab-${i}" aria-selected="${i===t.currentDay}" aria-controls="timeline" tabindex="${i===t.currentDay?'0':'-1'}" data-day="${i}"><strong>Day ${i+1}</strong></button>`).join('');
-  const tabs = [...$('dayTabs').querySelectorAll('.dayTab')];
-  function selectDay(i) {
-    t.currentDay = i;
-    tabs.forEach(x=>{ const on = Number(x.dataset.day)===i; x.classList.toggle('active',on); x.setAttribute('aria-selected', on); x.tabIndex = on?0:-1; });
-    saveState();
-    renderTimeline(); renderRecommendations(); renderMap(); renderStats();
-  }
-  tabs.forEach((b,i)=>{
-    b.onclick = () => selectDay(i);
-    b.onkeydown = e => {
-      if(e.key==='ArrowRight' || e.key==='ArrowLeft') {
-        e.preventDefault();
-        const next = tabs[(i + (e.key==='ArrowRight'?1:-1) + tabs.length) % tabs.length];
-        next.focus(); selectDay(Number(next.dataset.day));
-      } else if(e.key==='Home') { e.preventDefault(); tabs[0].focus(); selectDay(0); }
-      else if(e.key==='End') { e.preventDefault(); tabs[tabs.length-1].focus(); selectDay(tabs.length-1); }
-    };
-  });
-}
-
-// --- RENDER PLAN ---
-function renderTimeline() {
-  const t = ct();
-  const list = t.dayPlans[t.currentDay] || [];
-  $('timeline').setAttribute('aria-labelledby', 'dayTab-'+t.currentDay);
-  $('timeline').innerHTML = list.length ? list.map((p,i)=>`
-    <div class="stop">
-      <div class="num" aria-hidden="true">${i+1}</div>
-      <div>
-        <h4><button type="button" class="linkish" onclick="openPlaceDetails(${p.id})">${escapeHtml(p.name)}</button></h4><p>${escapeHtml(p.desc)}</p>
-        <div class="meta"><span><span aria-hidden="true">🕒</span> ${['9:00 AM','11:30 AM','2:30 PM','5:45 PM'][i]||'10:00 AM'}</span><span><span aria-hidden="true">📍</span> ${escapeHtml(p.area)}</span><span>¥${p.cost.toLocaleString()}</span></div>
-        <div style="display:flex; gap:6px; margin-top:8px;">
-          <button class="btn primary" style="padding:5px 10px; font-size:11px;" onclick="startTurnNav(${p.id})"><i class="fa-solid fa-location-arrow" aria-hidden="true"></i> Route</button>
-          <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.name + ' ' + t.destination)}" target="_blank" rel="noopener" class="btn" style="padding:5px 10px; font-size:11px;"><i class="fa-solid fa-map-pin" aria-hidden="true"></i> Google Maps <span class="visually-hidden">(opens in a new tab)</span></a>
-        </div>
-      </div>
-      <div><div class="score"><span aria-hidden="true">★</span> ${p.rating}</div><button class="btn danger" style="margin-top:8px;padding:6px 8px;font-size:11px" onclick="removeStop(${i})" aria-label="Remove ${escapeHtml(p.name)} from Day ${t.currentDay+1}">Remove</button></div>
-    </div>
-  `).join('') : '<div class="empty">No stops yet. Use "Add place" or "Surprise Me".</div>';
-}
-
-function placeCard(p, opts={}) {
-  const t = ct();
-  const saved = t.savedIds.has(p.id);
-  const secondBtn = opts.removeMode
-    ? `<button class="add" onclick="toggleSave(${p.id})">Remove <span class="visually-hidden">${escapeHtml(p.name)} from saved</span></button>`
-    : `<button class="add" onclick="toggleSave(${p.id})" aria-pressed="${saved}">${saved?'♥ Saved':'♡ Save'} <span class="visually-hidden">${escapeHtml(p.name)}</span></button>`;
-  const addLabel = opts.addLabel || '＋ Add';
-  return `<div class="place">
-    <img src="${p.img}" alt="${escapeHtml(p.name)}"/>
-    <div class="placeBody">
-      <h4><button type="button" class="linkish" onclick="openPlaceDetails(${p.id})">${escapeHtml(p.name)}</button></h4>
-      <p>${escapeHtml(p.area)}${p.type?' · '+escapeHtml(p.type):''} · <span aria-hidden="true">★</span> ${p.rating}</p>
-      <div class="placeFoot">
-        <button class="add" onclick="addStop(${p.id})">${addLabel} <span class="visually-hidden">${escapeHtml(p.name)} to itinerary</span></button>
-        ${secondBtn}
-      </div>
-    </div>
-  </div>`;
-}
-
-function renderRecommendations() {
-  const t = ct();
-  const ids = new Set((t.dayPlans[t.currentDay]||[]).map(p=>p.id));
-  const rec = [...t.places].filter(p=>!ids.has(p.id)).sort(()=>Math.random()-0.5).slice(0,4);
-  $('recommendations').innerHTML = rec.map(p=>placeCard(p)).join('') || '<div class="empty" style="grid-column:1/-1">No more places in this pool — try Explore.</div>';
-}
-
-function addStop(id) {
-  const t = ct();
-  const p = t.places.find(x=>x.id===id);
-  if(!p) return;
-  const day = t.dayPlans[t.currentDay];
-  if(!day.some(x=>x.id===id)) { day.push(p); saveState(); renderAll(); toast(`${p.name} added to Day ${t.currentDay+1}.`); }
-  else toast(`${p.name} is already on Day ${t.currentDay+1}.`);
-}
-function removeStop(i) { const t=ct(); t.dayPlans[t.currentDay].splice(i,1); saveState(); renderAll(); toast('Removed stop.'); }
-function toggleSave(id) {
-  const t = ct();
-  t.savedIds.has(id) ? t.savedIds.delete(id) : t.savedIds.add(id);
-  saveState(); renderRecommendations(); renderSaved(); renderExplore();
-  toast(t.savedIds.has(id) ? 'Saved!' : 'Removed.');
-}
-
-function renderMap() {
-  if(!map) return;
-  markerLayers.forEach(x=>map.removeLayer(x)); markerLayers=[];
-  if(routeLayer) { map.removeLayer(routeLayer); routeLayer=null; }
-
-  const t = ct();
-  const list = t.dayPlans[t.currentDay] || [];
-  list.forEach((p,i)=>{
-    const icon = L.divIcon({ className:'custom-map-pin', html:`<div>${i+1}</div>`, iconSize:[26,26], iconAnchor:[13,13] });
-    const marker = L.marker([p.lat, p.lng], {icon}).addTo(map).bindPopup(`<b>${i+1}. ${escapeHtml(p.name)}</b><br>${escapeHtml(p.area)}<br><button class="btn primary" style="margin-top:6px;padding:4px 8px;font-size:11px;" onclick="startTurnNav(${p.id})">Route Here</button>`);
-    markerLayers.push(marker);
-  });
-  if(list.length > 1) {
-    routeLayer = L.polyline(list.map(p=>[p.lat,p.lng]), {color:'#11795c', weight:4, opacity:0.8, dashArray:'6,8'}).addTo(map);
-    map.fitBounds(routeLayer.getBounds().pad(0.2));
-  } else if(list.length === 1) {
-    map.setView([list[0].lat, list[0].lng], 14);
-  } else {
-    map.setView(t.center, 12);
-  }
-}
-
-function renderStats() {
-  const t = ct();
-  const list = t.dayPlans[t.currentDay]||[];
-  $('distance').textContent = (list.length * 2.1).toFixed(1) + ' km';
-  $('budgetStat').textContent = '¥' + list.reduce((a,p)=>a+p.cost,0).toLocaleString();
-  const prefMatches = list.filter(p => (p.tags||[]).some(tag=>t.selectedPrefs.has(tag))).length;
-  $('matchStat').textContent = list.length ? Math.round(60 + (prefMatches/list.length)*40) + '%' : '0%';
-}
-
-function renderAll() { renderTimeline(); renderRecommendations(); renderMap(); renderStats(); renderBudget(); renderPacking(); renderBookings(); }
-
-// --- MAP INTERACTION (GOOGLE MAPS STYLE) ---
-async function onMapClick(e) {
-  const {lat,lng} = e.latlng;
-  const popup = L.popup().setLatLng(e.latlng).setContent('Loading place info...').openOn(map);
-  let name = `Pinned spot (${lat.toFixed(3)}, ${lng.toFixed(3)})`;
-  try {
-    const rev = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`).then(r=>r.json());
-    if(rev && rev.display_name) name = rev.display_name.split(',').slice(0,2).join(',');
-  } catch(err) {}
-  const t = ct();
-  window._pendingPin = { id:newId(), name, area:'Dropped pin', type:'Custom', rating:4.5, cost:0, mins:60, desc:'Custom place added from the map.', lat, lng, img:'https://images.unsplash.com/photo-1502301197179-65228ab57f78?auto=format&fit=crop&w=600&q=80', tags:['custom'] };
-  popup.setContent(`<b>${escapeHtml(name)}</b><br><button class="btn primary" style="margin-top:6px;padding:4px 8px;font-size:11px;" onclick="addPendingPin()">＋ Add to Day ${t.currentDay+1}</button>`);
-}
-function addPendingPin() {
-  const p = window._pendingPin; if(!p) return;
-  ct().places.push(p);
-  addStop(p.id);
-  map.closePopup();
-}
-async function mapSearchGo() {
-  const q = $('mapSearchInput').value.trim();
-  if(!q) return;
-  toast('Searching for "' + q + '"...');
-  try {
-    const geo = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(q)).then(r=>r.json());
-    if(geo && geo[0]) {
-      const lat=parseFloat(geo[0].lat), lng=parseFloat(geo[0].lon);
-      map.flyTo([lat,lng], 15);
-      L.marker([lat,lng], {icon:L.divIcon({className:'custom-map-pin explore', html:'<div><i class="fa-solid fa-map-pin"></i></div>', iconSize:[26,26], iconAnchor:[13,13]})}).addTo(map).bindPopup(`<b>${escapeHtml(geo[0].display_name.split(',')[0])}</b>`).openPopup();
-    } else toast('No results found.');
-  } catch(e) { toast('Search failed. Check your connection.'); }
-}
-
-// --- LIVE EXPLORE (TRIPADVISOR / EXPEDIA STYLE) ---
-async function renderExplore() {
-  const q = $('exploreSearch').value.trim().toLowerCase();
-  const filter = document.querySelector('#exploreFilters .pill.active')?.dataset.filter;
-  const t = ct();
-
-  if (q && map) {
-    const center = map.getCenter();
-    try {
-      const overpassQ = `[out:json][timeout:15];(node["name"~"${q}",i](around:5000,${center.lat},${center.lng});node["amenity"~"${q}"](around:5000,${center.lat},${center.lng}););out body 12;`;
-      const res = await fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(overpassQ));
-      const data = await res.json();
-      const found = (data.elements||[]).filter(el=>el.tags && (el.tags['name:en']||el.tags.name)).map(el=>({
-        id:newId(), name: el.tags['name:en'] || el.tags.name, area:'Live Search', type:'Spot', rating:4.5, cost:1000, mins:90,
-        desc:'Live map discovery.', lat:el.lat, lng:el.lon,
-        img:'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=600&q=80', tags:[]
-      }));
-      if(found.length > 0) {
-        t.places.push(...found);
-        found.forEach(p=> L.marker([p.lat,p.lng], {icon: L.divIcon({className:'custom-map-pin explore', html:'<div>📍</div>', iconSize:[26,26], iconAnchor:[13,13]})}).addTo(map).bindPopup(`<b>${escapeHtml(p.name)}</b>`));
-        $('exploreGrid').innerHTML = found.map(p=>placeCard(p)).join('');
-        saveState();
-        toast(`Found ${found.length} live spots near map center!`);
-        return;
-      }
-    } catch(e) {}
-  }
-
-  let arr = t.places.filter(p => !q || (p.name+' '+p.area).toLowerCase().includes(q));
-  if(filter && filter!=='all') arr = arr.filter(p => (p.tags||[]).includes(filter) || (p.type||'').toLowerCase()===filter);
-
-  $('exploreGrid').innerHTML = arr.map(p=>placeCard(p)).join('') || '<div class="empty">No matches found. Try another search.</div>';
-}
-
-function setupExploreFilters() {
-  const filters = [['all','All'], ...PREFS.map(x=>[x[0],x[2]])];
-  $('exploreFilters').innerHTML = filters.map(([k,l],i)=>`<button class="pill ${i===0?'active':''}" type="button" aria-pressed="${i===0}" data-filter="${k}">${l}</button>`).join('');
-  $('exploreFilters').querySelectorAll('.pill').forEach(b=>b.onclick=()=>{
-    $('exploreFilters').querySelectorAll('.pill').forEach(x=>{ x.classList.remove('active'); x.setAttribute('aria-pressed','false'); });
-    b.classList.add('active'); b.setAttribute('aria-pressed','true');
-    renderExplore();
-  });
-}
-
-// --- PLACE DETAILS (TRIPADVISOR STYLE) ---
-function openPlaceDetails(id) {
-  const t = ct();
-  const p = t.places.find(x=>x.id===id) || TOKYO_PLACES.find(x=>x.id===id) || PARIS_PLACES.find(x=>x.id===id);
-  if(!p) return;
-  const reviews = getReviews(p);
-  const saved = t.savedIds.has(p.id);
-  const stars = '★'.repeat(Math.round(p.rating)) + '☆'.repeat(5-Math.round(p.rating));
-  $('placeModalBody').innerHTML = `
-    <div class="modalHeader"><div><h2 id="placeModalTitle">${escapeHtml(p.name)}</h2><p class="small">${escapeHtml(p.area)}${p.type?' · '+escapeHtml(p.type):''} · <span class="stars" aria-hidden="true">${stars}</span> <span class="visually-hidden">Rating</span> ${p.rating} out of 5</p></div><button class="xbtn" data-close="placeModal" aria-label="Close dialog">×</button></div>
-    <img class="detailImg" src="${p.img}" alt="${escapeHtml(p.name)}"/>
-    <p>${escapeHtml(p.desc)}</p>
-    <div class="detailTags">${(p.tags||[]).map(tg=>`<span>${escapeHtml(tg)}</span>`).join('')}</div>
-    <div class="stats" style="grid-template-columns:repeat(3,1fr)">
-      <div class="stat"><div class="v">¥${p.cost.toLocaleString()}</div><div class="k">Typical cost</div></div>
-      <div class="stat"><div class="v">${p.mins}m</div><div class="k">Typical visit</div></div>
-      <div class="stat"><div class="v">${p.rating}</div><div class="k">Rating</div></div>
-    </div>
-    <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap">
-      <button class="btn primary" onclick="addStop(${p.id})"><i class="fa-solid fa-plus" aria-hidden="true"></i> Add to Day ${t.currentDay+1}</button>
-      <button class="btn" onclick="toggleSave(${p.id});openPlaceDetails(${p.id})" aria-pressed="${saved}">${saved?'♥ Saved':'♡ Save'}</button>
-      <button class="btn" onclick="startTurnNav(${p.id});closeModal('placeModal')"><i class="fa-solid fa-location-arrow" aria-hidden="true"></i> Route</button>
-      <a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.name + ' ' + t.destination)}"><i class="fa-solid fa-map-pin" aria-hidden="true"></i> Google Maps <span class="visually-hidden">(opens in a new tab)</span></a>
-    </div>
-    <h3 style="margin-top:20px">Traveler reviews</h3>
-    ${reviews.map(r=>`<div class="reviewCard"><div class="ru"><span>${escapeHtml(r.user)}</span><span class="stars" aria-hidden="true">${'★'.repeat(r.rating)}</span><span class="visually-hidden">${r.rating} out of 5</span></div><p>${escapeHtml(r.text)}</p></div>`).join('')}
-  `;
-  openModal('placeModal', $('placeModalBody').querySelector('.xbtn'));
-}
-
-// --- TURN BY TURN NAVIGATION ---
-function startTurnNav(id) {
-  if(!map) return;
-  if(!window.L || !L.Routing) { toast('Routing library unavailable right now.'); return; }
-  const t = ct();
-  const p = t.places.find(x=>x.id===id) || t.dayPlans.flat().find(x=>x.id===id) || (window._pendingPin && window._pendingPin.id===id ? window._pendingPin : null);
-  if(!p) return;
-  if(routingControl) map.removeControl(routingControl);
-  const list = t.dayPlans[t.currentDay] || [];
-  const origin = list[0] ? [list[0].lat, list[0].lng] : [map.getCenter().lat, map.getCenter().lng];
-
-  routingControl = L.Routing.control({
-    waypoints: [L.latLng(origin[0], origin[1]), L.latLng(p.lat, p.lng)],
-    lineOptions: { styles: [{ color: '#11795c', opacity: 0.9, weight: 6 }] }
-  }).addTo(map);
-
-  routingControl.on('routesfound', function(e) {
-    const routes = e.routes;
-    routeInstructions = routes[0].instructions || [];
-    currentStepIndex = 0;
-    $('turn-dist-total').innerText = `${(routes[0].summary.totalDistance / 1000).toFixed(1)} km`;
-    $('turnHud').style.display = 'block';
-    updateTurnDisplay();
-  });
-  routingControl.on('routingerror', () => toast('Could not calculate a route for this pair.'));
-  map.flyTo([p.lat, p.lng], 15);
-}
-
-function updateTurnDisplay() {
-  if(!routeInstructions.length) return;
-  const step = routeInstructions[currentStepIndex];
-  $('turn-text').innerText = step.text || "Continue along route";
-  $('turn-sub').innerText = `Step ${currentStepIndex + 1} of ${routeInstructions.length} • in ${Math.round(step.distance)}m`;
-}
-function nextTurn() { if(currentStepIndex < routeInstructions.length - 1) { currentStepIndex++; updateTurnDisplay(); } }
-function prevTurn() { if(currentStepIndex > 0) { currentStepIndex--; updateTurnDisplay(); } }
-function stopTurnNav() { if(routingControl) { map.removeControl(routingControl); routingControl = null; } $('turnHud').style.display = 'none'; }
-
-// --- SAVED, BUDGET, PACKING, BOOKINGS ---
-function renderSaved() {
-  const t = ct();
-  const arr = [...t.savedIds].map(id => t.places.find(p=>p.id===id)).filter(Boolean);
-  $('savedGrid').innerHTML = arr.map(p=>placeCard(p,{addLabel:`＋ Add to Day ${t.currentDay+1}`, removeMode:true})).join('') || '<div class="empty">Nothing saved yet. Click ♡ to save places.</div>';
-}
-
-function renderBudget() {
-  const t = ct();
-  const planned = t.bookings.reduce((a,b)=>a+b.cost,0) + t.dayPlans.flat().reduce((a,p)=>a+p.cost,0);
-  $('budgetTotal').textContent = '¥' + t.tripBudget.toLocaleString();
-  $('budgetPlanned').textContent = '¥' + planned.toLocaleString();
-  $('budgetRemaining').textContent = '¥' + Math.max(0, t.tripBudget - planned).toLocaleString();
-
-  const cats = {}; t.dayPlans.flat().forEach(p => cats[p.type] = (cats[p.type]||0) + p.cost);
-  t.bookings.forEach(b => cats[b.type] = (cats[b.type]||0) + b.cost);
-
-  $('budgetList').innerHTML = Object.entries(cats).filter(x=>x[1]>0).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="listRow"><div class="left"><span>${escapeHtml(k)}</span></div><strong>¥${v.toLocaleString()}</strong></div>`).join('') || '<div class="empty">No expenses yet.</div>';
-}
-
-function renderPacking() {
-  const t = ct();
-  const packed = t.packing.filter(x=>x[1]).length; const total = t.packing.length; const pct = total ? Math.round(packed/total*100) : 0;
-  $('packingProgress').textContent = `${packed} / ${total} packed`; $('packingPercent').textContent = pct+'%'; $('packingBar').style.width = pct+'%';
-  $('packingBarWrap').setAttribute('aria-valuenow', String(pct));
-  $('packingList').innerHTML = t.packing.map((x,i)=>`<label class="listRow" style="cursor:pointer;"><div class="left"><input class="check" type="checkbox" ${x[1]?'checked':''} data-pack="${i}"><span>${escapeHtml(x[0])}</span></div><span class="small">${x[1]?'Packed':'To pack'}</span></label>`).join('');
-  $('packingList').querySelectorAll('[data-pack]').forEach(c=>c.onchange=()=>{ t.packing[Number(c.dataset.pack)][1]=c.checked; saveState(); renderPacking(); });
-}
-
-function renderBookings() {
-  const t = ct();
-  $('bookingList').innerHTML = t.bookings.map((b,i)=>`<div class="card booking"><div><div class="small" style="color:var(--green); font-weight:700;">${escapeHtml(b.type)}</div><h3 style="margin:3px 0">${escapeHtml(b.name)}</h3><div class="small">${escapeHtml(b.date)}</div></div><div style="display:flex;align-items:center;gap:10px"><strong>¥${b.cost.toLocaleString()}</strong><button class="btn danger" onclick="removeBooking(${i})" aria-label="Remove booking: ${escapeHtml(b.name)}">Remove</button></div></div>`).join('') || '<div class="empty">No bookings yet.</div>';
-}
-function removeBooking(i) { ct().bookings.splice(i,1); saveState(); renderBookings(); renderBudget(); toast('Booking removed.'); }
-
-// --- EXPEDIA-STYLE FLIGHT & HOTEL SEARCH ---
-function searchFlights(from,to,date) {
-  const base = 32000 + Math.floor(Math.random()*40000);
-  return AIRLINES.map((a,i)=>({
-    id:newId(), airline:a, from, to, date,
-    depart: `${6+i*3}:${i%2?'15':'45'} ${i<2?'AM':'PM'}`,
-    duration: `${9+i}h ${(15*i)%60}m`,
-    stops: i%3===0?'Nonstop':(i%3===1?'1 stop':'2 stops'),
-    price: base + i*4500
-  }));
-}
-function searchHotels(dest,nights) {
-  const n = Math.max(1, Number(nights)||1);
-  return HOTEL_NAMES.map((name,i)=>({
-    id:newId(), name, area:dest, rating:(4.3 + (i%3)*0.2).toFixed(1),
-    perNight: 6000 + i*2500, nights:n, img:HOTEL_IMGS[i % HOTEL_IMGS.length]
-  }));
-}
-let flightCache = {}, hotelCache = {};
-function renderFlightResults(list) {
-  flightCache = Object.fromEntries(list.map(f=>[f.id,f]));
-  $('flightResults').innerHTML = list.map(f=>`
-    <div class="flightRow">
-      <div><strong>${escapeHtml(f.airline)}</strong><div class="small">${escapeHtml(f.from)} → ${escapeHtml(f.to)} · ${escapeHtml(f.date)}</div></div>
-      <div class="fmid"><div>${f.depart}</div><div>${f.duration} · ${f.stops}</div></div>
-      <div style="text-align:right"><div class="priceTag">¥${f.price.toLocaleString()}</div><button class="btn primary" style="margin-top:6px;padding:6px 10px;font-size:12px" onclick="bookFlight(${f.id})">Book <span class="visually-hidden">${escapeHtml(f.airline)} for ¥${f.price.toLocaleString()}</span></button></div>
-    </div>`).join('') || '<div class="empty">No flights found.</div>';
-  toast(`Found ${list.length} flights.`);
-}
-function bookFlight(id) {
-  const f = flightCache[id]; if(!f) return;
-  ct().bookings.push({type:'Flight', name:`${f.airline}: ${f.from} → ${f.to}`, date:f.date, cost:f.price});
-  saveState(); renderBookings(); renderBudget(); toast('Flight booked and added to your trip.');
-}
-function renderHotelResults(list) {
-  hotelCache = Object.fromEntries(list.map(h=>[h.id,h]));
-  $('hotelResults').innerHTML = list.map(h=>`
-    <div class="place"><img src="${h.img}" alt="${escapeHtml(h.name)}"/><div class="placeBody"><h4>${escapeHtml(h.name)}</h4><p>${escapeHtml(h.area)} · <span aria-hidden="true">★</span> ${h.rating} · ¥${h.perNight.toLocaleString()}/night</p>
-    <div class="placeFoot"><strong>¥${(h.perNight*h.nights).toLocaleString()}</strong><button class="add" onclick="bookHotel(${h.id})">Book ${h.nights}n <span class="visually-hidden">at ${escapeHtml(h.name)}</span></button></div></div></div>`).join('') || '<div class="empty">No hotels found.</div>';
-  toast(`Found ${list.length} hotels.`);
-}
-function bookHotel(id) {
-  const h = hotelCache[id]; if(!h) return;
-  ct().bookings.push({type:'Stay', name:h.name, date:`${h.nights} night${h.nights===1?'':'s'}`, cost:h.perNight*h.nights});
-  saveState(); renderBookings(); renderBudget(); toast('Hotel booked and added to your trip.');
-}
-
-// --- GEMINI AI INTEGRATION ---
-function promptApiKey() {
-  const key = prompt("Enter your free Google Gemini API Key from aistudio.google.com:", geminiApiKey);
-  if (key !== null) {
-    geminiApiKey = key.trim();
-    localStorage.setItem('tripshuffle_gemini_key', geminiApiKey);
-    toast(geminiApiKey ? "Gemini Key Saved! AI is live." : "Gemini Key Cleared.");
-  }
-}
-
-async function sendAI() {
-  const text = $('aiText').value.trim();
-  if(!text) return;
-  const t = ct();
-  const msgs = $('messages');
-  msgs.insertAdjacentHTML('beforeend', `<div class="msg user">${escapeHtml(text)}</div>`);
-  $('aiText').value = '';
-  msgs.scrollTop = msgs.scrollHeight;
-
-  const typing = document.createElement('div'); typing.className='msg bot'; typing.innerHTML='<i class="fa-solid fa-spinner fa-spin"></i> Thinking with Gemini...'; msgs.appendChild(typing); msgs.scrollTop = msgs.scrollHeight;
-
-  const dest = t.destination;
-  const currentStops = (t.dayPlans[t.currentDay]||[]).map(p=>p.name).join(', ');
-  const promptText = `You are TripShuffle AI Copilot, an expert travel advisor. Destination: ${dest}. Current Day ${t.currentDay+1} Itinerary: [${currentStops}]. Total Trip Budget: ¥${t.tripBudget}. Answer the user concisely, formatted nicely with short bullet points. Do not make up fake places if asked for recommendations, suggest real ones.`;
-
-  if(geminiApiKey) {
-    try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: `${promptText}\n\nUser: ${text}` }] }] })
-      });
-      const data = await res.json();
-      if(data.candidates && data.candidates[0].content) {
-        typing.innerHTML = escapeHtml(data.candidates[0].content.parts[0].text).replace(/\n/g, '<br>');
-      } else {
-        typing.textContent = "Gemini API error. Please check your API key.";
-      }
-    } catch(err) { typing.textContent = "Connection error. Make sure your Gemini API key is valid."; }
-  } else {
-    setTimeout(()=>{
-      typing.innerHTML = `For **${escapeHtml(dest)}**, Day ${t.currentDay+1} looks great! Consider checking out local spots near ${escapeHtml(currentStops.split(',')[0]||'your hotel')}.<br><br>💡 <i>Tip: Click the key icon in the chat header to add your free Gemini API key for live smart answers.</i>`;
-      msgs.scrollTop = msgs.scrollHeight;
-    }, 600);
-  }
-}
-
-// --- MODALS ---
-let lastFocusedBeforeModal = null;
-function openModal(id, focusEl) {
-  const back = $(id);
-  lastFocusedBeforeModal = document.activeElement;
-  back.classList.add('show');
-  document.body.style.overflow = 'hidden';
-  const target = focusEl || back.querySelector('.modal [autofocus]') || back.querySelector('input, select, textarea, button');
-  if(target) target.focus();
-}
-function closeModal(id) {
-  const back = $(id);
-  if(!back.classList.contains('show')) return;
-  back.classList.remove('show');
-  if(![...document.querySelectorAll('.modalBack')].some(m=>m.classList.contains('show'))) document.body.style.overflow = '';
-  if(lastFocusedBeforeModal && document.contains(lastFocusedBeforeModal)) lastFocusedBeforeModal.focus();
-  lastFocusedBeforeModal = null;
-}
-document.addEventListener('click', e => { const b = e.target.closest('[data-close]'); if(b) closeModal(b.dataset.close); });
-document.querySelectorAll('.modalBack').forEach(m=>{
-  m.addEventListener('click',e=>{ if(e.target===m) closeModal(m.id); });
-  m.addEventListener('keydown', e => {
-    if(e.key === 'Escape') { closeModal(m.id); return; }
-    if(e.key !== 'Tab') return;
-    const focusables = [...m.querySelectorAll('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter(x=>x.offsetParent!==null);
-    if(!focusables.length) return;
-    const first = focusables[0], last = focusables[focusables.length-1];
-    if(e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-    else if(!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-  });
-});
-
-// --- UI EVENT LISTENERS ---
-wireNav();
-$('optBtn').onclick = () => { const t=ct(); if(t.dayPlans[t.currentDay]) { t.dayPlans[t.currentDay].sort((a,b)=>a.lng-b.lng); saveState(); renderAll(); toast('Route geographically optimized.'); } };
-$('buildBtn').onclick = async () => { const t=ct(); t.destination=$('destination').value; t.dates=$('dates').value; $('heroTitle').textContent = t.destination.split(',')[0]+', your way.'; saveState(); await generateDayPlans(); };
-$('clearSavedBtn').onclick = () => { ct().savedIds.clear(); saveState(); renderSaved(); renderRecommendations(); toast('Saved places cleared.'); };
-$('budgetAdjustBtn').onclick = () => { $('budgetInput').value = ct().tripBudget; openModal('budgetModal'); };
-$('saveBudgetBtn').onclick = () => { ct().tripBudget = Math.max(0, Number($('budgetInput').value)||0); saveState(); closeModal('budgetModal'); renderBudget(); toast('Budget updated.'); };
-$('addPackingBtn').onclick = () => { const item=prompt('Add a packing item'); if(item){ ct().packing.push([item,false]); saveState(); renderPacking(); toast('Item added.'); } };
-$('addBookingBtn').onclick = () => { const name=prompt('Booking name (e.g. Kyoto Flight)'); if(name){ ct().bookings.push({type:'Booking',name,date:$('dates').value,cost:Math.floor(Math.random()*15000)+5000}); saveState(); renderBookings(); renderBudget(); toast('Booking added.'); } };
-$('exploreSearchForm').addEventListener('submit', e => { e.preventDefault(); renderExplore(); });
-
-$('newTripBtn').onclick = () => openModal('newTripModal');
-$('createTripBtn').onclick = async () => {
-  const destination = $('newDestination').value.trim() || 'New destination';
-  const dates = $('newDates').value.trim();
-  const days = Number($('newDays').value) || 3;
-  closeModal('newTripModal');
-  await createTrip(destination, dates, days);
-};
-$('surpriseBtn').onclick = () => { setupPrefs(); openModal('surpriseModal'); };
-$('generateBtn').onclick = async () => {
-  const t = ct();
-  t.selectedPrefs = new Set([...document.querySelectorAll('#prefGrid .pref.active')].map(x=>x.dataset.pref));
-  saveState();
-  closeModal('surpriseModal');
-  await generateDayPlans();
-  toast('Surprise trip generated based on your preferences!');
-};
-$('addStopBtn').onclick = () => { showView('explore'); setTimeout(()=>$('exploreSearch').focus(), 50); toast('Search or browse below, then tap “＋ Add”.'); };
-$('centerBtn').onclick = () => {
-  const t = ct(); const list = t.dayPlans[t.currentDay]||[];
-  if(!map) return;
-  if(list.length) map.fitBounds(L.latLngBounds(list.map(p=>[p.lat,p.lng])).pad(0.2));
-  else map.setView(t.center, 12);
-};
-$('locateBtn').onclick = () => {
-  if(!navigator.geolocation) { toast('Geolocation not supported by this browser.'); return; }
-  toast('Locating you...');
-  navigator.geolocation.getCurrentPosition(pos=>{
-    const {latitude,longitude} = pos.coords;
-    map.flyTo([latitude,longitude], 14);
-    L.marker([latitude,longitude], {icon:L.divIcon({className:'custom-map-pin', html:'<div><i class="fa-solid fa-person"></i></div>', iconSize:[26,26], iconAnchor:[13,13]})}).addTo(map).bindPopup('You are here').openPopup();
-  }, () => toast('Could not get your location.'));
-};
-$('mapSearchForm').addEventListener('submit', e => { e.preventDefault(); mapSearchGo(); });
-$('apiSetupBtn').onclick = promptApiKey;
-
-const bookingTabs = [...document.querySelectorAll('#view-bookings .toolbar .pill')];
-function selectBookingTab(b) {
-  bookingTabs.forEach(x=>{ const on = x===b; x.classList.toggle('active',on); x.setAttribute('aria-selected', on); x.tabIndex = on?0:-1; });
-  document.querySelectorAll('.bpane').forEach(x=>x.classList.remove('active'));
-  $('bpane-'+b.dataset.btab).classList.add('active');
-}
-bookingTabs.forEach((b,i)=>{
-  b.tabIndex = b.classList.contains('active') ? 0 : -1;
-  b.onclick = () => selectBookingTab(b);
-  b.onkeydown = e => {
-    if(e.key!=='ArrowRight' && e.key!=='ArrowLeft') return;
-    e.preventDefault();
-    const next = bookingTabs[(i + (e.key==='ArrowRight'?1:-1) + bookingTabs.length) % bookingTabs.length];
-    next.focus(); selectBookingTab(next);
-  };
-});
-$('flightSearchForm').addEventListener('submit', e => { e.preventDefault(); renderFlightResults(searchFlights($('flightFrom').value, $('flightTo').value, $('flightDate').value)); });
-$('hotelSearchForm').addEventListener('submit', e => { e.preventDefault(); renderHotelResults(searchHotels($('hotelDest').value, $('hotelNights').value)); });
-
-// AI Chat
-function openAI() {
-  $('ai').classList.remove('hidden');
-  $('aiLauncher').style.display='none';
-  $('aiLauncher').setAttribute('aria-expanded','true');
-  $('aiText').focus();
-}
-function closeAI() {
-  $('ai').classList.add('hidden');
-  $('aiLauncher').style.display='flex';
-  $('aiLauncher').setAttribute('aria-expanded','false');
-  $('aiLauncher').focus();
-}
-$('aiLauncher').onclick = openAI;
-$('minAI').onclick = $('closeAI').onclick = closeAI;
-$('aiForm').addEventListener('submit', e => { e.preventDefault(); sendAI(); });
-$('aiText').addEventListener('keydown', e => { if(e.key==='Enter' && !e.shiftKey) { e.preventDefault(); sendAI(); } });
-$('ai').addEventListener('keydown', e => { if(e.key==='Escape') closeAI(); });
-document.querySelectorAll('.suggestion').forEach(s => s.onclick = () => { $('aiText').value=s.textContent; sendAI(); });
-
-// --- INIT ---
-async function init() {
-  if(!loadState()) { trips = defaultTrips().map(t=>({...t, selectedPrefs:new Set(t.selectedPrefs), savedIds:new Set(t.savedIds)})); currentTripId = trips[0].id; }
-  recalcIdCounter();
-  renderTripList();
-  setupPrefs();
-  setupExploreFilters();
-  $('destination').value = ct().destination;
-  $('dates').value = ct().dates;
-  $('heroTitle').textContent = ct().destination.split(',')[0] + ', your way.';
-  if(window.L) {
-    map = L.map('map', {zoomControl:true}).setView(ct().center, 12);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OSM'}).addTo(map);
-    map.on('click', onMapClick);
-  }
-  if(ct().dayPlans.length === 0) { await generateDayPlans(); } else { renderDays(); renderAll(); }
-}
-
-window.onload = init;
-</script>
+<script src="data.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
