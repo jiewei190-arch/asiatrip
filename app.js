@@ -1128,7 +1128,7 @@ function focusDestMapPlace(p){
 function renderDestIdeas(dest, body){
   body.innerHTML = `
     <div class="panelHead" style="padding:0 0 14px;border:0">
-      <p class="small" style="margin:0">${TRIP_ARCHETYPES.length} themed trip concepts for ${esc(dest.name)}.</p>
+      <p class="small" style="margin:0">${IDEAS_SHOWN_PER_GENERATE} themed trip concepts for ${esc(dest.name)}.</p>
       <button class="btn primary" id="destIdeasRegen">🔄 Generate New Ideas</button>
     </div>
     <div id="destIdeasGrid" class="ideaCardGrid"></div>`;
@@ -1146,7 +1146,7 @@ function renderDestIdeas(dest, body){
 ============================================================ */
 const IDEA_STORE = {};
 const DEST_CURRENT_IDEA_IDS = {}; // destId -> [ideaId,...] — the "current" stable batch shown until the user explicitly regenerates
-const IDEA_DEFAULT_DAYS = {food:3, culture:4, nightlife:2, shopping:2, relax:3, art:2, adventure:3, romantic:2, hidden:3};
+const IDEA_DEFAULT_DAYS = {food:3, culture:4, nightlife:2, shopping:2, relax:3, art:2, adventure:3, romantic:2, hidden:3, family:4, luxury:3, solo:3, photo:2, wellness:3, budget:3, classic:4};
 
 function shuffle(arr){
   const a = arr.slice();
@@ -1192,9 +1192,12 @@ function buildIdea(destId, archetype, overrides){
   IDEA_STORE[id] = idea;
   return idea;
 }
-/** Explicit "Generate" action — always produces a brand-new, randomized batch of ideas. */
+/** Explicit "Generate" action — always produces a brand-new, randomized batch of ideas: a
+ * fresh random subset of archetypes (so the themes themselves vary between generations, not
+ * just the places inside each one), each rebuilt with a freshly shuffled real-place selection. */
 function regenerateIdeas(destId){
-  const ideas = TRIP_ARCHETYPES.map(a=>buildIdea(destId, a));
+  const chosen = shuffle(TRIP_ARCHETYPES).slice(0, Math.min(IDEAS_SHOWN_PER_GENERATE, TRIP_ARCHETYPES.length));
+  const ideas = chosen.map(a=>buildIdea(destId, a));
   DEST_CURRENT_IDEA_IDS[destId] = ideas.map(i=>i.id);
   return ideas;
 }
@@ -1376,7 +1379,7 @@ function renderIdeasView(destIdParam){
     if(dest.id.startsWith('gen-')) enrichDestinationInBackground(dest, refreshIdeas);
     else supplementDestinationInBackground(dest, refreshIdeas);
   } else {
-    $('ideasGrid').innerHTML = `<div class="empty" style="grid-column:1/-1">Search a destination above to generate ${TRIP_ARCHETYPES.length} themed trip ideas — food, culture, nightlife, shopping, relaxation, art, adventure, romance and hidden gems.</div>`;
+    $('ideasGrid').innerHTML = `<div class="empty" style="grid-column:1/-1">Search a destination above to generate ${IDEAS_SHOWN_PER_GENERATE} themed trip ideas from a wide mix of styles — food, culture, nightlife, shopping, relaxation, art, adventure, romance, hidden gems and more.</div>`;
   }
 }
 
@@ -1995,6 +1998,34 @@ function pushAIMessage(who, text){
   msgs.scrollTop = msgs.scrollHeight;
   return div;
 }
+// Tries a short list of current/likely-available Gemini model ids in order, so a single
+// model being renamed or retired doesn't silently break the whole integration. Returns
+// {text} on success or {error} with a specific, user-visible reason on failure.
+const GEMINI_MODEL_CANDIDATES = ['gemini-2.5-flash','gemini-2.0-flash','gemini-1.5-flash'];
+async function callGemini(prompt, apiKey){
+  let lastError = null;
+  for(const model of GEMINI_MODEL_CANDIDATES){
+    try{
+      const res = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`, 12000, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ contents:[{ parts:[{ text:prompt }]}] })
+      });
+      const data = await res.json().catch(()=>null);
+      if(res.ok && data && data.candidates && data.candidates[0] && data.candidates[0].content){
+        return { text: data.candidates[0].content.parts.map(p=>p.text||'').join('') };
+      }
+      if(data && data.error && data.error.message){
+        lastError = data.error.message;
+        // A "model not found" style error means try the next candidate; anything else
+        // (bad key, quota, permission) will fail the same way for every model, so stop.
+        if(!/not found|not supported|404/i.test(lastError)) break;
+      } else {
+        lastError = `HTTP ${res.status}`;
+      }
+    }catch(e){ lastError = e.name==='AbortError' ? 'request timed out' : (e.message || 'network error'); }
+  }
+  return { error: lastError };
+}
 async function sendAI(){
   const text = $('aiText').value.trim();
   if(!text) return;
@@ -2009,20 +2040,15 @@ async function sendAI(){
     return;
   }
   if(STATE.geminiKey){
-    try{
-      const dest = trip ? destForTrip(trip) : null;
-      const context = trip ? `The user is planning "${trip.title}" to ${dest.name}, ${trip.days.length} days, ${trip.budget.style} budget style, total budget ${fmt$(trip.budget.total)}.` : `The user hasn't opened a specific trip yet.`;
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${STATE.geminiKey}`, {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ contents:[{ parts:[{ text:`You are TripFlow's travel planning assistant. ${context} Answer concisely with short, practical bullet points, using real place names when relevant. User: ${text}` }]}] })
-      });
-      const data = await res.json();
-      if(data.candidates && data.candidates[0] && data.candidates[0].content){
-        typing.innerHTML = esc(data.candidates[0].content.parts[0].text).replace(/\n/g,'<br>');
-      } else {
-        typing.innerHTML = esc("I couldn't reach Gemini right now — check your API key. Meanwhile: " + result.reply);
-      }
-    }catch(e){ typing.innerHTML = esc('Connection error reaching Gemini. ' + result.reply); }
+    const dest = trip ? destForTrip(trip) : null;
+    const context = trip ? `The user is planning "${trip.title}" to ${dest.name}, ${trip.days.length} days, ${trip.budget.style} budget style, total budget ${fmt$(trip.budget.total)}.` : `The user hasn't opened a specific trip yet.`;
+    const prompt = `You are TripFlow's travel planning assistant. ${context} Answer concisely with short, practical bullet points, using real place names when relevant. User: ${text}`;
+    const gemini = await callGemini(prompt, STATE.geminiKey);
+    if(gemini.text){
+      typing.innerHTML = esc(gemini.text).replace(/\n/g,'<br>');
+    } else {
+      typing.innerHTML = esc(`Couldn't reach Gemini (${gemini.error || 'unknown error'}). Meanwhile: ` + result.reply);
+    }
   } else {
     typing.innerHTML = esc(result.reply).replace(/\n/g,'<br>');
   }
@@ -2080,10 +2106,16 @@ function handleIntent(text, trip){
   const t = text.toLowerCase().trim();
   const dest = trip ? destForTrip(trip) : null;
 
-  let m = t.match(/what should i do in ([a-z\s,]+?)(?: for (\d+)\s*days?)?[.?!]?$/);
+  // Accepts both word orders — "what should I do in Tokyo for 3 days" AND
+  // "what should I do for 3 days in Tokyo" — plus a few common rephrasings ("what to do
+  // in", "things to do in", "what can I do in") rather than one rigid fixed phrase.
+  const dayM = t.match(/for (\d+)\s*days?/);
+  const daysFromText = dayM ? parseInt(dayM[1],10) : null;
+  const withoutDays = dayM ? t.slice(0,dayM.index).trim()+' '+t.slice(dayM.index+dayM[0].length).trim() : t;
+  let m = withoutDays.match(/(?:what should i do|what to do|what can i do|things to do)\s+in ([a-z\s,]+?)[.?!]?$/);
   if(m && m[1].trim().length>1){
     const name = m[1].trim();
-    const days = m[2] ? parseInt(m[2],10) : null;
+    const days = daysFromText;
     const d = findDestination(name);
     if(!trip || trip.destId!==d.id){
       const nDays = days||4;

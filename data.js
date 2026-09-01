@@ -285,6 +285,9 @@ async function enrichGenericDestination(dest){
   } finally { dest.__enriching = false; }
 }
 
+// A larger pool than what's shown per generation (see IDEAS_SHOWN_PER_GENERATE) — each
+// "Generate" click samples a fresh random subset, so the card THEMES vary between
+// generations too, not just the places inside each one.
 const TRIP_ARCHETYPES = [
   { key:'food',      emoji:'🍜', titleTpl:"Food Lover's {city}",   tags:['food'],             descTpl:"Street food stalls, izakayas, local markets and the tables locals actually eat at in {city}." },
   { key:'culture',    emoji:'🏯', titleTpl:"Culture & History",     tags:['culture','history'],descTpl:"Temples, museums, monuments and old neighborhoods that tell {city}'s story." },
@@ -295,7 +298,15 @@ const TRIP_ARCHETYPES = [
   { key:'adventure',  emoji:'⛰️', titleTpl:"{city} Adventure",       tags:['adventure','nature'],descTpl:"Outdoor thrills and nature escapes in and around {city}." },
   { key:'romantic',   emoji:'💑', titleTpl:"Romantic {city}",        tags:['romantic'],         descTpl:"Sunset views, candlelit dinners and quiet corners made for two in {city}." },
   { key:'hidden',     emoji:'📸', titleTpl:"Hidden {city}",          tags:['hidden'],           descTpl:"Skip the crowds — the lesser-known spots locals actually love in {city}." },
+  { key:'family',     emoji:'👨‍👩‍👧', titleTpl:"Family-Friendly {city}", tags:['nature','culture'], descTpl:"Easygoing, kid-friendly stops and low-hassle days out in {city}." },
+  { key:'luxury',     emoji:'✨', titleTpl:"Luxury {city}",          tags:['romantic','food'], descTpl:"Fine dining, five-star stays and the best of {city} without compromise." },
+  { key:'solo',       emoji:'🎒', titleTpl:"Solo Explorer's {city}", tags:['hidden','culture'], descTpl:"Flexible, low-key days made for exploring {city} at your own pace." },
+  { key:'photo',      emoji:'📷', titleTpl:"Instagram-Worthy {city}",tags:['photography','art'],descTpl:"The most photogenic corners, views and light in {city}." },
+  { key:'wellness',   emoji:'🧘', titleTpl:"{city} Wellness Retreat",tags:['relax','nature'],   descTpl:"Slow mornings, spas and green space for a reset in {city}." },
+  { key:'budget',     emoji:'💸', titleTpl:"Budget {city}",          tags:['food','hidden'],    descTpl:"Great days in {city} without spending a fortune — free sights, cheap eats, local transit." },
+  { key:'classic',    emoji:'🗺️', titleTpl:"Classic {city} Highlights", tags:['culture','food'], descTpl:"The essential, can't-miss sights and experiences every first-time visitor to {city} should hit." },
 ];
+const IDEAS_SHOWN_PER_GENERATE = 9;
 
 const INTERESTS = [
   ['food','🍜','Foodie','markets, tastings, local spots'],
