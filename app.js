@@ -10,7 +10,17 @@ function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;
 function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'), 2600); }
 let __uidN = 1;
 function uid(prefix){ return `${prefix}_${Date.now().toString(36)}_${(__uidN++).toString(36)}`; }
-function fmt$(n){ return '$'+Math.round(n||0).toLocaleString(); }
+/** All prices are stored in USD; fmt$ converts+formats to the user's chosen display currency (Settings). */
+function currentCurrencyCode(){
+  return (STATE.settings && STATE.settings.currencyCode) || 'USD';
+}
+function fmt$(n){
+  const code = currentCurrencyCode();
+  const meta = CURRENCY_META[code] || CURRENCY_META.USD;
+  const converted = convertUSD(n||0, code);
+  const rounded = Math.abs(converted) >= 100 || code==='JPY' || code==='KRW' || code==='IDR' ? Math.round(converted) : Math.round(converted*100)/100;
+  return meta.symbol + rounded.toLocaleString(undefined, code==='JPY'||code==='KRW'||code==='IDR'||Math.abs(converted)>=100 ? {maximumFractionDigits:0} : {minimumFractionDigits:2,maximumFractionDigits:2});
+}
 function clamp(n,a,b){ return Math.max(a,Math.min(b,n)); }
 function haversine(a,b){
   const R=6371, toRad=d=>d*Math.PI/180;
@@ -60,7 +70,14 @@ function hydratePhotos(container){
     const q = imgEl.dataset.photoQ;
     if(!q) return;
     imgEl.dataset.photoResolved = '1';
-    fetchWikiThumbnail(q).then(url=>{ if(url && !imgEl.dataset.photoLocked) imgEl.src = url; }).catch(()=>{});
+    const placeholder = imgEl.src;
+    fetchWikiThumbnail(q).then(url=>{
+      if(!url) return;
+      // If the real photo URL fails to actually load (dead link, hiccup, hotlink block), fall
+      // straight back to the placeholder instead of leaving a broken-image icon on screen.
+      imgEl.onerror = () => { imgEl.onerror = null; imgEl.src = placeholder; };
+      imgEl.src = url;
+    }).catch(()=>{});
   });
 }
 function enrichDestinationInBackground(dest, onDone){
@@ -75,7 +92,7 @@ const LS_GEMINI = 'tripflow_gemini_key';
 function defaultState(){
   return {
     theme:'system',
-    settings:{ name:'Jie Wei', email:'jiewei190@gmail.com', currency:'USD ($)' },
+    settings:{ name:'Jie Wei', email:'jiewei190@gmail.com', currencyCode:'USD' },
     trips:[],
     collections:[
       {id:'coll_want', name:'Want to Visit', icon:'❤️', placeIds:[]},
@@ -388,21 +405,28 @@ function timeAgo(ts){
 /* ---------------- settings ---------------- */
 function openSettings(){
   $('settingsName').value = STATE.settings.name;
-  $('settingsCurrency').value = STATE.settings.currency;
+  populateCurrencyOptions($('settingsCurrency'));
+  $('settingsCurrency').value = currentCurrencyCode();
   $('themeToggle').checked = STATE.theme==='dark';
   openModal('modal-settings');
+}
+function populateCurrencyOptions(select){
+  select.innerHTML = Object.entries(CURRENCY_META).map(([code,m])=>`<option value="${code}">${code} — ${esc(m.name)} (${m.symbol})</option>`).join('');
 }
 function initSettingsModal(){
   $('themeToggle').onchange = (e)=>{ STATE.theme = e.target.checked?'dark':'light'; applyTheme(); saveState(); };
   $('saveSettingsBtn').onclick = ()=>{
     STATE.settings.name = $('settingsName').value.trim() || STATE.settings.name;
-    STATE.settings.currency = $('settingsCurrency').value;
+    const newCode = $('settingsCurrency').value;
+    const changed = newCode !== STATE.settings.currencyCode;
+    STATE.settings.currencyCode = newCode;
     saveState();
     $('profileName').textContent = STATE.settings.name;
     const inits = initialsOf(STATE.settings.name);
     $$('.avatar#profileToggle, .profileHead .avatar').forEach(a=>a.textContent=inits);
-    toast('Settings saved.');
+    toast('Settings saved.' + (changed ? ` Prices now show in ${newCode}.` : ''));
     closeModal('modal-settings');
+    if(changed) refreshCurrentView();
   };
 }
 
@@ -805,6 +829,17 @@ function renderDestOverview(dest, body){
         <div class="ovCard"><div class="k">Luxury</div><div class="v" style="font-size:20px">${fmt$(dest.avgDailyBudget.luxury)}<span class="small">/day</span></div></div>
       </div>
     </div>
+    <div class="card" style="margin-top:16px">
+      <h3>💱 Currency converter</h3>
+      <div class="currencyConvRow">
+        <div class="field"><label>Amount</label><input type="number" id="convAmount" value="100" min="0"></div>
+        <div class="field"><label>From</label><select id="convFrom"></select></div>
+        <button class="iconbtn" id="convSwap" title="Swap"><i class="fa-solid fa-right-left"></i></button>
+        <div class="field"><label>To</label><select id="convTo"></select></div>
+      </div>
+      <div class="currencyConvResult" id="convResult">—</div>
+      <div class="small" id="convRateNote"></div>
+    </div>
     <div class="panelHead" style="padding:22px 0 12px;border:0"><h3 style="font-size:19px">Top attractions</h3><button class="linklike" data-tab="things">See all →</button></div>
     <div class="placeGrid">${top.map(p=>placeCardHTML(p,{noDesc:false})).join('')}</div>
     <div class="panelHead" style="padding:22px 0 12px;border:0"><h3 style="font-size:19px">Top restaurants</h3><button class="linklike" data-tab="restaurants">See all →</button></div>
@@ -817,6 +852,34 @@ function renderDestOverview(dest, body){
   const ideas = getCurrentIdeas(dest.id).slice(0,2);
   $('ovIdeaPreview').innerHTML = ideas.map(idea=>ideaCardHTML(idea)).join('');
   wireIdeaCards($('ovIdeaPreview'));
+  initCurrencyConverter(dest);
+}
+function initCurrencyConverter(dest){
+  populateCurrencyOptions($('convFrom'));
+  populateCurrencyOptions($('convTo'));
+  $('convFrom').value = currentCurrencyCode();
+  $('convTo').value = dest.currencyCode || 'USD';
+  function update(){
+    const amount = Number($('convAmount').value) || 0;
+    const from = $('convFrom').value, to = $('convTo').value;
+    const rateFrom = EXCHANGE_RATES[from], rateTo = EXCHANGE_RATES[to];
+    if(typeof rateFrom !== 'number' || typeof rateTo !== 'number'){
+      $('convResult').textContent = 'Rates unavailable — check your connection.';
+      $('convRateNote').textContent = '';
+      return;
+    }
+    const usd = amount / rateFrom;
+    const converted = usd * rateTo;
+    const fromMeta = CURRENCY_META[from] || CURRENCY_META.USD, toMeta = CURRENCY_META[to] || CURRENCY_META.USD;
+    $('convResult').textContent = `${fromMeta.symbol}${amount.toLocaleString()} = ${toMeta.symbol}${converted.toLocaleString(undefined,{maximumFractionDigits: converted>=100?0:2})}`;
+    const rate = rateTo / rateFrom;
+    $('convRateNote').textContent = `1 ${from} = ${rate.toLocaleString(undefined,{maximumFractionDigits:4})} ${to} · live rates, updated daily`;
+  }
+  $('convAmount').oninput = update;
+  $('convFrom').onchange = update;
+  $('convTo').onchange = update;
+  $('convSwap').onclick = ()=>{ const f=$('convFrom').value; $('convFrom').value=$('convTo').value; $('convTo').value=f; update(); };
+  update();
 }
 
 /* ---------------- Things To Do tab ---------------- */
@@ -1061,7 +1124,7 @@ function pickPlacesForIdea(destId, interests, budgetStyle, days){
   const priceOk = p=> budgetStyle==='budget' ? (p.priceLevel||0)<=2 : true;
   let filtered = pool.filter(priceOk);
   if(filtered.length<4) filtered = pool;
-  const desiredCount = Math.max(5, Math.min(10, days*2));
+  const desiredCount = Math.max(days*2, Math.min(14, Math.round(days*2.75)));
   // bias toward higher-rated places, but shuffle within that quality band so repeated
   // generations surface a genuinely different mix of places, not the same top-N every time
   const byRating = filtered.slice().sort((a,b)=>b.rating-a.rating);
@@ -1131,12 +1194,28 @@ function wireIdeaCards(container){
 function distributeIntoDays(places, nDays){
   const attractions = places.filter(p=>p.type==='attraction');
   const restaurants = places.filter(p=>p.type==='restaurant');
-  const buckets = Array.from({length:nDays},()=>({attrs:[],rests:[]}));
-  attractions.forEach((p,i)=>buckets[i%nDays].attrs.push(p));
-  restaurants.forEach((p,i)=>buckets[i%nDays].rests.push(p));
-  return buckets.map(b=>{
-    const half = Math.ceil(b.attrs.length/2);
-    const ordered = [...b.attrs.slice(0,half), ...b.rests, ...b.attrs.slice(half)];
+  // Interleave attractions and restaurants into one ordered list (meals spaced out among
+  // sightseeing, roughly one per every couple of attractions) BEFORE dealing into days — dealing
+  // attractions and restaurants into days as two separate round-robins (each restarting at day 1)
+  // used to stack bonus items onto the early days, leaving later days sparse.
+  const combined = [];
+  let ai=0, ri=0;
+  const spacing = restaurants.length ? Math.max(1, Math.round(attractions.length / restaurants.length)) : Infinity;
+  let sinceRest = 0;
+  while(ai<attractions.length || ri<restaurants.length){
+    if(ri<restaurants.length && (sinceRest>=spacing || ai>=attractions.length)){ combined.push(restaurants[ri++]); sinceRest=0; }
+    else if(ai<attractions.length){ combined.push(attractions[ai++]); sinceRest++; }
+    else { combined.push(restaurants[ri++]); sinceRest=0; }
+  }
+  // A single round-robin across ALL days (not one per place type) guarantees every day gets
+  // within one stop of every other day — no more days with 3 stops next to a day with 1.
+  const buckets = Array.from({length:nDays},()=>[]);
+  combined.forEach((p,i)=> buckets[i % nDays].push(p));
+  return buckets.map(dayPlaces=>{
+    const attrs = dayPlaces.filter(p=>p.type==='attraction');
+    const rests = dayPlaces.filter(p=>p.type==='restaurant');
+    const half = Math.ceil(attrs.length/2);
+    const ordered = [...attrs.slice(0,half), ...rests, ...attrs.slice(half)];
     let t = '09:00';
     return ordered.map(place=>{ const time=t; t=addMinutesToTime(t,(place.duration||90)+20); return {place,time}; });
   });
@@ -1156,7 +1235,7 @@ function openItineraryPreview(ideaId){
         ${days[current].length ? days[current].map(({place,time})=>`
           <div class="stop" style="cursor:default">
             <div class="stopTop">
-              <div class="num ${place.type}">${catEmoji(place.type)}</div>
+              <div class="stopThumb"><img src="${place.image}" alt="" data-photo-q="${esc(photoQuery(place.name, dest.name))}"></div>
               <div class="stopBody"><h4>${esc(place.name)}</h4><p>${esc(place.desc||'')}</p>
                 <div class="stopMeta"><span>🕒 ${fmtTime12(time)}</span><span>📍 ${esc(place.area)}</span>${place.rating?`<span>★ ${place.rating}</span>`:''}${place.price?`<span>${fmt$(place.price)}</span>`:''}</div>
               </div>
@@ -1169,6 +1248,7 @@ function openItineraryPreview(ideaId){
       </div>`;
     content.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>closeModal('modal-itineraryPreview'));
     content.querySelectorAll('[data-day]').forEach(b=>b.onclick=()=>{ current=Number(b.dataset.day); render(); });
+    hydratePhotos(content);
     $('useItineraryBtn').onclick = ()=>{
       const trip = createTripFromIdea(idea, days);
       closeModal('modal-itineraryPreview');
@@ -1513,14 +1593,14 @@ function renderPlannerItinerary(trip){
   renderPlannerStats(trip, day);
 }
 
-function stopHTML(s, i, total){
+function stopHTML(s, i, total, destName){
   const showTransit = i < total-1;
   return `
   <div class="stop" draggable="true" data-idx="${i}" data-stopid="${s.id}">
     <div class="stopTop">
-      <div class="num ${s.type}">${catEmoji(s.type)}</div>
+      <div class="stopThumb"><img src="${s.image}" alt="" data-photo-q="${esc(photoQuery(s.name, destName))}"><span class="num ${s.type}">${i+1}</span></div>
       <div class="stopBody">
-        <h4>${i+1}. ${esc(s.name)}</h4>
+        <h4>${esc(s.name)}</h4>
         <p>${esc(s.category||'')}${s.area?' · '+esc(s.area):''}</p>
         <div class="stopMeta">
           <input class="stopTimeInput" type="time" value="${s.time}" data-time="${s.id}">
@@ -1561,8 +1641,10 @@ function transitRowHTML(s){
 function renderTimeline(trip, day){
   const el = $('timeline2');
   if(!day.stops.length){ el.innerHTML = '<div class="empty">No stops yet. Use "Add place" above, or generate a Trip Idea for this destination.</div>'; return; }
-  el.innerHTML = day.stops.map((s,i)=>stopHTML(s,i,day.stops.length)).join('');
+  const destName = destForTrip(trip).name;
+  el.innerHTML = day.stops.map((s,i)=>stopHTML(s,i,day.stops.length,destName)).join('');
   wireStopEvents(trip, day);
+  hydratePhotos(el);
 }
 function wireStopEvents(trip, day){
   const el = $('timeline2');
@@ -2115,6 +2197,7 @@ function init(){
   initAI();
   renderNotifications();
   route();
+  loadExchangeRates().then(ok=>{ if(ok && currentCurrencyCode()!=='USD') refreshCurrentView(); });
 }
 window.addEventListener('hashchange', route);
 document.addEventListener('DOMContentLoaded', init);

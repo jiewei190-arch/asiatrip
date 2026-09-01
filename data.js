@@ -18,6 +18,14 @@ const IMG_PALETTE = [
 ];
 function hashStr(s){ let h=0; s=String(s); for(let i=0;i<s.length;i++){ h=(h*31+s.charCodeAt(i))|0; } return Math.abs(h); }
 function escapeXML(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+/** Base64-encodes a UTF-8 SVG string for a data URI. Percent-encoded (`;utf8,`) data URIs are
+    inconsistently supported on some mobile/WebKit builds — base64 is the most broadly compatible
+    format for `<img src>` across browsers, so every generated placeholder uses it. */
+function svgToDataUri(svg){
+  const bytes = encodeURIComponent(svg).replace(/%([0-9A-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+  const b64 = (typeof btoa === 'function') ? btoa(bytes) : Buffer.from(svg, 'utf8').toString('base64');
+  return 'data:image/svg+xml;base64,' + b64;
+}
 function img(seed,w,h,label){
   w=w||640; h=h||480;
   const hash = hashStr(seed);
@@ -27,6 +35,8 @@ function img(seed,w,h,label){
   let text = String(label||'').trim();
   if(text.length > maxChars) text = text.slice(0, maxChars-1) + '…';
   const fontSize = Math.round(w/17);
+  // Plain vector pin (no emoji glyph) so it renders identically everywhere, with no font/emoji dependency.
+  const cx = w/2, cy = h*0.38, r = w*0.052;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
 <defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%" gradientTransform="rotate(${angle} 0.5 0.5)">
 <stop offset="0%" stop-color="${c1}"/><stop offset="100%" stop-color="${c2}"/>
@@ -34,10 +44,11 @@ function img(seed,w,h,label){
 <rect width="${w}" height="${h}" fill="url(#g)"/>
 <circle cx="${Math.round(w*0.84)}" cy="${Math.round(h*0.2)}" r="${Math.round(w*0.16)}" fill="#ffffff" opacity="0.08"/>
 <circle cx="${Math.round(w*0.12)}" cy="${Math.round(h*0.88)}" r="${Math.round(w*0.24)}" fill="#000000" opacity="0.08"/>
-<text x="50%" y="47%" font-family="Arial,Helvetica,sans-serif" font-size="${Math.round(fontSize*1.6)}" text-anchor="middle" dominant-baseline="middle" opacity="0.9">📍</text>
+<path d="M ${cx} ${cy - r*1.6} C ${cx + r} ${cy - r*1.6} ${cx + r} ${cy - r*0.2} ${cx} ${cy + r*1.7} C ${cx - r} ${cy - r*0.2} ${cx - r} ${cy - r*1.6} ${cx} ${cy - r*1.6} Z" fill="#ffffff" opacity="0.92"/>
+<circle cx="${cx}" cy="${cy - r*0.85}" r="${r*0.42}" fill="${c1}"/>
 <text x="50%" y="60%" font-family="Arial,Helvetica,sans-serif" font-size="${fontSize}" font-weight="700" fill="#ffffff" text-anchor="middle" dominant-baseline="middle">${escapeXML(text)}</text>
 </svg>`;
-  return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+  return svgToDataUri(svg);
 }
 
 /* ============================================================
@@ -111,6 +122,49 @@ async function geocodeCity(query){
   return result;
 }
 
+/* ---- Live currency conversion via the Frankfurter API (ECB rates, no key) ---- */
+// Kept in sync with the currencies the live rate source (Frankfurter / ECB reference rates)
+// actually publishes, so every currency offered here always gets a real conversion — never a
+// raw USD number mislabeled with the wrong symbol.
+const CURRENCY_META = {
+  USD:{symbol:'$',name:'US Dollar'}, EUR:{symbol:'€',name:'Euro'}, GBP:{symbol:'£',name:'British Pound'},
+  JPY:{symbol:'¥',name:'Japanese Yen'}, CAD:{symbol:'CA$',name:'Canadian Dollar'}, AUD:{symbol:'A$',name:'Australian Dollar'},
+  CNY:{symbol:'¥',name:'Chinese Yuan'}, INR:{symbol:'₹',name:'Indian Rupee'}, THB:{symbol:'฿',name:'Thai Baht'},
+  MXN:{symbol:'MX$',name:'Mexican Peso'}, BRL:{symbol:'R$',name:'Brazilian Real'}, CHF:{symbol:'CHF',name:'Swiss Franc'},
+  KRW:{symbol:'₩',name:'South Korean Won'}, IDR:{symbol:'Rp',name:'Indonesian Rupiah'}, ZAR:{symbol:'R',name:'South African Rand'},
+  NZD:{symbol:'NZ$',name:'New Zealand Dollar'}, SGD:{symbol:'S$',name:'Singapore Dollar'}, HKD:{symbol:'HK$',name:'Hong Kong Dollar'},
+  ISK:{symbol:'kr',name:'Icelandic Króna'}, ILS:{symbol:'₪',name:'Israeli Shekel'}, MYR:{symbol:'RM',name:'Malaysian Ringgit'},
+  PHP:{symbol:'₱',name:'Philippine Peso'}, TRY:{symbol:'₺',name:'Turkish Lira'}, PLN:{symbol:'zł',name:'Polish Złoty'},
+  CZK:{symbol:'Kč',name:'Czech Koruna'}, HUF:{symbol:'Ft',name:'Hungarian Forint'}, NOK:{symbol:'kr',name:'Norwegian Krone'},
+  SEK:{symbol:'kr',name:'Swedish Krona'}, DKK:{symbol:'kr',name:'Danish Krone'}, RON:{symbol:'lei',name:'Romanian Leu'},
+  BGN:{symbol:'лв',name:'Bulgarian Lev'},
+};
+const FX_CACHE_KEY = 'tripflow_fx_cache_v1';
+let EXCHANGE_RATES = {USD:1};
+async function loadExchangeRates(){
+  try{
+    const cached = JSON.parse(localStorage.getItem(FX_CACHE_KEY) || 'null');
+    if(cached && cached.rates && (Date.now() - cached.ts) < 12*3600*1000){ EXCHANGE_RATES = cached.rates; return true; }
+  }catch(e){}
+  try{
+    const symbols = Object.keys(CURRENCY_META).filter(c=>c!=='USD').join(',');
+    const res = await fetchWithTimeout(`https://api.frankfurter.app/latest?from=USD&to=${symbols}`, 8000);
+    if(res && res.ok){
+      const data = await res.json();
+      if(data && data.rates){
+        EXCHANGE_RATES = Object.assign({USD:1}, data.rates);
+        writeJSONCache(FX_CACHE_KEY, {ts:Date.now(), rates:EXCHANGE_RATES});
+        return true;
+      }
+    }
+  }catch(e){}
+  return false;
+}
+function convertUSD(amountUSD, toCurrency){
+  const rate = EXCHANGE_RATES[toCurrency];
+  return typeof rate === 'number' ? amountUSD * rate : amountUSD;
+}
+
 /* ---- Real nearby landmarks via Wikipedia GeoSearch (no key) — worldwide points of interest, each with a real name, description and photo, in a single request ---- */
 async function fetchNearbyWikiPOIs(lat, lng, limit){
   try{
@@ -155,7 +209,7 @@ const ENRICH_CACHE_KEY = 'tripflow_enrich_cache_v1';
 function enrichCache(){ return readJSONCache(ENRICH_CACHE_KEY); }
 function applyEnrichment(dest, payload){
   dest.lat = payload.lat; dest.lng = payload.lng;
-  if(payload.country) dest.country = payload.country;
+  if(payload.country){ dest.country = payload.country; dest.currencyCode = currencyCodeForCountry(payload.country); }
   if(payload.attractions && payload.attractions.length){
     for(let i=PLACES.length-1;i>=0;i--){ if(PLACES[i].destId===dest.id && PLACES[i].type==='attraction') PLACES.splice(i,1); }
     payload.attractions.forEach((p,i)=>{
@@ -663,10 +717,30 @@ const DESTINATIONS_RAW = [
 const DESTINATIONS = [];
 const PLACES = [];
 
+/* Country name -> ISO currency code, for the live currency converter. Covers every country used
+   in the curated destinations plus common ones a typed-in search is likely to resolve to. */
+const COUNTRY_TO_CURRENCY = {
+  'japan':'JPY','france':'EUR','indonesia':'IDR','greece':'EUR','united states':'USD','united states of america':'USD',
+  'italy':'EUR','thailand':'THB','spain':'EUR','new zealand':'NZD','iceland':'ISK','slovenia':'EUR','morocco':'MAD',
+  'united kingdom':'GBP','germany':'EUR','portugal':'EUR','netherlands':'EUR','ireland':'EUR','austria':'EUR',
+  'switzerland':'CHF','belgium':'EUR','china':'CNY','india':'INR','south korea':'KRW','korea':'KRW','canada':'CAD',
+  'australia':'AUD','mexico':'MXN','brazil':'BRL','south africa':'ZAR','singapore':'SGD','vietnam':'VND',
+  'philippines':'PHP','malaysia':'MYR','turkey':'TRY','egypt':'EGP','argentina':'ARS','chile':'CLP','peru':'PEN',
+  'colombia':'COP','poland':'PLN','czechia':'CZK','czech republic':'CZK','hungary':'HUF','norway':'NOK','sweden':'SEK',
+  'denmark':'DKK','finland':'EUR','croatia':'EUR','russia':'RUB','israel':'ILS','united arab emirates':'AED',
+  'saudi arabia':'SAR','qatar':'QAR','hong kong':'HKD','romania':'RON','bulgaria':'BGN','luxembourg':'EUR',
+};
+function currencyCodeForCountry(country){
+  if(!country) return 'USD';
+  const code = COUNTRY_TO_CURRENCY[country.trim().toLowerCase()];
+  return code && CURRENCY_META[code] ? code : 'USD';
+}
+
 DESTINATIONS_RAW.forEach(d=>{
   DESTINATIONS.push({
     id:d.id, name:d.name, country:d.country, flag:d.flag, tagline:d.tagline, description:d.description,
     tags:d.tags, lat:d.lat, lng:d.lng, weather:d.weather, bestTime:d.bestTime, currency:d.currency,
+    currencyCode: currencyCodeForCountry(d.country),
     language:d.language, avgDailyBudget:d.avgDailyBudget,
     hero: img(d.id+'-hero',1600,900,d.name)
   });
@@ -700,7 +774,7 @@ function makeGenericDestination(name){
     tags:['trending'], lat:base.lat, lng:base.lng,
     weather:"Check seasonal averages closer to your travel dates.",
     bestTime:"Year-round — varies by season",
-    currency:"Local currency", language:"Local language",
+    currency:"Local currency", currencyCode:'USD', language:"Local language",
     avgDailyBudget:{budget:50,moderate:120,luxury:280},
     __enriched:false, __enriching:false,
     hero: img(id+'-hero',1600,900,clean)
