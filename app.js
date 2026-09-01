@@ -110,6 +110,7 @@ function defaultState(){
     ],
     notifications:[],
     savedIdeas:[],
+    recentSearches:[],
   };
 }
 
@@ -323,9 +324,19 @@ function initTopbar(){
   $$('[data-route]').forEach(b=>b.onclick=()=>navigate(b.dataset.route));
   $('brandBtn').onclick = ()=>navigate('#/');
 
-  $('searchToggle').onclick = (e)=>{ e.stopPropagation(); const p=$('gsearchPanel'); p.classList.toggle('show'); $('notifDropdown').classList.remove('show'); $('profileDropdown').classList.remove('show'); if(p.classList.contains('show')) $('globalSearchInput').focus(); };
+  $('searchToggle').onclick = (e)=>{ e.stopPropagation(); const p=$('gsearchPanel'); p.classList.toggle('show'); $('notifDropdown').classList.remove('show'); $('profileDropdown').classList.remove('show'); if(p.classList.contains('show')){ $('globalSearchInput').focus(); runGlobalSearch($('globalSearchInput').value); } };
   $('gsearchClose').onclick = ()=>$('gsearchPanel').classList.remove('show');
   $('globalSearchInput').addEventListener('input', debounce(e=>runGlobalSearch(e.target.value), 150));
+  $('globalSearchInput').addEventListener('focus', ()=>runGlobalSearch($('globalSearchInput').value));
+  $('globalSearchInput').onkeydown = (e)=>{
+    if(e.key!=='Enter') return;
+    const q = $('globalSearchInput').value.trim();
+    if(!q) return;
+    recordSearch(q);
+    const d = findDestination(q);
+    closeDropdowns();
+    navigate(`#/destination/${encodeURIComponent(d.id)}`);
+  };
 
   $('notifToggle').onclick = (e)=>{ e.stopPropagation(); const p=$('notifDropdown'); p.classList.toggle('show'); $('gsearchPanel').classList.remove('show'); $('profileDropdown').classList.remove('show'); };
   $('markAllRead').onclick = ()=>{ STATE.notifications.forEach(n=>n.read=true); saveState(); renderNotifications(); };
@@ -345,39 +356,76 @@ function initTopbar(){
   $$('.avatar#profileToggle, .profileHead .avatar').forEach(a=>a.textContent=inits);
 }
 
+const TRENDING_SEARCH_TAGS = 'trending';
+function recordSearch(q){
+  q = (q||'').trim();
+  if(!q) return;
+  STATE.recentSearches = [q, ...STATE.recentSearches.filter(s=>s.toLowerCase()!==q.toLowerCase())].slice(0,6);
+  saveState();
+}
+function placeTypeLabel(t){ return t==='attraction'?'Attraction':(t==='restaurant'?'Restaurant':'Hotel'); }
 function runGlobalSearch(q){
   const results = $('gsearchResults');
   q = (q||'').trim();
-  if(!q){ results.innerHTML = '<div class="empty" style="padding:26px">Search for a city, attraction, restaurant or hotel.</div>'; return; }
+  if(!q){
+    let html = '';
+    if(STATE.recentSearches.length){
+      html += `<div class="gsearch-group">Recent Searches</div>`;
+      STATE.recentSearches.forEach(s=>{
+        html += `<button class="gsearch-row" data-recent="${esc(s)}"><div class="ic"><i class="fa-solid fa-clock-rotate-left"></i></div><div>${esc(s)}</div></button>`;
+      });
+    }
+    const trending = DESTINATIONS.filter(d=>!d.id.startsWith('gen-') && (d.tags||[]).includes(TRENDING_SEARCH_TAGS)).slice(0,5);
+    if(trending.length){
+      html += `<div class="gsearch-group">Trending Destinations</div>`;
+      trending.forEach(d=>{
+        html += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${d.hero}" alt="" data-photo-q="${esc(d.name+' skyline')}"><div><div>${d.flag} ${esc(d.name)}</div><div class="small">${esc(d.tagline)}</div></div></button>`;
+      });
+    }
+    if(!html) html = '<div class="empty" style="padding:26px">Search for a city, attraction, restaurant or hotel.</div>';
+    results.innerHTML = html;
+    hydratePhotos(results);
+    wireGlobalSearchResults(results);
+    return;
+  }
   const ql = q.toLowerCase();
   const destMatches = DESTINATIONS.filter(d=> !d.id.startsWith('gen-') && (d.name.toLowerCase().includes(ql) || d.country.toLowerCase().includes(ql))).slice(0,4);
-  const placeMatches = PLACES.filter(p=>p.name.toLowerCase().includes(ql)).slice(0,6);
+  const attrMatches = PLACES.filter(p=>p.type==='attraction' && p.name.toLowerCase().includes(ql)).slice(0,4);
+  const restMatches = PLACES.filter(p=>p.type==='restaurant' && p.name.toLowerCase().includes(ql)).slice(0,4);
+  const hotelMatches = PLACES.filter(p=>p.type==='hotel' && p.name.toLowerCase().includes(ql)).slice(0,4);
   let html = '';
-  if(destMatches.length){
-    html += `<div class="gsearch-group">Destinations</div>`;
-    destMatches.forEach(d=>{
-      html += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${d.hero}" alt="" data-photo-q="${esc(d.name+' skyline')}"><div><div>${d.flag} ${esc(d.name)}, ${esc(d.country)}</div><div class="small">Explore destination</div></div></button>`;
+  const destGroup = (label, matches)=>{
+    if(!matches.length) return '';
+    let h = `<div class="gsearch-group">${esc(label)}</div>`;
+    matches.forEach(d=>{
+      h += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${d.hero}" alt="" data-photo-q="${esc(d.name+' skyline')}"><div><div>${d.flag} ${esc(d.name)}, ${esc(d.country)}</div><div class="small">Explore destination</div></div></button>`;
     });
-    const d0 = destMatches[0];
-    html += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d0.id)}/hotels"><div class="ic">🏨</div><div>Hotels in ${esc(d0.name)}</div></button>`;
-    html += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d0.id)}/restaurants"><div class="ic">🍜</div><div>Restaurants in ${esc(d0.name)}</div></button>`;
-    html += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d0.id)}/things"><div class="ic">🎟️</div><div>Things to do in ${esc(d0.name)}</div></button>`;
-  }
-  if(placeMatches.length){
-    html += `<div class="gsearch-group">Places</div>`;
-    placeMatches.forEach(p=>{
-      const tab = p.type==='attraction'?'things':(p.type==='restaurant'?'restaurants':'hotels');
-      html += `<button class="gsearch-row" data-place="${p.id}"><img src="${p.image}" alt="" data-photo-q="${esc(photoQuery(p.name, DESTINATIONS.find(d=>d.id===p.destId).name))}"><div><div>${esc(p.name)}</div><div class="small">${esc(DESTINATIONS.find(d=>d.id===p.destId).name)} · ${tab==='things'?'Attraction':(tab==='restaurants'?'Restaurant':'Hotel')}</div></div></button>`;
+    return h;
+  };
+  const placeGroup = (label, matches)=>{
+    if(!matches.length) return '';
+    let h = `<div class="gsearch-group">${esc(label)}</div>`;
+    matches.forEach(p=>{
+      const pd = DESTINATIONS.find(d=>d.id===p.destId);
+      h += `<button class="gsearch-row" data-place="${p.id}"><img src="${p.image}" alt="" data-photo-q="${esc(photoQuery(p.name, pd.name))}"><div><div>${esc(p.name)}</div><div class="small">${esc(pd.name)} · ${placeTypeLabel(p.type)}</div></div></button>`;
     });
-  }
-  if(!destMatches.length && !placeMatches.length){
+    return h;
+  };
+  html += destGroup('Destinations', destMatches);
+  html += placeGroup('Attractions', attrMatches);
+  html += placeGroup('Restaurants', restMatches);
+  html += placeGroup('Hotels', hotelMatches);
+  if(!html){
     html = `<div class="empty" style="padding:26px">No matches. Press Enter to explore "${esc(q)}" as a destination.</div>`;
   }
   results.innerHTML = html;
   hydratePhotos(results);
-  results.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{ closeDropdowns(); navigate(b.dataset.go); });
-  results.querySelectorAll('[data-place]').forEach(b=>b.onclick=()=>{ closeDropdowns(); openPlaceDetail(b.dataset.place); });
-  $('globalSearchInput').onkeydown = (e)=>{ if(e.key==='Enter'){ const d=findDestination(q); closeDropdowns(); navigate(`#/destination/${encodeURIComponent(d.id)}`); } };
+  wireGlobalSearchResults(results);
+}
+function wireGlobalSearchResults(results){
+  results.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{ recordSearch($('globalSearchInput').value); closeDropdowns(); navigate(b.dataset.go); });
+  results.querySelectorAll('[data-place]').forEach(b=>b.onclick=()=>{ recordSearch($('globalSearchInput').value); closeDropdowns(); openPlaceDetail(b.dataset.place); });
+  results.querySelectorAll('[data-recent]').forEach(b=>b.onclick=()=>{ $('globalSearchInput').value = b.dataset.recent; runGlobalSearch(b.dataset.recent); });
 }
 
 function renderNotifBadge(){
@@ -471,6 +519,20 @@ function placeCardHTML(p, opts){
       </div>
     </div>
   </div>`;
+}
+/** Renders removable chips for every currently-active filter plus a "Clear all filters"
+ * link, so users can see and undo their filter state at a glance instead of hunting back
+ * through each dropdown. `chips` is [{label, onRemove}]; hides itself entirely when empty. */
+function renderActiveFilterChips(containerId, chips, onClearAll){
+  const el = $(containerId);
+  if(!el) return;
+  if(!chips.length){ el.innerHTML=''; el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  el.innerHTML = chips.map((c,i)=>`<button class="filterChip" data-chip="${i}">${esc(c.label)} <i class="fa-solid fa-xmark"></i></button>`).join('')
+    + `<button class="linklike" id="${containerId}ClearAll">Clear all filters</button>`;
+  chips.forEach((c,i)=>{ const b = el.querySelector(`[data-chip="${i}"]`); if(b) b.onclick = c.onRemove; });
+  const clearBtn = $(containerId+'ClearAll');
+  if(clearBtn) clearBtn.onclick = onClearAll;
 }
 function wirePlaceCards(container){
   container.querySelectorAll('[data-place]').forEach(el=>{
@@ -825,13 +887,17 @@ function renderDestinationView(idOrName, tab){
 function renderDestOverview(dest, body){
   const top = placesFor(dest.id,'attraction').slice().sort((a,b)=>b.rating-a.rating).slice(0,3);
   const topRest = placesFor(dest.id,'restaurant').slice().sort((a,b)=>b.rating-a.rating).slice(0,3);
+  const info = dest.travelInfo || {};
   body.innerHTML = `
     <p style="max-width:760px;color:var(--muted);font-size:15px;line-height:1.6">${esc(dest.description)}</p>
+    ${info.recommendedDays ? `<p class="small" style="font-weight:700;margin:-6px 0 14px">First time visiting? Recommended trip duration: ${esc(info.recommendedDays)}</p>` : ''}
     <div class="destOverviewGrid">
       <div class="ovCard"><div class="k">🌤 Weather</div><div class="v">${esc(dest.weather)}</div></div>
       <div class="ovCard"><div class="k">📅 Best time to visit</div><div class="v">${esc(dest.bestTime)}</div></div>
       <div class="ovCard"><div class="k">💱 Currency</div><div class="v">${esc(dest.currency)}</div></div>
       <div class="ovCard"><div class="k">🗣 Language</div><div class="v">${esc(dest.language)}</div></div>
+      ${info.timezone ? `<div class="ovCard"><div class="k">🕐 Time zone</div><div class="v">${esc(info.timezone)}</div></div>` : ''}
+      ${info.recommendedDays ? `<div class="ovCard"><div class="k">🗓 Recommended duration</div><div class="v">${esc(info.recommendedDays)}</div></div>` : ''}
     </div>
     <div class="card" style="margin-top:8px">
       <h3>Average daily budget</h3>
@@ -841,6 +907,16 @@ function renderDestOverview(dest, body){
         <div class="ovCard"><div class="k">Luxury</div><div class="v" style="font-size:20px">${fmt$(dest.avgDailyBudget.luxury)}<span class="small">/day</span></div></div>
       </div>
     </div>
+    ${(info.visa||info.safety||info.localTransport||info.etiquette) ? `
+    <div class="card" style="margin-top:16px">
+      <h3>🧭 Know before you go</h3>
+      <div class="knowBeforeGrid">
+        ${info.visa ? `<div class="ovCard"><div class="k">🛂 Visa</div><div class="v small">${esc(info.visa)}</div></div>` : ''}
+        ${info.safety ? `<div class="ovCard"><div class="k">🛡 Safety</div><div class="v small">${esc(info.safety)}</div></div>` : ''}
+        ${info.localTransport ? `<div class="ovCard"><div class="k">🚇 Getting around</div><div class="v small">${esc(info.localTransport)}</div></div>` : ''}
+        ${info.etiquette ? `<div class="ovCard"><div class="k">🙏 Local etiquette</div><div class="v small">${esc(info.etiquette)}</div></div>` : ''}
+      </div>
+    </div>` : ''}
     <div class="card" style="margin-top:16px">
       <h3>💱 Currency converter</h3>
       <div class="currencyConvRow">
@@ -908,8 +984,11 @@ function renderDestThings(dest, body){
       <div class="filterGroup"><label>Rating</label><select id="tRating"><option value="any">Any rating</option><option value="4.5">4.5+</option><option value="4">4.0+</option><option value="3">3.0+</option></select></div>
       <div class="filterGroup"><label>Sort</label><select id="tSort"><option value="rec">Recommended</option><option value="rating">Highest rated</option><option value="price_low">Price: low to high</option><option value="price_high">Price: high to low</option></select></div>
     </div>
+    <div class="activeFilters hidden" id="thingsActiveFilters"></div>
     <div class="placeGrid" id="thingsGrid"></div>`;
   $('tCat').value=f.cat; $('tPrice').value=f.price; $('tRating').value=f.rating; $('tSort').value=f.sort;
+  const PRICE_LABELS = {0:'Free',1:'$',2:'$$',3:'$$$'};
+  function clearAllThings(){ f.cat='all'; f.price='any'; f.rating='any'; $('tCat').value='all'; $('tPrice').value='any'; $('tRating').value='any'; apply(); }
   function apply(){
     f.cat=$('tCat').value; f.price=$('tPrice').value; f.rating=$('tRating').value; f.sort=$('tSort').value;
     let arr = all.filter(p=>{
@@ -922,6 +1001,11 @@ function renderDestThings(dest, body){
     else if(f.sort==='price_low') arr.sort((a,b)=>a.price-b.price);
     else if(f.sort==='price_high') arr.sort((a,b)=>b.price-a.price);
     else arr.sort((a,b)=>b.reviews-a.reviews);
+    const chips = [];
+    if(f.cat!=='all') chips.push({label:`Category: ${f.cat}`, onRemove:()=>{ f.cat='all'; $('tCat').value='all'; apply(); }});
+    if(f.price!=='any') chips.push({label:`Price: ${PRICE_LABELS[f.price]||f.price}`, onRemove:()=>{ f.price='any'; $('tPrice').value='any'; apply(); }});
+    if(f.rating!=='any') chips.push({label:`Rating: ${f.rating}+`, onRemove:()=>{ f.rating='any'; $('tRating').value='any'; apply(); }});
+    renderActiveFilterChips('thingsActiveFilters', chips, clearAllThings);
     $('thingsGrid').innerHTML = arr.length? arr.map(p=>placeCardHTML(p)).join('') : '<div class="empty">No attractions match those filters.</div>';
     wirePlaceCards($('thingsGrid'));
   }
@@ -944,10 +1028,18 @@ function renderDestRestaurants(dest, body){
       <button class="toggleChip" id="rOpen">🕒 Open Now</button>
       <div class="pillRow" id="rDietary">${DIETARY_OPTIONS.map(d=>`<button class="pill" data-diet="${d}">${d.replace(/-/g,' ')}</button>`).join('')}</div>
     </div>
+    <div class="activeFilters hidden" id="restActiveFilters"></div>
     <div class="placeGrid" id="restGrid"></div>`;
   $('rCuisine').value=f.cuisine; $('rPrice').value=f.price; $('rRating').value=f.rating; $('rSort').value=f.sort;
   $('rOpen').classList.toggle('active', f.open);
   $('rDietary').querySelectorAll('[data-diet]').forEach(b=>b.classList.toggle('active', f.dietary.has(b.dataset.diet)));
+  const REST_PRICE_LABELS = {1:'$',2:'$$',3:'$$$',4:'$$$$'};
+  function clearAllRest(){
+    f.cuisine='all'; f.price='any'; f.rating='any'; f.open=false; f.dietary.clear();
+    $('rCuisine').value='all'; $('rPrice').value='any'; $('rRating').value='any';
+    $('rOpen').classList.remove('active'); $('rDietary').querySelectorAll('[data-diet]').forEach(b=>b.classList.remove('active'));
+    apply();
+  }
   function apply(){
     f.cuisine=$('rCuisine').value; f.price=$('rPrice').value; f.rating=$('rRating').value; f.sort=$('rSort').value;
     let arr = all.filter(p=>{
@@ -961,6 +1053,13 @@ function renderDestRestaurants(dest, body){
     if(f.sort==='rating') arr.sort((a,b)=>b.rating-a.rating);
     else if(f.sort==='distance') arr.sort((a,b)=>haversine(dest,a)-haversine(dest,b));
     else arr.sort((a,b)=>b.reviews-a.reviews);
+    const chips = [];
+    if(f.cuisine!=='all') chips.push({label:`Cuisine: ${f.cuisine}`, onRemove:()=>{ f.cuisine='all'; $('rCuisine').value='all'; apply(); }});
+    if(f.price!=='any') chips.push({label:`Price: ${REST_PRICE_LABELS[f.price]||f.price}`, onRemove:()=>{ f.price='any'; $('rPrice').value='any'; apply(); }});
+    if(f.rating!=='any') chips.push({label:`Rating: ${f.rating}+`, onRemove:()=>{ f.rating='any'; $('rRating').value='any'; apply(); }});
+    if(f.open) chips.push({label:'Open now', onRemove:()=>{ f.open=false; $('rOpen').classList.remove('active'); apply(); }});
+    f.dietary.forEach(d=>chips.push({label:d.replace(/-/g,' '), onRemove:()=>{ f.dietary.delete(d); $('rDietary').querySelectorAll('[data-diet]').forEach(b=>b.classList.toggle('active', f.dietary.has(b.dataset.diet))); apply(); }}));
+    renderActiveFilterChips('restActiveFilters', chips, clearAllRest);
     $('restGrid').innerHTML = arr.length? arr.map(p=>{
       const distKm = haversine(dest,p).toFixed(1);
       const card = placeCardHTML(p);
@@ -990,8 +1089,15 @@ function renderDestHotels(dest, body){
       <div class="filterGroup"><label>Amenity</label><select id="hAmenity"><option value="all">Any amenity</option>${amenitiesAll.map(a=>`<option value="${esc(a)}">${esc(a)}</option>`).join('')}</select></div>
       <div class="filterGroup"><label>Sort</label><select id="hSort"><option value="rec">Recommended</option><option value="price_low">Lowest price</option><option value="rating">Highest rated</option><option value="distance">Distance from center</option></select></div>
     </div>
+    <div class="activeFilters hidden" id="hotelActiveFilters"></div>
     <div class="placeGrid" id="hotelGrid"></div>`;
   $('hPrice').value=f.price; $('hStars').value=f.stars; $('hGuest').value=f.guest; $('hAmenity').value=f.amenity; $('hSort').value=f.sort;
+  const HOTEL_PRICE_LABELS = {'0-100':'Under $100','100-250':'$100–250','250-500':'$250–500','500-99999':'$500+'};
+  function clearAllHotels(){
+    f.price='any'; f.stars='any'; f.guest='any'; f.amenity='all';
+    $('hPrice').value='any'; $('hStars').value='any'; $('hGuest').value='any'; $('hAmenity').value='all';
+    apply();
+  }
   function apply(){
     f.price=$('hPrice').value; f.stars=$('hStars').value; f.guest=$('hGuest').value; f.amenity=$('hAmenity').value; f.sort=$('hSort').value;
     let arr = all.filter(p=>{
@@ -1005,6 +1111,12 @@ function renderDestHotels(dest, body){
     else if(f.sort==='rating') arr.sort((a,b)=>b.guestRating-a.guestRating);
     else if(f.sort==='distance') arr.sort((a,b)=>haversine(dest,a)-haversine(dest,b));
     else arr.sort((a,b)=>b.guestRating-a.guestRating);
+    const chips = [];
+    if(f.price!=='any') chips.push({label:`Price: ${HOTEL_PRICE_LABELS[f.price]||f.price}`, onRemove:()=>{ f.price='any'; $('hPrice').value='any'; apply(); }});
+    if(f.stars!=='any') chips.push({label:`Stars: ${f.stars==='2'?'2 & under':f.stars+' star'}`, onRemove:()=>{ f.stars='any'; $('hStars').value='any'; apply(); }});
+    if(f.guest!=='any') chips.push({label:`Guest rating: ${f.guest}.0+`, onRemove:()=>{ f.guest='any'; $('hGuest').value='any'; apply(); }});
+    if(f.amenity!=='all') chips.push({label:`Amenity: ${f.amenity}`, onRemove:()=>{ f.amenity='all'; $('hAmenity').value='all'; apply(); }});
+    renderActiveFilterChips('hotelActiveFilters', chips, clearAllHotels);
     $('hotelGrid').innerHTML = arr.length? arr.map(p=>{
       const distKm = haversine(dest,p).toFixed(1);
       const card = placeCardHTML(p);
