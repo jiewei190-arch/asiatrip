@@ -220,8 +220,8 @@ function mkCollaborator(name,email,role){ return {id:uid('collab'), name, email,
 function buildAutoTrip(destId, title, start, end, travelers, style){
   const dest = DESTINATIONS.find(d=>d.id===destId);
   const nDays = daysBetween(start,end);
-  const attractions = placesFor(destId,'attraction').slice().sort((a,b)=>b.rating-a.rating);
-  const restaurants = placesFor(destId,'restaurant').slice().sort((a,b)=>b.rating-a.rating);
+  const attractions = placesFor(destId,'attraction').slice().sort((a,b)=>(b.rating||0)-(a.rating||0));
+  const restaurants = placesFor(destId,'restaurant').slice().sort((a,b)=>(b.rating||0)-(a.rating||0));
   const days = [];
   let ai=0, ri=0;
   for(let d=0; d<nDays; d++){
@@ -582,12 +582,20 @@ function placeCardHTML(p, opts){
   opts = opts||{};
   const dest = DESTINATIONS.find(d=>d.id===p.destId);
   const isSaved = STATE.collections.some(c=>c.placeIds.includes(p.id));
+  // Ratings, review counts and price levels are only known for curated places. A live place
+  // carries none, so those chips are omitted rather than rendered as 0/"Free" — showing an
+  // invented figure to someone planning a real trip is worse than showing nothing.
+  const ratingHTML = p.rating
+    ? `<span class="stars">${stars(p.rating)}</span><span>${p.rating}</span>${p.reviews?`<span>(${p.reviews.toLocaleString()})</span>`:''}`
+    : '';
+  const priceHTML = typeof p.priceLevel === 'number'
+    ? `<span class="priceLevel">${priceLevelStr(p.priceLevel)}</span>` : '';
   let metaHTML = '';
   if(p.type==='attraction'){
-    metaHTML = `<span class="stars">${stars(p.rating)}</span><span>${p.rating}</span><span>(${p.reviews.toLocaleString()})</span><span class="priceLevel">${priceLevelStr(p.priceLevel)}</span>`;
+    metaHTML = `${ratingHTML}${priceHTML}`;
   } else if(p.type==='restaurant'){
     const open = isOpenNow(p.hours);
-    metaHTML = `<span class="stars">${stars(p.rating)}</span><span>${p.rating}</span><span>(${p.reviews.toLocaleString()})</span><span class="priceLevel">${priceLevelStr(p.priceLevel)}</span><span class="openTag ${open?'open':'closed'}">${open?'Open now':'Closed'}</span>`;
+    metaHTML = `${ratingHTML}${priceHTML}<span class="openTag ${open?'open':'closed'}">${open?'Open now':'Closed'}</span>`;
   } else if(p.type==='hotel'){
     metaHTML = `<span class="stars">${'★'.repeat(p.stars)}</span><span>${p.guestRating}/10</span><span class="priceLevel">${fmt$(p.price)}/night</span>`;
   }
@@ -602,7 +610,7 @@ function placeCardHTML(p, opts){
     <div class="placeBody">
       <h4>${esc(p.name)}</h4>
       <div class="placeMeta">${metaHTML}</div>
-      ${!opts.noDesc ? `<p class="placeDesc">${esc(p.desc)}</p>` : ''}
+      ${!opts.noDesc ? `<p class="placeDesc">${esc(displayDesc(p, dest))}</p>` : ''}
       <div class="small">📍 ${esc(p.area)}${dest && opts.showDest ? ' · '+esc(dest.name) : ''}</div>
       <div class="placeFoot">
         <button class="btn primary" data-add="${p.id}"><i class="fa-solid fa-plus"></i> Add to Trip</button>
@@ -659,7 +667,7 @@ function generateAIInsight(place, dest){
   else if((place.tags||[]).includes('relax')) timeHint = 'in the late afternoon, when crowds thin out';
   else timeHint = 'earlier in the day to beat the crowds';
   const nearby = PLACES.filter(o=>o.destId===place.destId && o.id!==place.id && o.type!=='hotel' && haversine(place,o) < 1.2)
-    .sort((a,b)=>b.rating-a.rating)[0];
+    .sort((a,b)=>(b.rating||0)-(a.rating||0))[0];
   let pairSentence = '';
   if(nearby){
     pairSentence = ` Consider scheduling it near ${nearby.name} (about ${haversine(place,nearby).toFixed(1)} km away) to minimize travel time.`;
@@ -700,7 +708,7 @@ function openPlaceDetail(placeId){
     <div class="pdHero"><img src="${p.image}" alt="" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
     <div class="pdGrid">
       <div>
-        <p>${esc(p.desc)}</p>
+        <p>${esc(displayDesc(p, dest))}</p>
         <h3 style="margin-top:18px">Reviews</h3>
         ${reviews.map(r=>`<div class="pdReview"><div class="pdReviewHead"><span>${esc(r.name)}</span><span class="stars">${stars(r.rating)}</span></div><div class="small">${r.daysAgo} days ago</div><p style="margin:6px 0 0">${esc(r.text)}</p></div>`).join('')}
       </div>
@@ -1028,8 +1036,8 @@ function renderDestinationView(idOrName, tab){
 }
 
 function renderDestOverview(dest, body){
-  const top = placesFor(dest.id,'attraction').slice().sort((a,b)=>b.rating-a.rating).slice(0,3);
-  const topRest = placesFor(dest.id,'restaurant').slice().sort((a,b)=>b.rating-a.rating).slice(0,3);
+  const top = placesFor(dest.id,'attraction').slice().sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,3);
+  const topRest = placesFor(dest.id,'restaurant').slice().sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,3);
   const info = dest.travelInfo || {};
   body.innerHTML = `
     <p style="max-width:760px;color:var(--muted);font-size:15px;line-height:1.6">${esc(dest.description)}</p>
@@ -1146,10 +1154,10 @@ function renderDestThings(dest, body){
       if(f.rating!=='any' && p.rating < parseFloat(f.rating)) return false;
       return true;
     });
-    if(f.sort==='rating') arr.sort((a,b)=>b.rating-a.rating);
-    else if(f.sort==='price_low') arr.sort((a,b)=>a.price-b.price);
-    else if(f.sort==='price_high') arr.sort((a,b)=>b.price-a.price);
-    else arr.sort((a,b)=>b.reviews-a.reviews);
+    if(f.sort==='rating') arr.sort((a,b)=>(b.rating||0)-(a.rating||0));
+    else if(f.sort==='price_low') arr.sort((a,b)=>(a.price||0)-(b.price||0));
+    else if(f.sort==='price_high') arr.sort((a,b)=>(b.price||0)-(a.price||0));
+    else arr.sort((a,b)=>(b.reviews||0)-(a.reviews||0));
     const chips = [];
     if(f.cat!=='all') chips.push({label:`Category: ${f.cat}`, onRemove:()=>{ f.cat='all'; $('tCat').value='all'; apply(); }});
     if(f.price!=='any') chips.push({label:`Price: ${PRICE_LABELS[f.price]||f.price}`, onRemove:()=>{ f.price='any'; $('tPrice').value='any'; apply(); }});
@@ -1199,9 +1207,9 @@ function renderDestRestaurants(dest, body){
       if(f.dietary.size && ![...f.dietary].every(d=>(p.dietary||[]).includes(d))) return false;
       return true;
     });
-    if(f.sort==='rating') arr.sort((a,b)=>b.rating-a.rating);
+    if(f.sort==='rating') arr.sort((a,b)=>(b.rating||0)-(a.rating||0));
     else if(f.sort==='distance') arr.sort((a,b)=>haversine(dest,a)-haversine(dest,b));
-    else arr.sort((a,b)=>b.reviews-a.reviews);
+    else arr.sort((a,b)=>(b.reviews||0)-(a.reviews||0));
     const chips = [];
     if(f.cuisine!=='all') chips.push({label:`Cuisine: ${f.cuisine}`, onRemove:()=>{ f.cuisine='all'; $('rCuisine').value='all'; apply(); }});
     if(f.price!=='any') chips.push({label:`Price: ${REST_PRICE_LABELS[f.price]||f.price}`, onRemove:()=>{ f.price='any'; $('rPrice').value='any'; apply(); }});
@@ -1304,7 +1312,7 @@ function renderDestHotels(dest, body){
       if(f.amenity!=='all' && !(p.amenities||[]).includes(f.amenity)) return false;
       return true;
     });
-    if(f.sort==='price_low') arr.sort((a,b)=>a.price-b.price);
+    if(f.sort==='price_low') arr.sort((a,b)=>(a.price||0)-(b.price||0));
     else if(f.sort==='rating') arr.sort((a,b)=>b.guestRating-a.guestRating);
     else if(f.sort==='distance') arr.sort((a,b)=>haversine(dest,a)-haversine(dest,b));
     else arr.sort((a,b)=>b.guestRating-a.guestRating);
@@ -1337,7 +1345,7 @@ function renderDestItinerary(dest, body){
       </div>`;
     $('destQuickStart').onclick = ()=>{
       const trip = getOrCreateDraftTrip(dest.id);
-      const top = placesFor(dest.id,'attraction').slice().sort((a,b)=>b.rating-a.rating).slice(0,3);
+      const top = placesFor(dest.id,'attraction').slice().sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,3);
       top.forEach((p,i)=>addPlaceToTripSilent(trip, 0, p));
       saveState();
       toast(`Created a draft trip and added top picks to Day 1.`);
@@ -1463,27 +1471,184 @@ function shuffle(arr){
   return a;
 }
 const MIN_ATTRACTIONS_PER_DAY = 5;
+/* ============================================================
+   PLACE QUALITY — what deserves a slot in someone's day
+   ------------------------------------------------------------
+   Ranking used to be a plain sort by `rating`, which quietly broke: places pulled live from a
+   geo search are given a SYNTHETIC rating derived from a hash of their title (4.1–4.6), landing
+   them level with, or above, genuinely famous landmarks. A Métro stop scored 4.5 against the
+   Eiffel Tower's 4.7. Nothing in the data said which was real.
+
+   Scoring is deliberately built from signals every destination on earth has — provenance, how
+   many people actually reviewed it, what kind of place it is, whether it fits the trip's theme
+   and budget — so it works the same for Paris and for a town nobody has curated by hand.
+============================================================ */
+// Categories a traveler actually structures a day around, weighted by how reliably they anchor
+// one. Anything unlisted still competes on its other signals; it just gets no head start.
+const CATEGORY_WEIGHT = {
+  Landmark:14, Museum:13, Culture:12, History:12, Viewpoint:11, Neighborhood:10,
+  Nature:10, Park:10, Beach:10, Garden:9, Market:9, Gallery:9, Tour:9,
+  Entertainment:8, Shopping:7, Nightlife:7, Food:7,
+};
+function categoryWeight(p){
+  const c = p.category || '';
+  if(CATEGORY_WEIGHT[c] != null) return CATEGORY_WEIGHT[c];
+  const hit = Object.keys(CATEGORY_WEIGHT).find(k=>new RegExp('\\b'+k+'\\b','i').test(c));
+  return hit ? CATEGORY_WEIGHT[hit] : 4;
+}
+/** 0–100. Higher means "more clearly worth a traveler's time". */
+function placeQualityScore(p, opts){
+  const o = opts || {};
+  const interests = o.interests || [];
+  let score = 0;
+
+  // Provenance is the strongest signal available: a curated entry was chosen by a person for
+  // this destination, a live one merely happened to sit near the map pin. Live places still get
+  // a modest base — they are real, notable, and passed the visitable filter — just not enough
+  // to displace something a human vouched for.
+  const curated = p.source === 'curated';
+  score += curated ? 34 : 10;
+
+  // Popularity only counts where the figures are REAL. A live place has no rating or review
+  // count the app actually knows, so crediting it would be scoring on invented data.
+  if(curated){
+    const reviews = Math.max(0, p.reviews || 0);
+    score += Math.min(22, Math.log10(reviews + 1) * 4.4);
+    score += clamp(((p.rating || 0) - 3.6) * 9, 0, 11);
+  }
+
+  const catWeight = categoryWeight(p);
+  score += catWeight;
+  // Being recognisably a KIND of place is itself evidence. Categories are inferred from the
+  // article's own description, so "Market" or "Museum" means the text actually said so, while
+  // the neutral fallback means nothing about it could be identified — the difference between a
+  // grand bazaar at an uncurated destination and a building that happened to be nearby.
+  if(catWeight > 4) score += 6;
+
+  // Theme fit — a food trip should surface different places than a museum trip.
+  const tags = p.tags || [];
+  if(interests.length && tags.some(t=>interests.includes(t))) score += 14;
+
+  // Budget fit, in the direction the traveler actually asked for. An unknown price earns
+  // neither the bonus nor the penalty rather than being assumed free.
+  if(typeof p.priceLevel === 'number'){
+    const lvl = p.priceLevel;
+    if(o.budgetStyle === 'budget') score += lvl <= 1 ? 7 : (lvl >= 3 ? -10 : 0);
+    else if(o.budgetStyle === 'luxury') score += lvl >= 2 ? 5 : 0;
+  }
+
+  // A place with a real photograph presents far better, and the absence of one is itself a hint
+  // that it isn't a visitor attraction.
+  if(p.image && p.image.indexOf('data:image/svg') !== 0) score += 6;
+
+  return clamp(Math.round(score), 0, 100);
+}
+// Below this, a place is not offered as a headline activity. Tuned so a curated landmark or a
+// well-reviewed live attraction clears it comfortably, while a hash-rated nearby building does not.
+const ITINERARY_QUALITY_FLOOR = 42;
+function isItineraryWorthy(p, opts){
+  if(!p || !p.name) return false;
+  if(typeof p.lat !== 'number' || typeof p.lng !== 'number') return false;
+  return placeQualityScore(p, opts) >= ITINERARY_QUALITY_FLOOR;
+}
+
+/* ---------------- travel-voice descriptions ---------------- */
+/** Wikipedia's opening sentence is written to define a subject, not to help someone decide
+ * whether to go: "Hôtel de Ville (French pronunciation: [otɛl də vil], literally 'City Hall')
+ * is a rapid transit station on lines 1 and 11...". Detects that register so it can be replaced
+ * rather than shown. Curated descriptions, written for travelers, pass through untouched. */
+function looksEncyclopedic(desc, name){
+  const d = String(desc||'').trim();
+  if(!d) return true;
+  if(/\((?:French|Spanish|German|Italian|Japanese|Chinese|Korean|Arabic|Russian|Portuguese|Dutch|Greek|Hindi|Thai)[:;]/i.test(d)) return true;
+  if(/pronunciation|literally ["“']|\bIPA\b|\bromanized\b|\btransliterat/i.test(d)) return true;
+  if(/\b(is|was)\s+(a|an|the)\b/i.test(d.slice(0, 90)) && new RegExp('^'+String(name||'').slice(0,18).replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'i').test(d)) return true;
+  if(/\b(founded|established|constructed|inaugurated)\s+in\s+\d{3,4}\b/i.test(d) && d.length > 140) return true;
+  return false;
+}
+/** Short, travel-voice line built from what's actually known about the place — its kind, its
+ * neighborhood, its tags. Deliberately experiential rather than factual: it says what the visit
+ * is like and why it's worth the detour, and never asserts history or superlatives the app has
+ * no way to verify. */
+function travelBlurb(p, dest){
+  const city = (dest && dest.name) || '';
+  const area = p.area && p.area !== city ? p.area : '';
+  const where = area ? ` in ${area}` : (city ? ` in ${city}` : '');
+  const tags = p.tags || [];
+  const cat = (p.category || '').toLowerCase();
+  const free = (p.priceLevel || 0) === 0;
+
+  if(p.type === 'restaurant'){
+    const cuisine = p.cuisine && p.cuisine !== 'Test' ? `${p.cuisine} cooking` : 'the local kitchen';
+    return `A table for ${cuisine}${where} — worth booking ahead if you can.`;
+  }
+  if(p.type === 'hotel') return `A comfortable base${where}, close enough to walk to most of the day's plans.`;
+
+  if(/museum|gallery/.test(cat)) return `Give this one a couple of unhurried hours${where} — it rewards slowing down.`;
+  if(/landmark|monument|tower/.test(cat)) return `The sight everyone comes${where} for. Go early or near sunset and it's a different place.`;
+  if(/viewpoint/.test(cat)) return `Climb up${where} for the view that makes the whole city make sense.`;
+  if(/neighborhood|district|quarter/.test(cat)) return `Less a stop than an afternoon — wander${where} and follow whatever looks good.`;
+  if(/park|garden|nature|beach/.test(cat)) return `Green space to reset in${where} between the bigger sights${free?', and it costs nothing':''}.`;
+  if(/market/.test(cat)) return `Come hungry. Browse the stalls${where} and eat your way slowly along.`;
+  if(/tour|cruise/.test(cat)) return `An easy way to see a lot at once — good for a first day${where}.`;
+  if(/culture|history|temple|shrine|church|palace|castle/.test(cat)) return `A quieter, older corner${where} that's worth the detour.`;
+  if(/entertainment|theatre|theater/.test(cat)) return `Worth an evening${where} — check what's on before you go.`;
+  if(/shopping/.test(cat)) return `Good browsing${where}, whether or not you actually buy anything.`;
+  if(tags.includes('nightlife')) return `Best after dark${where} — save it for the end of the day.`;
+  if(tags.includes('hidden')) return `Quieter than the headline sights${where}, and better for it.`;
+  return `Worth an hour${where} while you're in this part of ${city || 'town'}.`;
+}
+/** The description actually shown to a traveler: a human-written curated line where one exists,
+ * a generated travel line where the source text reads like an encyclopedia. */
+function displayDesc(p, dest){
+  return looksEncyclopedic(p.desc, p.name) ? travelBlurb(p, dest) : p.desc;
+}
+
 function pickFromPool(pool, wantCount, filters){
   let filtered = pool.filter(p=>filters.every(f=>f(p)));
   if(filtered.length < wantCount) filtered = pool; // relax filters rather than come up short
-  const byRating = filtered.slice().sort((a,b)=>b.rating-a.rating);
+  const byRating = filtered.slice().sort((a,b)=>(b.rating||0)-(a.rating||0));
   const candidatePool = byRating.slice(0, Math.min(byRating.length, wantCount + 8));
   return shuffle(candidatePool).slice(0, Math.min(wantCount, candidatePool.length));
 }
+/** Ranked, quality-gated selection. Real curated + live places only — never fabricated filler.
+ * Takes the best-scoring places rather than the highest nominal rating, then shuffles only
+ * within a band of near-equals so regenerating varies the trip without ever trading a landmark
+ * for a nearby office block. */
 function pickPlacesForIdea(destId, interests, budgetStyle, days){
-  // Real curated + live-enriched/supplemented places only — never fabricated filler. If the
-  // real pool is smaller than days*MIN_ATTRACTIONS_PER_DAY, the idea simply uses what's really
-  // there (a background fetch may still be topping up the pool; see supplementDestinationInBackground).
-  const priceOk = p=> budgetStyle==='budget' ? (p.priceLevel||0)<=2 : true;
-  const interestOk = p=> (p.tags||[]).some(t=>interests.includes(t));
+  const opts = { interests, budgetStyle };
+  const rank = pool => pool
+    .map(p=>({ p, score: placeQualityScore(p, opts) }))
+    .sort((a,b)=>b.score-a.score);
+
+  const takeBest = (pool, want)=>{
+    if(want <= 0) return [];
+    const ranked = rank(pool);
+    let eligible = ranked.filter(r=>r.score >= ITINERARY_QUALITY_FLOOR);
+    // If genuinely too little clears the bar, fall back to the best available rather than
+    // padding a day with weak places — a shorter, good day beats a full, bad one.
+    if(eligible.length < Math.min(want, 3)) eligible = ranked.slice(0, want);
+    const strong = eligible.slice(0, want);
+    // Variety without sacrificing quality: shuffle among places scoring close to the cut.
+    const cutoff = strong.length ? strong[strong.length-1].score : 0;
+    const band = eligible.filter(r=>r.score >= cutoff - 6);
+    const chosen = shuffle(band).slice(0, want);
+    return (chosen.length ? chosen : strong).map(r=>r.p);
+  };
+
+  // The MIX itself is part of the theme, not just the ranking. Where a destination's pool is
+  // smaller than the trip needs, every place gets used regardless of theme — so a food trip and
+  // a culture trip would come out identical if only the ordering changed. Shifting how many
+  // meals versus sights a day holds keeps them genuinely different even then.
+  const foodFocused = interests.includes('food');
+  const cultureFocused = interests.some(t=>['culture','history','art'].includes(t));
+  const attrPerDay = foodFocused && !cultureFocused ? Math.max(2, MIN_ATTRACTIONS_PER_DAY - 2) : MIN_ATTRACTIONS_PER_DAY;
+  const restPerDay = foodFocused ? 3 : (cultureFocused ? 1 : 2);
 
   const attrPool = placesFor(destId,'attraction');
   const restPool = placesFor(destId,'restaurant');
-  const neededAttr = Math.min(days*MIN_ATTRACTIONS_PER_DAY, attrPool.length);
-  const neededRest = Math.min(restPool.length, days*2);
-
-  const attractions = pickFromPool(attrPool, neededAttr, [interestOk, priceOk]);
-  const restaurants = pickFromPool(restPool, neededRest, [priceOk]);
+  const attractions = takeBest(attrPool, Math.min(days*attrPerDay, attrPool.length));
+  const restaurants = takeBest(restPool, Math.min(restPool.length, days*restPerDay));
   return attractions.concat(restaurants);
 }
 function buildIdea(destId, archetype, overrides){
@@ -1549,52 +1714,243 @@ function wireIdeaCards(container){
   hydratePhotos(container);
 }
 
+/** Picks day anchors that are genuinely far apart, so each day covers a different part of the
+ * city rather than all days orbiting the same square. Greedy farthest-point selection: start
+ * from the strongest place, then repeatedly take whichever remaining place is furthest from
+ * everything chosen so far. */
+function pickDayAnchors(attractions, nDays){
+  if(!attractions.length) return [];
+  const anchors = [attractions[0]];
+  while(anchors.length < nDays && anchors.length < attractions.length){
+    let best = null, bestDist = -1;
+    attractions.forEach(p=>{
+      if(anchors.includes(p)) return;
+      const d = Math.min(...anchors.map(a=>haversine(a, p)));
+      if(d > bestDist){ bestDist = d; best = p; }
+    });
+    if(!best) break;
+    anchors.push(best);
+  }
+  return anchors;
+}
+/** Builds each day around one area instead of scattering stops across the map.
+ *
+ * The previous version dealt places out round-robin, which is why a Paris day could run
+ * Eiffel Tower -> Montmartre -> Louvre -> back west: the order carried no geography at all.
+ * Now attractions are grouped to their nearest day anchor, balanced so no day is starved,
+ * ordered nearest-neighbour within the day, and meals are slotted at plausible times rather
+ * than wherever a restaurant happened to fall in the queue. */
 function distributeIntoDays(places, nDays){
   const attractions = places.filter(p=>p.type==='attraction');
   const restaurants = places.filter(p=>p.type==='restaurant');
-  // Round-robin attractions and restaurants into day buckets SEPARATELY (not as one combined
-  // list) so every day is guaranteed its fair share of attractions specifically — mixing both
-  // into a single interleaved queue before dealing can let a day end up attraction-light just
-  // because more restaurants happened to land in its slice.
-  const attrBuckets = Array.from({length:nDays},()=>[]);
-  attractions.forEach((p,i)=> attrBuckets[i % nDays].push(p));
-  // Stagger where the restaurant round-robin starts so its leftover "extra" item doesn't land
-  // on the same day as the attractions' leftover — otherwise both remainders stack onto day 1,
-  // leaving day 1 overloaded and the last day thin (e.g. 3/2/1 instead of an even 2/2/2).
-  const restOffset = attractions.length % nDays;
-  const restBuckets = Array.from({length:nDays},()=>[]);
-  restaurants.forEach((p,i)=> restBuckets[(i+restOffset) % nDays].push(p));
-  return attrBuckets.map((attrs, d)=>{
-    const rests = restBuckets[d];
-    const half = Math.ceil(attrs.length/2);
-    const ordered = [...attrs.slice(0,half), ...rests, ...attrs.slice(half)];
-    let t = '09:00';
-    return ordered.map(place=>{ const time=t; t=addMinutesToTime(t,(place.duration||90)+20); return {place,time}; });
+  if(!nDays) return [];
+  if(!attractions.length && !restaurants.length) return Array.from({length:nDays},()=>[]);
+
+  const anchors = pickDayAnchors(attractions, nDays);
+  const buckets = Array.from({length:nDays},()=>[]);
+
+  if(anchors.length){
+    // Assign each attraction to its closest day, then even out the load: a day holding far more
+    // than its share hands its most distant stops to the emptiest day.
+    attractions.forEach(p=>{
+      let bestI = 0, bestD = Infinity;
+      anchors.forEach((a,i)=>{ const d = haversine(a,p); if(d < bestD){ bestD = d; bestI = i; } });
+      buckets[bestI].push(p);
+    });
+    // Keep moving the most out-of-the-way stop off the fullest day until the days are close to
+    // even. Bounded by the number of attractions rather than a fixed few passes, so a lopsided
+    // split (one day of 7 next to a day of 5) actually converges instead of stopping early.
+    const target = Math.ceil(attractions.length / nDays);
+    for(let pass=0; pass<attractions.length; pass++){
+      const fullest = buckets.reduce((bi,b,i,arr)=> b.length > arr[bi].length ? i : bi, 0);
+      const emptiest = buckets.reduce((bi,b,i,arr)=> b.length < arr[bi].length ? i : bi, 0);
+      if(fullest === emptiest) break;
+      if(buckets[fullest].length <= target || buckets[fullest].length - buckets[emptiest].length <= 1) break;
+      const anchor = anchors[fullest];
+      buckets[fullest].sort((a,b)=>haversine(anchor,a)-haversine(anchor,b));
+      buckets[emptiest].push(buckets[fullest].pop());
+    }
+  }
+
+  // Restaurants go to whichever day they're actually near, so lunch isn't across town.
+  restaurants.forEach((r,i)=>{
+    if(!anchors.length){ buckets[i % nDays].push(r); return; }
+    let bestI = 0, bestD = Infinity;
+    anchors.forEach((a,idx)=>{ const d = haversine(a,r); if(d < bestD){ bestD = d; bestI = idx; } });
+    // Two meals a day is plenty; spill extras to the least-fed day.
+    if(buckets[bestI].filter(p=>p.type==='restaurant').length >= 2){
+      bestI = buckets.reduce((bi,b,idx,arr)=>
+        b.filter(p=>p.type==='restaurant').length < arr[bi].filter(p=>p.type==='restaurant').length ? idx : bi, 0);
+    }
+    buckets[bestI].push(r);
+  });
+
+  // Final evening-out on TOTAL stops: a day of seven beside a day of five is exhausting rather
+  // than intentional. Only MEALS are moved here — attractions were already balanced above, and
+  // shifting one now would undo that and leave a day short of things to actually do. A meal is
+  // the flexible part of a day; where you eat can follow the plan.
+  for(let pass=0; pass<places.length; pass++){
+    const fullest = buckets.reduce((bi,b,i,arr)=> b.length > arr[bi].length ? i : bi, 0);
+    const emptiest = buckets.reduce((bi,b,i,arr)=> b.length < arr[bi].length ? i : bi, 0);
+    if(fullest === emptiest || buckets[fullest].length - buckets[emptiest].length <= 1) break;
+    const mealIdxs = buckets[fullest].map((p,i)=>p.type==='restaurant'?i:-1).filter(i=>i>=0);
+    if(!mealIdxs.length) break;
+    const anchor = anchors[fullest] || buckets[fullest][0];
+    const moveIdx = mealIdxs.reduce((worst,i)=>
+      haversine(anchor, buckets[fullest][i]) > haversine(anchor, buckets[fullest][worst]) ? i : worst, mealIdxs[0]);
+    buckets[emptiest].push(buckets[fullest].splice(moveIdx,1)[0]);
+  }
+
+  return buckets.map((bucket, dayIdx)=>{
+    const attrs = bucket.filter(p=>p.type==='attraction');
+    const rests = bucket.filter(p=>p.type==='restaurant');
+    const anchor = anchors[dayIdx] || attrs[0];
+
+    // Walk the day as a route rather than a list: start at the anchor, always continue to the
+    // nearest place not yet visited.
+    const route = [];
+    const remaining = attrs.slice();
+    let current = anchor && remaining.includes(anchor) ? anchor : remaining[0];
+    while(remaining.length){
+      const idx = current ? remaining.indexOf(current) : 0;
+      const next = remaining.splice(idx >= 0 ? idx : 0, 1)[0];
+      route.push(next);
+      if(remaining.length){
+        let bestI = 0, bestD = Infinity;
+        remaining.forEach((p,i)=>{ const d = haversine(next,p); if(d < bestD){ bestD = d; bestI = i; } });
+        current = remaining[bestI];
+      }
+    }
+
+    // Lay the day out on the clock, dropping meals in at times people actually eat.
+    const out = [];
+    let t = 9*60;                                   // 09:00
+    let lunch = rests[0] || null, dinner = rests[1] || null;
+    const push = (place, minutes)=>{
+      out.push({ place, time: `${String(Math.floor(minutes/60)%24).padStart(2,'0')}:${String(minutes%60).padStart(2,'0')}` });
+    };
+    route.forEach(place=>{
+      if(lunch && t >= 12*60){ push(lunch, Math.max(t, 12*60+30)); t = Math.max(t, 12*60+30) + 75; lunch = null; }
+      if(dinner && t >= 19*60){ push(dinner, t); t += 90; dinner = null; }
+      push(place, t);
+      t += (place.duration || 90) + 20;             // visit + hop to the next stop
+    });
+    if(lunch) push(lunch, Math.max(t, 12*60+30));
+    if(dinner) push(dinner, Math.max(t + 20, 19*60));
+    return out.sort((a,b)=>timeToMin(a.time)-timeToMin(b.time));
   });
 }
+/** Pre-display validation. Everything shown to a traveler should be a real, visitable,
+ * non-duplicated place with a location — this is the last gate before it reaches the screen. */
+function validateItineraryDays(days){
+  const seen = new Set();
+  return days.map(day => day.filter(({place}) => {
+    if(!place || !place.name) return false;
+    if(typeof place.lat !== 'number' || typeof place.lng !== 'number') return false;
+    const key = normalizePlaceName(place.name);
+    if(seen.has(key)) return false;                 // no repeats across the whole trip
+    seen.add(key);
+    return true;
+  }));
+}
 
+/** Small type label so a day can be scanned at a glance rather than read. */
+const ACTIVITY_KINDS = [
+  [/museum|gallery/i, '🎨', 'Museum'],
+  [/landmark|monument|tower|palace|castle/i, '🏛', 'Landmark'],
+  [/viewpoint/i, '🌄', 'View'],
+  [/park|garden|nature|beach/i, '🌳', 'Nature'],
+  [/market/i, '🧺', 'Market'],
+  [/neighborhood|district|quarter/i, '🚶', 'Neighborhood'],
+  [/tour|cruise/i, '⛵', 'Tour'],
+  [/nightlife|bar|club/i, '🌃', 'Nightlife'],
+  [/shopping/i, '🛍', 'Shopping'],
+  [/entertainment|theatre|theater/i, '🎭', 'Entertainment'],
+  [/culture|history|temple|shrine|church/i, '🏯', 'Culture'],
+];
+function activityKind(p){
+  if(p.type === 'restaurant') return ['🍜', 'Food'];
+  if(p.type === 'hotel') return ['🏨', 'Stay'];
+  const hay = `${p.category||''} ${(p.tags||[]).join(' ')}`;
+  const hit = ACTIVITY_KINDS.find(([re])=>re.test(hay));
+  return hit ? [hit[1], hit[2]] : ['📍', 'Activity'];
+}
+function fmtDuration(mins){
+  if(!mins) return '';
+  const h = Math.floor(mins/60), m = mins%60;
+  return h ? (m ? `${h}h ${m}m` : `${h} hr${h>1?'s':''}`) : `${m} min`;
+}
+/** Compact, scannable summary of what a day actually involves. Every number is computed from
+ * the day's real stops — distance from coordinates, hours from durations, cost from prices. */
+function dayStats(day){
+  const stops = day.map(d=>d.place);
+  const distance = totalDistance(stops);
+  const cost = stops.reduce((a,p)=>a+(p.price||0), 0);
+  const first = day[0] ? timeToMin(day[0].time) : 0;
+  const last = day.length ? timeToMin(day[day.length-1].time) + (day[day.length-1].place.duration||90) : 0;
+  const areas = {};
+  stops.forEach(p=>{ if(p.area) areas[p.area] = (areas[p.area]||0)+1; });
+  const mainArea = Object.entries(areas).sort((a,b)=>b[1]-a[1])[0];
+  return {
+    count: stops.length,
+    distance,
+    hours: Math.max(0, (last-first)/60),
+    cost,
+    area: mainArea ? mainArea[0] : '',
+  };
+}
+function itineraryCardHTML(place, time, dest){
+  const [emoji, kindLabel] = activityKind(place);
+  // Only state what's actually known. A live place has no verified rating or price, so those
+  // chips are omitted entirely rather than shown as 0 or "Free" — a wrong number is worse than
+  // a missing one when someone is budgeting a real trip.
+  const meta = [
+    `🕘 ${fmtTime12(time)}${place.duration?` · ${fmtDuration(place.duration)}`:''}`,
+    place.area ? `📍 ${esc(place.area)}` : '',
+    place.rating ? `⭐ ${place.rating}` : '',
+    typeof place.price === 'number' ? (place.price > 0 ? `💰 ${fmt$(place.price)}` : 'Free') : '',
+  ].filter(Boolean);
+  return `<div class="itCard">
+    <div class="itThumb"><img src="${place.image}" alt="" loading="lazy" data-photo-q="${esc(photoQuery(place.name, dest.name))}"></div>
+    <div class="itBody">
+      <div class="itTop"><h4>${esc(place.name)}</h4><span class="itKind">${emoji} ${esc(kindLabel)}</span></div>
+      <p class="itDesc">${esc(displayDesc(place, dest))}</p>
+      <div class="itMeta">${meta.map(m=>`<span>${m}</span>`).join('')}</div>
+    </div>
+  </div>`;
+}
 function openItineraryPreview(ideaId){
   const idea = IDEA_STORE[ideaId];
   const dest = DESTINATIONS.find(d=>d.id===idea.destId);
-  const days = distributeIntoDays(idea.places, idea.days);
+  const days = validateItineraryDays(distributeIntoDays(idea.places, idea.days));
   let current = 0;
   function render(){
     const content = $('itineraryPreviewContent');
+    const day = days[current] || [];
+    const s = dayStats(day);
     content.innerHTML = `
-      <div class="modalHeader"><div><h2>${idea.emoji} ${esc(idea.title)}</h2><p class="small">${esc(dest.name)} · ${idea.days} days · ${idea.budgetStyle} budget · ${esc(idea.pace)} pace</p></div><button class="xbtn" data-x="1">×</button></div>
-      <div class="ipDayTabs">${days.map((_,i)=>`<button class="pill ${i===current?'active':''}" data-day="${i}">Day ${i+1}</button>`).join('')}</div>
-      <div class="timeline" style="max-height:380px;padding:2px">
-        ${days[current].length ? days[current].map(({place,time})=>`
-          <div class="stop" style="cursor:default">
-            <div class="stopTop">
-              <div class="stopThumb"><img src="${place.image}" alt="" data-photo-q="${esc(photoQuery(place.name, dest.name))}"></div>
-              <div class="stopBody"><h4>${esc(place.name)}</h4><p>${esc(place.desc||'')}</p>
-                <div class="stopMeta"><span>🕒 ${fmtTime12(time)}</span><span>📍 ${esc(place.area)}</span>${place.rating?`<span>★ ${place.rating}</span>`:''}${place.price?`<span>${fmt$(place.price)}</span>`:''}</div>
-              </div>
-            </div>
-          </div>`).join('') : '<div class="empty">No stops this day.</div>'}
+      <div class="itHeader">
+        <div class="modalHeader" style="margin:0">
+          <div>
+            <h2>${idea.emoji} ${esc(idea.title)}</h2>
+            <p class="small">${dest.flag} ${esc(dest.name)} · ${idea.days} day${idea.days===1?'':'s'} · ${esc(idea.budgetStyle)} budget · ${esc(idea.pace)} pace</p>
+          </div>
+          <button class="xbtn" data-x="1">×</button>
+        </div>
+        <div class="ipDayTabs">${days.map((d,i)=>`<button class="pill ${i===current?'active':''}" data-day="${i}">Day ${i+1}</button>`).join('')}</div>
+        ${day.length ? `<div class="daySummary">
+          ${s.area?`<span class="dsArea">📍 ${esc(s.area)}</span>`:''}
+          <span>${s.count} ${s.count===1?'stop':'stops'}</span>
+          <span>🚶 ${s.distance.toFixed(1)} km</span>
+          <span>⏱ ~${s.hours.toFixed(1)} hrs</span>
+          <span>💰 ${fmt$(s.cost)}</span>
+        </div>` : ''}
       </div>
-      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+      <div class="itScroll">
+        ${day.length ? day.map(({place,time})=>itineraryCardHTML(place, time, dest)).join('')
+          : '<div class="empty">No stops this day yet.</div>'}
+      </div>
+      <div class="itFooter">
         <button class="btn" data-x="1">Close</button>
         <button class="btn primary" id="useItineraryBtn">✓ Use This Itinerary — Create Trip</button>
       </div>`;
@@ -2079,7 +2435,7 @@ function computeTripRecap(trip){
   const distance = trip.days.reduce((sum,d)=>sum+totalDistance(d.stops), 0);
   const byType = {};
   stops.forEach(s=>{ byType[s.type] = (byType[s.type]||0)+1; });
-  const rated = stops.filter(s=>s.rating).sort((a,b)=>b.rating-a.rating);
+  const rated = stops.filter(s=>s.rating).sort((a,b)=>(b.rating||0)-(a.rating||0));
   const areas = {};
   stops.forEach(s=>{ if(s.area) areas[s.area] = (areas[s.area]||0)+1; });
   const topArea = Object.entries(areas).sort((a,b)=>b[1]-a[1])[0];
@@ -3788,7 +4144,7 @@ function adjustDayCount(trip, n){
   while(trip.days.length<n){
     addDayToTrip(trip);
     const used = new Set(trip.days.flatMap(d=>d.stops.map(s=>s.placeId)));
-    const top = placesFor(trip.destId,'attraction').filter(p=>!used.has(p.id)).sort((a,b)=>b.rating-a.rating).slice(0,2);
+    const top = placesFor(trip.destId,'attraction').filter(p=>!used.has(p.id)).sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,2);
     top.forEach(p=>addPlaceToTripSilent(trip, trip.days.length-1, p));
   }
   while(trip.days.length>n) trip.days.pop();
@@ -3877,41 +4233,41 @@ function handleIntent(text, trip){
 
   if(/romantic (restaurants?|dinner|dining)/.test(t) || /find romantic/.test(t)){
     const d = dest || guessDestFromText(t) || DESTINATIONS[0];
-    const picks = placesFor(d.id,'restaurant').filter(p=>(p.tags||[]).includes('romantic')).sort((a,b)=>b.rating-a.rating).slice(0,3);
-    const list = picks.length ? picks : placesFor(d.id,'restaurant').sort((a,b)=>b.rating-a.rating).slice(0,3);
+    const picks = placesFor(d.id,'restaurant').filter(p=>(p.tags||[]).includes('romantic')).sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,3);
+    const list = picks.length ? picks : placesFor(d.id,'restaurant').sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,3);
     return {handled:true, reply:`Romantic dinner spots in ${d.name}:\n` + list.map(p=>`• ${p.name} (${p.cuisine}, ★${p.rating}) — ${p.desc}`).join('\n') + `\n\nTry "add ${list[0].name} to day 1" and I'll drop it into your itinerary.`};
   }
 
   if(/rainy day|it'?s raining|raining outside/.test(t)){
     const d = dest || guessDestFromText(t) || DESTINATIONS[0];
     const outdoorCats = ['Beach','Viewpoint','Hiking','Nature','Wine','Adventure'];
-    const indoor = placesFor(d.id,'attraction').filter(p=>!outdoorCats.includes(p.category)).sort((a,b)=>b.rating-a.rating).slice(0,4);
+    const indoor = placesFor(d.id,'attraction').filter(p=>!outdoorCats.includes(p.category)).sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,4);
     return {handled:true, reply:`Good indoor options in ${d.name} for a rainy day:\n` + indoor.map(p=>`• ${p.name} (${p.category})`).join('\n')};
   }
 
   if(/hidden gems?|off[- ]the[- ]beaten|lesser[- ]known|local favorites?/.test(t)){
     const d = dest || guessDestFromText(t) || DESTINATIONS[0];
-    const picks = placesFor(d.id,'attraction').filter(p=>(p.tags||[]).includes('hidden')).sort((a,b)=>b.rating-a.rating).slice(0,4);
-    const list = picks.length ? picks : placesFor(d.id,'attraction').sort((a,b)=>b.rating-a.rating).slice(0,4);
+    const picks = placesFor(d.id,'attraction').filter(p=>(p.tags||[]).includes('hidden')).sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,4);
+    const list = picks.length ? picks : placesFor(d.id,'attraction').sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,4);
     return {handled:true, reply:`Hidden gems in ${d.name}:\n` + list.map(p=>`• ${p.name} — ${p.desc}`).join('\n') + `\n\nTry "add ${list[0].name} to day 1" and I'll drop it into your itinerary.`};
   }
 
   if(/instagrammable|photogenic|photo spots?|photography spots?/.test(t)){
     const d = dest || guessDestFromText(t) || DESTINATIONS[0];
-    const picks = placesFor(d.id,'attraction').filter(p=>(p.tags||[]).includes('photography')).sort((a,b)=>b.rating-a.rating).slice(0,4);
-    const list = picks.length ? picks : placesFor(d.id,'attraction').sort((a,b)=>b.rating-a.rating).slice(0,4);
+    const picks = placesFor(d.id,'attraction').filter(p=>(p.tags||[]).includes('photography')).sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,4);
+    const list = picks.length ? picks : placesFor(d.id,'attraction').sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,4);
     return {handled:true, reply:`Most photogenic spots in ${d.name}:\n` + list.map(p=>`• ${p.name} — ${p.desc}`).join('\n') + `\n\nTry "add ${list[0].name} to day 1" and I'll drop it into your itinerary.`};
   }
 
   if(/find (nearby )?attractions?/.test(t)){
     const d = dest || guessDestFromText(t) || DESTINATIONS[0];
-    const list = placesFor(d.id,'attraction').sort((a,b)=>b.rating-a.rating).slice(0,5);
+    const list = placesFor(d.id,'attraction').sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,5);
     return {handled:true, reply:`Top attractions in ${d.name}:\n` + list.map(p=>`• ${p.name} (★${p.rating}) — ${p.desc}`).join('\n')};
   }
 
   if(/find restaurants? (near me|nearby)/.test(t)){
     const d = dest || guessDestFromText(t) || DESTINATIONS[0];
-    const list = placesFor(d.id,'restaurant').sort((a,b)=>b.rating-a.rating).slice(0,5);
+    const list = placesFor(d.id,'restaurant').sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,5);
     return {handled:true, reply:`Top restaurants in ${d.name}:\n` + list.map(p=>`• ${p.name} (${p.cuisine}, ★${p.rating})`).join('\n')};
   }
 
@@ -3933,7 +4289,7 @@ function handleIntent(text, trip){
     const idx = parseInt(m[1],10)-1;
     if(idx<0||idx>=trip.days.length) return {handled:true, reply:`This trip only has ${trip.days.length} days.`};
     const used = new Set(trip.days.flatMap(d=>d.stops.map(s=>s.placeId)));
-    const picks = PLACES.filter(p=>p.destId===trip.destId && !used.has(p.id) && (p.tags||[]).includes('nightlife')).sort((a,b)=>b.rating-a.rating).slice(0,2);
+    const picks = PLACES.filter(p=>p.destId===trip.destId && !used.has(p.id) && (p.tags||[]).includes('nightlife')).sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,2);
     if(!picks.length) return {handled:true, reply:`I couldn't find more unused nightlife spots in ${dest.name} for this trip.`};
     picks.forEach(p=>addPlaceToTripSilent(trip, idx, p));
     logActivity(trip, `AI added nightlife picks to Day ${idx+1}.`);

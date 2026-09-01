@@ -449,7 +449,7 @@ function inferCategoryFromExtract(text){
   if(/palace|castle|fort(ress)?|monument|memorial|historic|ruins/.test(t)) return 'History';
   if(/market|bazaar|mall/.test(t)) return 'Market';
   if(/bridge|tower|skyscraper|building|square|plaza/.test(t)) return 'Landmark';
-  return 'Landmark';
+  return 'Attraction';   // neutral: an unrecognised place must not inherit a top-tier category
 }
 function inferTagsFromExtract(text){
   const t=(text||'').toLowerCase(); const tags=[];
@@ -471,7 +471,7 @@ function applyEnrichment(dest, payload){
   if(payload.attractions && payload.attractions.length){
     for(let i=PLACES.length-1;i>=0;i--){ if(PLACES[i].destId===dest.id && PLACES[i].type==='attraction') PLACES.splice(i,1); }
     payload.attractions.forEach((p,i)=>{
-      PLACES.push(Object.assign({ id:`${dest.id}-a${i+1}`, destId:dest.id, type:'attraction' }, p,
+      PLACES.push(Object.assign({ id:`${dest.id}-a${i+1}`, destId:dest.id, type:'attraction', source:'live' }, p,
         { image: p.image || img(dest.id+'-attr-'+i, 640,480, p.name) }));
     });
   }
@@ -495,10 +495,7 @@ async function enrichGenericDestination(dest){
       return {
         name: p.title,
         category: inferCategoryFromExtract(p.extract),
-        rating: +(4.1 + (hashStr(p.title)%50)/100).toFixed(1),
-        reviews: 300 + (hashStr(p.title+'r') % 14000),
-        priceLevel: hashStr(p.title+'p') % 3,
-        price: [0,8,15][hashStr(p.title+'p')%3],
+        rating: null, reviews: null, priceLevel: null, price: null,   // see note above: never fabricated
         area: (geo && geo.city) || dest.name,
         lat: p.lat, lng: p.lng,
         desc: (firstSentence || `A notable landmark near ${dest.name}.`).slice(0,160),
@@ -1075,9 +1072,9 @@ DESTINATIONS_RAW.forEach(d=>{
     language:d.language, avgDailyBudget:d.avgDailyBudget, travelInfo:d.travelInfo,
     hero: img(d.id+'-hero',1600,900,d.name)
   });
-  (d.attractions||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-a${i+1}`, destId:d.id, type:'attraction', image:img(d.id+'-attr-'+i,640,480,p.name)}, p)));
-  (d.restaurants||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-r${i+1}`, destId:d.id, type:'restaurant', image:img(d.id+'-food-'+i,640,480,p.name)}, p)));
-  (d.hotels||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-h${i+1}`, destId:d.id, type:'hotel', image:img(d.id+'-hotel-'+i,640,480,p.name)}, p)));
+  (d.attractions||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-a${i+1}`, destId:d.id, type:'attraction', source:'curated', image:img(d.id+'-attr-'+i,640,480,p.name)}, p)));
+  (d.restaurants||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-r${i+1}`, destId:d.id, type:'restaurant', source:'curated', image:img(d.id+'-food-'+i,640,480,p.name)}, p)));
+  (d.hotels||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-h${i+1}`, destId:d.id, type:'hotel', source:'curated', image:img(d.id+'-hotel-'+i,640,480,p.name)}, p)));
 });
 
 /* ---------------- Real-data attraction padding for long trip ideas ----------------
@@ -1108,9 +1105,10 @@ async function ensureRealAttractionSupply(dest){
         const firstSentence = (p.extract||'').split(/(?<=[.!?])\s/)[0];
         return {
           name: p.title, category: inferCategoryFromExtract(p.extract),
-          rating: +(4.1 + (hashStr(p.title)%50)/100).toFixed(1),
-          reviews: 300 + (hashStr(p.title+'r') % 14000),
-          priceLevel: hashStr(p.title+'p') % 3, price:[0,8,15][hashStr(p.title+'p')%3],
+          // No invented rating, review count or price: these are places pulled from a live
+          // geo search, and the app has no real figures for them. A null reads as "unknown"
+          // in the UI; a hash-derived 4.3 reads as a fact the traveler can rely on.
+          rating: null, reviews: null, priceLevel: null, price: null,
           area: dest.name, lat: p.lat, lng: p.lng,
           desc: (firstSentence || `A notable landmark near ${dest.name}.`).slice(0,160),
           tags: inferTagsFromExtract(p.extract), duration:75, photo: p.image || null,
@@ -1123,7 +1121,7 @@ async function ensureRealAttractionSupply(dest){
     const existingNames = new Set(PLACES.filter(p=>p.destId===dest.id).map(p=>p.name.toLowerCase()));
     const toAdd = extras.filter(p=>!existingNames.has(p.name.toLowerCase()));
     toAdd.forEach((p,i)=>PLACES.push({
-      id:`${dest.id}-s${i+1}`, destId:dest.id, type:'attraction',
+      id:`${dest.id}-s${i+1}`, destId:dest.id, type:'attraction', source:'live',
       name:p.name, category:p.category, rating:p.rating, reviews:p.reviews,
       priceLevel:p.priceLevel, price:p.price, area:p.area, lat:p.lat, lng:p.lng,
       desc:p.desc, tags:p.tags, duration:p.duration,
