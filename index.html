@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles.css?v=20260901-4">
 </head>
 <body>
 
@@ -185,12 +185,18 @@
       <div class="tripProgress" id="tripProgress"></div>
 
       <div class="plannerTabs" id="plannerTabs">
-        <button class="ptab active" data-ptab="itinerary">Itinerary &amp; Map</button>
+        <button class="ptab active" data-ptab="dashboard">Dashboard</button>
+        <button class="ptab" data-ptab="itinerary">Itinerary &amp; Map</button>
+        <button class="ptab" data-ptab="unscheduled">Unscheduled Places</button>
         <button class="ptab" data-ptab="budget">Budget</button>
         <button class="ptab" data-ptab="collab">Collaborators</button>
       </div>
 
-      <div class="ptabBody active" id="ptab-itinerary">
+      <div class="ptabBody active" id="ptab-dashboard"></div>
+
+      <div class="ptabBody" id="ptab-unscheduled"></div>
+
+      <div class="ptabBody" id="ptab-itinerary">
         <div class="dashboard">
           <section class="panel">
             <div class="panelHead">
@@ -410,6 +416,14 @@
   </div>
 </div>
 
+<div class="modalBack" id="modal-organizeAI">
+  <div class="modal">
+    <div class="modalHeader"><div><h2>✨ Organize with AI</h2><p class="small">Proposed day assignments for your unscheduled places, based on location and how full each day already is.</p></div><button class="xbtn" data-close="modal-organizeAI">×</button></div>
+    <div id="organizeAIBody"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" data-close="modal-organizeAI">Cancel</button><button class="btn primary" id="acceptOrganizeAIBtn">Accept All</button></div>
+  </div>
+</div>
+
 <div class="modalBack" id="modal-expense">
   <div class="modal">
     <div class="modalHeader"><div><h2 id="expenseModalTitle">Add expense</h2></div><button class="xbtn" data-close="modal-expense">×</button></div>
@@ -464,7 +478,7 @@
   </div>
 </div>
 
-<script src="data.js"></script>
-<script src="app.js"></script>
+<script src="data.js?v=20260901-4"></script>
+<script src="app.js?v=20260901-4"></script>
 </body>
 </html>

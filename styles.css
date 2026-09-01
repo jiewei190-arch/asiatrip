@@ -273,7 +273,33 @@ main{max-width:1280px;margin:0 auto;padding:0 24px 60px;min-height:60vh}
 .pIcon{font-size:15px;flex-shrink:0}
 .pText{display:flex;flex-direction:column;gap:1px;min-width:0}
 .pLabel{font-weight:700;font-size:12.5px}
-.plannerTabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:18px 0}
+/* ---- Trip Dashboard ---- */
+.dashGrid{display:grid;grid-template-columns:2fr 1fr;gap:24px;align-items:start}
+@media(max-width:900px){ .dashGrid{grid-template-columns:1fr} }
+.nextStepsGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.nextStepCard{display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+.nextStepCard h4{margin:2px 0 0;font-size:14px}
+.nextStepCard p{margin:0 0 6px}
+.nsIcon{font-size:22px}
+.upcomingRow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.upcomingRow:last-of-type{border-bottom:0}
+.upTime{font-weight:800;font-size:11.5px;color:var(--muted);width:70px;flex-shrink:0}
+.snapshotGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+/* ---- Unscheduled Places ---- */
+.unschedLayout{display:grid;grid-template-columns:2fr 1fr;gap:20px;align-items:start;margin-top:16px}
+@media(max-width:900px){ .unschedLayout{grid-template-columns:1fr} }
+.unschedList{display:flex;flex-direction:column;gap:10px}
+.unschedCard{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px;cursor:grab}
+.unschedCard.dragging{opacity:.4}
+.unschedInfo{flex:1;min-width:0}
+.unschedInfo h4{margin:0 0 2px;font-size:13.5px}
+.unschedInfo p{margin:0}
+.unschedActions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.uDayPick{border:1px solid var(--line);border-radius:9px;padding:6px 8px;font-weight:600;font-size:12px;background:var(--surface2)}
+.unschedDayZones{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;position:sticky;top:16px}
+.dayDropZone{border:2px dashed var(--line);border-radius:12px;padding:12px;margin-bottom:8px;transition:.15s}
+.dayDropZone.dragover{border-color:var(--green);background:var(--mint)}
+.plannerTabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:18px 0;flex-wrap:wrap}
 .ptab{padding:10px 14px;font-weight:700;color:var(--muted);border-bottom:3px solid transparent}
 .ptab.active{color:var(--green);border-bottom-color:var(--green)}
 .ptabBody{display:none}

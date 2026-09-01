@@ -252,6 +252,23 @@ function tripCategoryTotals(trip){
   return cats;
 }
 function tripStopCount(trip){ return trip.days.reduce((a,d)=>a+d.stops.length,0); }
+/** Every place saved (in any collection) for a given destination — the shared source of truth
+ * behind the Trip Progress checklist, the hotel-area recommendation, and the Unscheduled
+ * Places bucket, so "saved" means the same thing everywhere in the app. */
+function savedPlaceIdsForDest(destId){
+  const ids = new Set();
+  STATE.collections.forEach(c=>c.placeIds.forEach(id=>{ if(id.indexOf(destId+'-')===0) ids.add(id); }));
+  return ids;
+}
+/** Saved attractions/restaurants for this trip's destination that aren't scheduled on any day
+ * yet — the connective link between Saved Places and the itinerary. Hotels are excluded: they
+ * don't fit the "schedule into a day" model (that's what the Hotel Considered dashboard item
+ * and the destination's Hotels tab are for). */
+function unscheduledPlacesForTrip(trip){
+  const saved = savedPlaceIdsForDest(trip.destId);
+  const scheduled = new Set(trip.days.flatMap(d=>d.stops.map(s=>s.placeId)));
+  return [...saved].filter(id=>!scheduled.has(id)).map(placeById).filter(p=>p && p.type!=='hotel');
+}
 function logActivity(trip, text, author){ trip.activity.unshift({id:uid('act'), author:author||'You', text, ts:Date.now()}); }
 function addNotification(text, icon, tripId){ STATE.notifications.unshift({id:uid('notif'), text, icon:icon||'🔔', read:false, tripId:tripId||null, ts:Date.now()}); renderNotifBadge(); }
 
@@ -310,7 +327,7 @@ function route(){
   else if(parts[0]==='saved'){ showView('saved'); renderSavedView(parts[1]); }
   else if(parts[0]==='ideas'){ showView('ideas'); renderIdeasView(decodeURIComponent(parts[1]||'')); }
   else if(parts[0]==='destination'){ showView('destination'); renderDestinationView(decodeURIComponent(parts[1]||''), parts[2]||'overview'); }
-  else if(parts[0]==='trip'){ showView('planner'); renderPlannerView(parts[1], parts[2]||'itinerary'); }
+  else if(parts[0]==='trip'){ showView('planner'); renderPlannerView(parts[1], parts[2]||'dashboard'); }
   else { showView('home'); renderHomeView(); }
 }
 
@@ -1157,8 +1174,7 @@ function recommendBestArea(dest, areas){
   if(areas.length<2) return null;
   const trip = STATE.trips.find(t=>t.destId===dest.id);
   const itineraryPoints = trip ? trip.days.flatMap(d=>d.stops.map(s=>({lat:s.lat,lng:s.lng}))) : [];
-  const savedIds = new Set();
-  STATE.collections.forEach(c=>c.placeIds.forEach(id=>{ if(id.indexOf(dest.id+'-')===0) savedIds.add(id); }));
+  const savedIds = savedPlaceIdsForDest(dest.id);
   const savedPoints = [...savedIds].map(id=>placeById(id)).filter(Boolean).map(p=>({lat:p.lat,lng:p.lng}));
   const points = [...itineraryPoints, ...savedPoints];
   if(!points.length) return null;
@@ -1796,7 +1812,7 @@ function renderPlannerView(tripId, ptab){
   if(!trip){ navigate('#/trips'); return; }
   if(plannerState.tripId !== tripId) plannerState = { tripId, day:0 };
   const dest = destForTrip(trip);
-  const refreshPlanner = ()=>{ if(plannerState.tripId===trip.id) renderPlannerView(trip.id, location.hash.split('/')[3]||'itinerary'); };
+  const refreshPlanner = ()=>{ if(plannerState.tripId===trip.id) renderPlannerView(trip.id, location.hash.split('/')[3]||'dashboard'); };
   if(dest.id.startsWith('gen-')) enrichDestinationInBackground(dest, refreshPlanner);
   else supplementDestinationInBackground(dest, refreshPlanner);
 
@@ -1806,9 +1822,9 @@ function renderPlannerView(tripId, ptab){
   renderCollabStack(trip);
   renderTripProgress(trip);
 
-  $$('.ptab').forEach(b=>{ b.classList.toggle('active', b.dataset.ptab===(ptab||'itinerary')); b.onclick=()=>navigate(`#/trip/${trip.id}/${b.dataset.ptab}`); });
+  $$('.ptab').forEach(b=>{ b.classList.toggle('active', b.dataset.ptab===(ptab||'dashboard')); b.onclick=()=>navigate(`#/trip/${trip.id}/${b.dataset.ptab}`); });
   $$('.ptabBody').forEach(b=>b.classList.remove('active'));
-  $('ptab-'+(ptab||'itinerary')).classList.add('active');
+  $('ptab-'+(ptab||'dashboard')).classList.add('active');
 
   $('shareTripBtn').onclick = ()=>openShareModal(trip.id);
   $('optimizeBtn').onclick = ()=>openOptimizeModal(trip, plannerState.day);
@@ -1822,15 +1838,233 @@ function renderPlannerView(tripId, ptab){
 
   if(ptab==='budget') renderBudgetTab(trip);
   else if(ptab==='collab') renderCollabTab(trip);
-  else renderPlannerItinerary(trip);
+  else if(ptab==='unscheduled') renderUnscheduledTab(trip);
+  else if(ptab==='itinerary') renderPlannerItinerary(trip);
+  else renderDashboardTab(trip);
 }
 function renderCollabStack(trip){ $('collabStack').innerHTML = trip.collaborators.map(c=>`<div class="avatar sm" title="${esc(c.name)}">${c.initials}</div>`).join(''); }
+
+/* ---------------- Trip Dashboard (the trip's home page) ---------------- */
+function renderDashboardTab(trip){
+  const dest = destForTrip(trip);
+  const body = $('ptab-dashboard');
+  const progress = computeTripProgress(trip);
+  const unscheduled = unscheduledPlacesForTrip(trip);
+  const remaining = trip.budget.total - tripPlannedTotal(trip);
+
+  // One action card per real, unfinished thing — never a card for a feature that doesn't exist.
+  const nextSteps = [];
+  const hotelItem = progress.items.find(i=>i.key==='hotel');
+  if(hotelItem && hotelItem.status!=='done') nextSteps.push({ icon:'🏨', title:'Choose Accommodation',
+    desc:'Find the best area to stay based on your itinerary.', cta:'Find Hotels',
+    go:()=>navigate(`#/destination/${encodeURIComponent(dest.id)}/hotels`) });
+  if(unscheduled.length) nextSteps.push({ icon:'📍', title:`${unscheduled.length} Place${unscheduled.length===1?'':'s'} Not Yet Scheduled`,
+    desc:'You have saved places waiting to be added to your itinerary.', cta:'Organize Places',
+    go:()=>navigate(`#/trip/${trip.id}/unscheduled`) });
+  const itinItem = progress.items.find(i=>i.key==='itin');
+  if(itinItem && itinItem.status!=='done'){
+    const emptyDays = trip.days.filter(d=>!d.stops.length).length;
+    nextSteps.push({ icon:'🗓️', title:'Finish Your Itinerary', desc:`${emptyDays} day${emptyDays===1?'':'s'} still ${emptyDays===1?'has':'have'} nothing planned.`,
+      cta:'Open Itinerary', go:()=>navigate(`#/trip/${trip.id}/itinerary`) });
+  }
+  nextSteps.push({ icon:'💰', title: remaining>=0 ? 'Budget Remaining' : 'Over Budget',
+    desc: remaining>=0 ? `${fmt$(remaining)} remaining of ${fmt$(trip.budget.total)}.` : `${fmt$(-remaining)} over your ${fmt$(trip.budget.total)} budget.`,
+    cta:'View Budget', go:()=>navigate(`#/trip/${trip.id}/budget`) });
+
+  const upcomingDay = trip.days[0];
+
+  body.innerHTML = `
+    <div class="dashGrid">
+      <div>
+        <h3 style="margin:0 0 12px">Next steps</h3>
+        <div class="nextStepsGrid">
+          ${nextSteps.map((s,i)=>`<div class="card nextStepCard">
+            <div class="nsIcon">${s.icon}</div>
+            <h4>${esc(s.title)}</h4>
+            <p class="small">${esc(s.desc)}</p>
+            <button class="btn primary sm" data-nextstep="${i}">${esc(s.cta)}</button>
+          </div>`).join('')}
+        </div>
+        <h3 style="margin:26px 0 12px">Upcoming</h3>
+        <div class="card">
+          ${upcomingDay && upcomingDay.stops.length ? `
+            <div class="small" style="font-weight:700;margin-bottom:10px">Day 1 · ${fmtDateFull(upcomingDay.date)}</div>
+            ${upcomingDay.stops.slice(0,5).map(s=>`<div class="upcomingRow">
+              <span class="upTime">${fmtTime12(s.time)}</span>
+              <div class="stopThumb"><img src="${s.image}" data-photo-q="${esc(photoQuery(s.name, dest.name))}"></div>
+              <span>${esc(s.name)}</span>
+            </div>`).join('')}
+            <button class="linklike" style="margin-top:10px" data-goitin="1">View full itinerary →</button>
+          ` : `<div class="empty">No itinerary yet. <button class="linklike" data-goitin="1">Start planning →</button></div>`}
+        </div>
+      </div>
+      <div>
+        <h3 style="margin:0 0 12px">Trip snapshot</h3>
+        <div class="snapshotGrid">
+          <div class="ovCard"><div class="k">Planned activities</div><div class="v" style="font-size:22px">${tripStopCount(trip)}</div></div>
+          <div class="ovCard"><div class="k">Unscheduled places</div><div class="v" style="font-size:22px">${unscheduled.length}</div></div>
+          <div class="ovCard"><div class="k">Collaborators</div><div class="v" style="font-size:22px">${trip.collaborators.length}</div></div>
+          <div class="ovCard"><div class="k">Planned spend</div><div class="v" style="font-size:22px">${fmt$(tripPlannedTotal(trip))}</div></div>
+        </div>
+      </div>
+    </div>`;
+  nextSteps.forEach((s,i)=>{ const b = body.querySelector(`[data-nextstep="${i}"]`); if(b) b.onclick = s.go; });
+  body.querySelectorAll('[data-goitin]').forEach(b=>b.onclick=()=>navigate(`#/trip/${trip.id}/itinerary`));
+  hydratePhotos(body);
+}
+
+/* ---------------- Unscheduled Places bucket ---------------- */
+let unscheduledState = { search:'', cat:'all', sort:'rec' };
+function renderUnscheduledTab(trip){
+  const dest = destForTrip(trip);
+  const body = $('ptab-unscheduled');
+  const all = unscheduledPlacesForTrip(trip);
+  body.innerHTML = `
+    <div class="panelHead" style="padding:0 0 14px;border:0">
+      <h3>${all.length} Place${all.length===1?'':'s'} Waiting to Be Scheduled</h3>
+      <button class="btn magic" id="uOrganizeAI" ${all.length?'':'disabled'}>✨ Organize with AI</button>
+    </div>
+    ${all.length ? `<div class="filterBar">
+      <div class="filterGroup" style="flex:1;min-width:180px"><label>Search</label><input id="uSearch" placeholder="Search unscheduled places…"></div>
+      <div class="filterGroup"><label>Category</label><select id="uCat"><option value="all">All</option><option value="attraction">Attractions</option><option value="restaurant">Restaurants</option></select></div>
+      <div class="filterGroup"><label>Sort</label><select id="uSort"><option value="rec">Recommended</option><option value="name">Name (A–Z)</option><option value="category">Category</option><option value="distance">Distance from center</option></select></div>
+    </div>
+    <div class="unschedLayout">
+      <div class="unschedList" id="unschedList"></div>
+      <div class="unschedDayZones">
+        <div class="small" style="font-weight:700;margin-bottom:8px">Drag a place onto a day to schedule it</div>
+        <div id="dayDropZones"></div>
+      </div>
+    </div>` : `<div class="empty" style="padding:50px 20px">
+      <div style="font-size:30px;margin-bottom:8px">📍</div>
+      <div>Nothing waiting to be scheduled.</div>
+      <div class="small" style="margin-top:4px">Save places from ${esc(dest.name)}'s Things To Do, Restaurants, or Hotels tabs and they'll show up here until you add them to a day.</div>
+      <button class="btn primary" style="margin-top:14px" data-explore="1">Explore ${esc(dest.name)}</button>
+    </div>`}`;
+  if(!all.length){ const b=body.querySelector('[data-explore]'); if(b) b.onclick=()=>navigate(`#/destination/${encodeURIComponent(dest.id)}/things`); return; }
+
+  $('uSearch').value = unscheduledState.search; $('uCat').value = unscheduledState.cat; $('uSort').value = unscheduledState.sort;
+
+  function drawDayZones(){
+    $('dayDropZones').innerHTML = trip.days.map((d,i)=>`
+      <div class="dayDropZone" data-dropday="${i}">
+        <div class="small" style="font-weight:700">Day ${i+1} · ${fmtDateShort(d.date)}</div>
+        <div class="small">${d.stops.length} stop${d.stops.length===1?'':'s'}</div>
+      </div>`).join('');
+    $('dayDropZones').querySelectorAll('[data-dropday]').forEach(zone=>{
+      zone.addEventListener('dragover', e=>{ e.preventDefault(); zone.classList.add('dragover'); });
+      zone.addEventListener('dragleave', ()=>zone.classList.remove('dragover'));
+      zone.addEventListener('drop', e=>{
+        e.preventDefault(); zone.classList.remove('dragover');
+        const placeId = e.dataTransfer.getData('text/place-id');
+        const p = placeId && placeById(placeId);
+        if(!p) return;
+        addPlaceToTrip(trip, Number(zone.dataset.dropday), p);
+        toast(`${p.name} scheduled on Day ${Number(zone.dataset.dropday)+1}.`);
+        renderUnscheduledTab(trip); renderTripProgress(trip);
+      });
+    });
+  }
+  function apply(){
+    unscheduledState = { search:$('uSearch').value, cat:$('uCat').value, sort:$('uSort').value };
+    let arr = all.filter(p=>{
+      if(unscheduledState.cat!=='all' && p.type!==unscheduledState.cat) return false;
+      if(unscheduledState.search && !p.name.toLowerCase().includes(unscheduledState.search.toLowerCase())) return false;
+      return true;
+    });
+    if(unscheduledState.sort==='name') arr.sort((a,b)=>a.name.localeCompare(b.name));
+    else if(unscheduledState.sort==='category') arr.sort((a,b)=>(a.category||a.cuisine||a.type).localeCompare(b.category||b.cuisine||b.type));
+    else if(unscheduledState.sort==='distance') arr.sort((a,b)=>haversine(dest,a)-haversine(dest,b));
+    else arr.sort((a,b)=>(b.rating||0)-(a.rating||0));
+
+    $('unschedList').innerHTML = arr.length ? arr.map(p=>`
+      <div class="unschedCard" draggable="true" data-place="${p.id}">
+        <div class="stopThumb"><img src="${p.image}" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
+        <div class="unschedInfo">
+          <h4>${esc(p.name)}</h4>
+          <p class="small">${esc(p.category||p.cuisine||p.type)}${p.area?' · '+esc(p.area):''}${p.rating?' · ★ '+p.rating:''}</p>
+        </div>
+        <div class="unschedActions">
+          <select class="uDayPick" data-dayfor="${p.id}" aria-label="Add ${esc(p.name)} to day"><option value="">Add to day…</option>${trip.days.map((d,i)=>`<option value="${i}">Day ${i+1}</option>`).join('')}</select>
+          <button class="btn sm" data-viewmap="${p.id}" title="View on map"><i class="fa-solid fa-map-location-dot"></i></button>
+          <button class="btn sm danger" data-unsave="${p.id}" title="Remove from saved"><i class="fa-solid fa-trash"></i></button>
+        </div>
+      </div>`).join('') : `<div class="empty">No unscheduled places match those filters. <button class="linklike" data-clearfilters="1">Clear filters</button></div>`;
+
+    $('unschedList').querySelectorAll('[data-place]').forEach(card=>{
+      card.addEventListener('dragstart', e=>{ e.dataTransfer.setData('text/place-id', card.dataset.place); card.classList.add('dragging'); });
+      card.addEventListener('dragend', ()=>card.classList.remove('dragging'));
+    });
+    $('unschedList').querySelectorAll('[data-dayfor]').forEach(sel=>sel.onchange=()=>{
+      if(!sel.value) return;
+      const p = placeById(sel.dataset.dayfor);
+      addPlaceToTrip(trip, Number(sel.value), p);
+      toast(`${p.name} scheduled on Day ${Number(sel.value)+1}.`);
+      renderUnscheduledTab(trip); renderTripProgress(trip);
+    });
+    $('unschedList').querySelectorAll('[data-viewmap]').forEach(b=>b.onclick=()=>viewPlaceOnMap(b.dataset.viewmap));
+    $('unschedList').querySelectorAll('[data-unsave]').forEach(b=>b.onclick=()=>{
+      const p = placeById(b.dataset.unsave);
+      STATE.collections.forEach(c=>{ c.placeIds = c.placeIds.filter(id=>id!==p.id); });
+      saveState();
+      toast(`${p.name} removed from your saved places.`);
+      renderUnscheduledTab(trip); renderTripProgress(trip);
+    });
+    const clearBtn = $('unschedList').querySelector('[data-clearfilters]');
+    if(clearBtn) clearBtn.onclick = ()=>{ unscheduledState = {search:'',cat:'all',sort:'rec'}; renderUnscheduledTab(trip); };
+    hydratePhotos($('unschedList'));
+  }
+  $('uSearch').oninput = debounce(apply, 150);
+  $('uCat').onchange = apply;
+  $('uSort').onchange = apply;
+  $('uOrganizeAI').onclick = ()=>openOrganizeWithAI(trip, all);
+  drawDayZones();
+  apply();
+}
+/** Assigns each unscheduled place to whichever day it's geographically closest to (lightly
+ * favoring days with fewer stops so one day doesn't get overloaded) — real distance-based
+ * logic, not a random or fixed assignment. Never applied without the user confirming. */
+function organizeUnscheduledWithAI(trip, places){
+  const dest = destForTrip(trip);
+  return places.map(p=>{
+    let bestDay = 0, bestScore = Infinity;
+    trip.days.forEach((day,i)=>{
+      const anchor = day.stops.length ? day.stops[Math.floor(day.stops.length/2)] : dest;
+      const score = haversine(p, anchor) + day.stops.length*0.15;
+      if(score < bestScore){ bestScore = score; bestDay = i; }
+    });
+    return { place:p, dayIdx:bestDay };
+  });
+}
+function openOrganizeWithAI(trip, places){
+  const proposal = organizeUnscheduledWithAI(trip, places);
+  const byDay = {};
+  proposal.forEach(({place,dayIdx})=>{ (byDay[dayIdx]=byDay[dayIdx]||[]).push(place); });
+  $('organizeAIBody').innerHTML = Object.keys(byDay).sort((a,b)=>a-b).map(dayIdx=>`
+    <div class="card" style="margin-bottom:10px">
+      <h4 style="margin:0 0 8px">Day ${Number(dayIdx)+1}</h4>
+      ${byDay[dayIdx].map(p=>`<div class="small" style="margin:4px 0">📍 ${esc(p.name)}</div>`).join('')}
+    </div>`).join('');
+  window.__organizeProposal = { trip, proposal };
+  openModal('modal-organizeAI');
+}
+function initOrganizeAIModal(){
+  $('acceptOrganizeAIBtn').onclick = ()=>{
+    const pending = window.__organizeProposal;
+    if(!pending) return;
+    pending.proposal.forEach(({place,dayIdx})=>addPlaceToTrip(pending.trip, dayIdx, place));
+    logActivity(pending.trip, `AI organized ${pending.proposal.length} unscheduled place(s) into the itinerary.`);
+    saveState();
+    closeModal('modal-organizeAI');
+    toast(`Added ${pending.proposal.length} place(s) to your itinerary.`);
+    if(plannerState.tripId===pending.trip.id) renderPlannerView(pending.trip.id, 'unscheduled');
+  };
+}
 
 /* ---------------- Trip Planning Progress ---------------- */
 function computeTripProgress(trip){
   const dest = destForTrip(trip);
-  const savedForDest = new Set();
-  STATE.collections.forEach(c=>c.placeIds.forEach(id=>{ if(id.indexOf(dest.id+'-')===0) savedForDest.add(id); }));
+  const savedForDest = savedPlaceIdsForDest(dest.id);
   const savedCount = savedForDest.size;
   const savedHotel = [...savedForDest].some(id=>{ const p=placeById(id); return p && p.type==='hotel'; });
   const daysWithStops = trip.days.filter(d=>d.stops.length>0).length;
@@ -2602,6 +2836,7 @@ function init(){
   initNewTripModal();
   initEditTripModal();
   initOptimizeModal();
+  initOrganizeAIModal();
   initEditBudgetModal();
   initCustomizeModal();
   initAI();
