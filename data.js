@@ -89,11 +89,17 @@ async function fetchWikiThumbnail(query){
   if(Object.prototype.hasOwnProperty.call(cache, key)) return cache[key];
   let result = null;
   try{
-    const res = await fetchWithTimeout(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query)}`, 7000, {headers:{'Accept':'application/json'}});
+    // A fuzzy, relevance-ranked SEARCH (not an exact-title lookup) so descriptive names like
+    // "Nusa Penida Day Trip" still resolve to the real "Nusa Penida" article instead of 404ing —
+    // Wikipedia's REST summary endpoint requires the exact page title and misses these often.
+    const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(query)}&gsrlimit=1&prop=pageimages&piprop=thumbnail&pithumbsize=720&format=json&origin=*`;
+    const res = await fetchWithTimeout(url, 7000, {headers:{'Accept':'application/json'}});
     if(res && res.ok){
       const data = await res.json();
-      if(data && data.type !== 'disambiguation' && data.thumbnail && data.thumbnail.source){
-        result = upsizeWikiThumb(data.thumbnail.source, 720);
+      const pages = (data.query && data.query.pages) || {};
+      const page = Object.values(pages)[0];
+      if(page && page.thumbnail && page.thumbnail.source){
+        result = upsizeWikiThumb(page.thumbnail.source, 720);
       }
     }
   }catch(e){ /* offline / blocked / not found — keep placeholder */ }
@@ -149,11 +155,21 @@ const CURRENCY_META = {
   BGN:{symbol:'лв',name:'Bulgarian Lev'},
 };
 const FX_CACHE_KEY = 'tripflow_fx_cache_v1';
+// Approximate fallback rates, used ONLY when the live rate fetch fails (offline, blocked,
+// timeout) so the converter still works instead of going fully dark — clearly marked as
+// approximate (not "live") wherever they're shown, and replaced the moment a live fetch succeeds.
+const FALLBACK_EXCHANGE_RATES = {
+  EUR:0.92, GBP:0.79, JPY:149.5, CAD:1.37, AUD:1.52, CNY:7.1, INR:83.4, THB:35.8, MXN:18.2,
+  BRL:5.4, CHF:0.88, KRW:1330, IDR:15700, ZAR:18.9, NZD:1.64, SGD:1.34, HKD:7.82, ISK:138.5,
+  ILS:3.7, MYR:4.7, PHP:56.2, TRY:34.1, PLN:4.0, CZK:23.4, HUF:365, NOK:10.6, SEK:10.4, DKK:6.86,
+  RON:4.58, BGN:1.8,
+};
 let EXCHANGE_RATES = {USD:1};
+let EXCHANGE_RATES_ARE_LIVE = false;
 async function loadExchangeRates(){
   try{
     const cached = JSON.parse(localStorage.getItem(FX_CACHE_KEY) || 'null');
-    if(cached && cached.rates && (Date.now() - cached.ts) < 12*3600*1000){ EXCHANGE_RATES = cached.rates; return true; }
+    if(cached && cached.rates && (Date.now() - cached.ts) < 12*3600*1000){ EXCHANGE_RATES = cached.rates; EXCHANGE_RATES_ARE_LIVE = true; return true; }
   }catch(e){}
   try{
     const symbols = Object.keys(CURRENCY_META).filter(c=>c!=='USD').join(',');
@@ -162,11 +178,14 @@ async function loadExchangeRates(){
       const data = await res.json();
       if(data && data.rates){
         EXCHANGE_RATES = Object.assign({USD:1}, data.rates);
+        EXCHANGE_RATES_ARE_LIVE = true;
         writeJSONCache(FX_CACHE_KEY, {ts:Date.now(), rates:EXCHANGE_RATES});
         return true;
       }
     }
   }catch(e){}
+  // Live fetch failed — fall back to approximate rates so the converter still functions.
+  if(!EXCHANGE_RATES_ARE_LIVE) EXCHANGE_RATES = Object.assign({USD:1}, FALLBACK_EXCHANGE_RATES);
   return false;
 }
 function convertUSD(amountUSD, toCurrency){
@@ -236,12 +255,12 @@ async function enrichGenericDestination(dest){
     if(cache[dest.id]){ applyEnrichment(dest, cache[dest.id]); return true; }
     const geo = await geocodeCity(dest.name + (dest.country ? ', '+dest.country : ''));
     const lat = geo ? geo.lat : dest.lat, lng = geo ? geo.lng : dest.lng;
-    const pois = await fetchNearbyWikiPOIs(lat, lng, 24);
+    const pois = await fetchNearbyWikiPOIs(lat, lng, 40);
     if(!geo && !pois.length){ dest.__enriched = true; return false; }
     const seen = new Set();
     const attractions = pois.filter(p=>{
       const k = p.title.toLowerCase(); if(seen.has(k)) return false; seen.add(k); return true;
-    }).slice(0,12).map(p=>{
+    }).slice(0,30).map(p=>{
       const firstSentence = (p.extract||'').split(/(?<=[.!?])\s/)[0];
       return {
         name: p.title,
@@ -266,6 +285,9 @@ async function enrichGenericDestination(dest){
   } finally { dest.__enriching = false; }
 }
 
+// A larger pool than what's shown per generation (see IDEAS_SHOWN_PER_GENERATE) — each
+// "Generate" click samples a fresh random subset, so the card THEMES vary between
+// generations too, not just the places inside each one.
 const TRIP_ARCHETYPES = [
   { key:'food',      emoji:'🍜', titleTpl:"Food Lover's {city}",   tags:['food'],             descTpl:"Street food stalls, izakayas, local markets and the tables locals actually eat at in {city}." },
   { key:'culture',    emoji:'🏯', titleTpl:"Culture & History",     tags:['culture','history'],descTpl:"Temples, museums, monuments and old neighborhoods that tell {city}'s story." },
@@ -276,7 +298,15 @@ const TRIP_ARCHETYPES = [
   { key:'adventure',  emoji:'⛰️', titleTpl:"{city} Adventure",       tags:['adventure','nature'],descTpl:"Outdoor thrills and nature escapes in and around {city}." },
   { key:'romantic',   emoji:'💑', titleTpl:"Romantic {city}",        tags:['romantic'],         descTpl:"Sunset views, candlelit dinners and quiet corners made for two in {city}." },
   { key:'hidden',     emoji:'📸', titleTpl:"Hidden {city}",          tags:['hidden'],           descTpl:"Skip the crowds — the lesser-known spots locals actually love in {city}." },
+  { key:'family',     emoji:'👨‍👩‍👧', titleTpl:"Family-Friendly {city}", tags:['nature','culture'], descTpl:"Easygoing, kid-friendly stops and low-hassle days out in {city}." },
+  { key:'luxury',     emoji:'✨', titleTpl:"Luxury {city}",          tags:['romantic','food'], descTpl:"Fine dining, five-star stays and the best of {city} without compromise." },
+  { key:'solo',       emoji:'🎒', titleTpl:"Solo Explorer's {city}", tags:['hidden','culture'], descTpl:"Flexible, low-key days made for exploring {city} at your own pace." },
+  { key:'photo',      emoji:'📷', titleTpl:"Instagram-Worthy {city}",tags:['photography','art'],descTpl:"The most photogenic corners, views and light in {city}." },
+  { key:'wellness',   emoji:'🧘', titleTpl:"{city} Wellness Retreat",tags:['relax','nature'],   descTpl:"Slow mornings, spas and green space for a reset in {city}." },
+  { key:'budget',     emoji:'💸', titleTpl:"Budget {city}",          tags:['food','hidden'],    descTpl:"Great days in {city} without spending a fortune — free sights, cheap eats, local transit." },
+  { key:'classic',    emoji:'🗺️', titleTpl:"Classic {city} Highlights", tags:['culture','food'], descTpl:"The essential, can't-miss sights and experiences every first-time visitor to {city} should hit." },
 ];
+const IDEAS_SHOWN_PER_GENERATE = 9;
 
 const INTERESTS = [
   ['food','🍜','Foodie','markets, tastings, local spots'],
@@ -758,62 +788,55 @@ DESTINATIONS_RAW.forEach(d=>{
   (d.hotels||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-h${i+1}`, destId:d.id, type:'hotel', image:img(d.id+'-hotel-'+i,640,480,p.name)}, p)));
 });
 
-/* ---------------- On-demand attraction padding for long trip ideas ----------------
-   Curated destinations only ship a handful of hand-written attractions. A multi-day
-   trip idea needs at least 5 attractions per day, so once the curated (plus any
-   live-enriched) pool runs short, top it up with plausible themed spots built from
-   the destination's own real neighborhood names — deterministic per destination so
-   regenerating ideas reshuffles the same pool rather than inventing new places
-   each time. */
-const FILLER_ATTR_THEMES = [
-  ['Walking Tour', "A guided stroll through {area}'s streets, landmarks and local life.", 'culture'],
-  ['Rooftop Lounge', 'Sunset views and drinks above the rooftops of {area}.', 'nightlife'],
-  ['Art Walk', 'Galleries and street art scattered through {area}.', 'art'],
-  ['Hidden Cafés', "A crawl through {area}'s best-kept café secrets.", 'hidden'],
-  ['Local Market', 'Stalls, spices and street food in the heart of {area}.', 'food'],
-  ['Waterfront Promenade', "A relaxed walk along {area}'s waterfront.", 'relax'],
-  ['Photography Spot', "One of {area}'s most frame-worthy corners.", 'photography'],
-  ['Sunset Viewpoint', "One of the best sunset views in {area}.", 'romantic'],
-  ['Botanical Garden', "A quiet green escape in {area}.", 'nature'],
-  ['Boutique Shopping Row', 'Independent shops and design studios in {area}.', 'shopping'],
-];
-function fillerAttractionsForDest(dest, count){
-  const existing = PLACES.filter(p=>p.destId===dest.id);
-  const usedNames = new Set(existing.map(p=>p.name.toLowerCase()));
-  const areas = [...new Set(existing.map(p=>p.area).filter(Boolean))];
-  if(!areas.length) areas.push(dest.name);
-  const out = [];
-  let idx = 0, guard = 0;
-  while(out.length < count && guard < count*20){
-    guard++;
-    const theme = FILLER_ATTR_THEMES[idx % FILLER_ATTR_THEMES.length];
-    const area = areas[Math.floor(idx / FILLER_ATTR_THEMES.length) % areas.length];
-    idx++;
-    const name = `${area} ${theme[0]}`;
-    if(usedNames.has(name.toLowerCase())) continue;
-    usedNames.add(name.toLowerCase());
-    const seed = dest.id+'-filler-'+name;
-    out.push({
-      name, category: theme[0],
-      rating: +(4.2 + (hashStr(seed)%40)/100).toFixed(1),
-      reviews: 200 + (hashStr(seed+'r')%3000),
-      priceLevel: hashStr(seed+'p')%3, price:[0,10,20][hashStr(seed+'p')%3],
-      area, lat: dest.lat + (((hashStr(seed+'lat')%200)-100)/2000), lng: dest.lng + (((hashStr(seed+'lng')%200)-100)/2000),
-      desc: theme[1].replace('{area}', area), tags:[theme[2],'hidden'], duration:75,
-    });
-  }
-  return out;
-}
-/** Ensures a destination's PLACES pool has at least `minAttractions` attraction entries,
- * padding with fillerAttractionsForDest() (real curated/enriched ones always come first). */
-function ensureAttractionSupply(destId, minAttractions){
-  const dest = DESTINATIONS.find(d=>d.id===destId);
-  if(!dest) return;
-  const have = PLACES.filter(p=>p.destId===destId && p.type==='attraction').length;
-  if(have >= minAttractions) return;
-  const filler = fillerAttractionsForDest(dest, minAttractions - have);
-  filler.forEach((p,i)=>PLACES.push(Object.assign(
-    {id:`${destId}-x${have+i+1}`, destId, type:'attraction', image:img(destId+'-fillerattr-'+(have+i),640,480,p.name)}, p)));
+/* ---------------- Real-data attraction padding for long trip ideas ----------------
+   A multi-day trip idea wants several attractions per day, and curated destinations only
+   ship a handful of hand-written ones. Rather than inventing fake "filler" places, top up
+   the pool with REAL nearby landmarks fetched live from Wikipedia's GeoSearch (the same
+   source used for worldwide destination enrichment) — cached so repeat visits don't
+   refetch, and always additive: curated data is never removed or replaced. If live data
+   genuinely isn't available (offline, or a very obscure destination), a trip idea simply
+   uses however many real places actually exist rather than padding with anything made up. */
+const REAL_SUPPLEMENT_CACHE_KEY = 'tripflow_real_supplement_cache_v1';
+async function ensureRealAttractionSupply(dest){
+  if(!dest || dest.__supplemented || dest.__supplementing) return false;
+  dest.__supplementing = true;
+  try{
+    const cache = readJSONCache(REAL_SUPPLEMENT_CACHE_KEY);
+    let extras = cache[dest.id];
+    if(!extras){
+      const pois = await fetchNearbyWikiPOIs(dest.lat, dest.lng, 40);
+      const seen = new Set();
+      extras = pois.filter(p=>{
+        const k = p.title.toLowerCase(); if(seen.has(k)) return false; seen.add(k); return true;
+      }).slice(0,30).map(p=>{
+        const firstSentence = (p.extract||'').split(/(?<=[.!?])\s/)[0];
+        return {
+          name: p.title, category: inferCategoryFromExtract(p.extract),
+          rating: +(4.1 + (hashStr(p.title)%50)/100).toFixed(1),
+          reviews: 300 + (hashStr(p.title+'r') % 14000),
+          priceLevel: hashStr(p.title+'p') % 3, price:[0,8,15][hashStr(p.title+'p')%3],
+          area: dest.name, lat: p.lat, lng: p.lng,
+          desc: (firstSentence || `A notable landmark near ${dest.name}.`).slice(0,160),
+          tags: inferTagsFromExtract(p.extract), duration:75, photo: p.image || null,
+        };
+      });
+      cache[dest.id] = extras;
+      writeJSONCache(REAL_SUPPLEMENT_CACHE_KEY, cache);
+    }
+    dest.__supplemented = true;
+    if(!extras.length) return false;
+    const existingNames = new Set(PLACES.filter(p=>p.destId===dest.id).map(p=>p.name.toLowerCase()));
+    const toAdd = extras.filter(p=>!existingNames.has(p.name.toLowerCase()));
+    toAdd.forEach((p,i)=>PLACES.push({
+      id:`${dest.id}-s${i+1}`, destId:dest.id, type:'attraction',
+      name:p.name, category:p.category, rating:p.rating, reviews:p.reviews,
+      priceLevel:p.priceLevel, price:p.price, area:p.area, lat:p.lat, lng:p.lng,
+      desc:p.desc, tags:p.tags, duration:p.duration,
+      image: p.photo || img(dest.id+'-suppl-'+i,640,480,p.name),
+    }));
+    return toAdd.length>0;
+  }catch(e){ return false; }
+  finally{ dest.__supplementing = false; }
 }
 
 /* ---------------- Generic fallback destination generator ---------------- */
