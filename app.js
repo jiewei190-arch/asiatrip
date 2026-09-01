@@ -1885,6 +1885,189 @@ function renderSavedMap(collection, places, unmappable){
 }
 
 /* ============================================================
+   EXPORT & SHARE
+============================================================ */
+/** Plain-text itinerary — the format that survives being pasted anywhere: a message, an email,
+ * a notes app, a printout. Built from the trip's real data, including bookings and notes. */
+function buildItineraryText(trip){
+  const dest = destForTrip(trip);
+  const L = [];
+  L.push(trip.title);
+  L.push('='.repeat(trip.title.length));
+  L.push(`${dest.name}${dest.country?', '+dest.country:''}`);
+  L.push(`${fmtDateFull(trip.start)} – ${fmtDateFull(trip.end)} · ${trip.days.length} day${trip.days.length===1?'':'s'} · ${trip.travelers} traveler${trip.travelers===1?'':'s'}`);
+  if(trip.notes) L.push(`\nTrip notes: ${trip.notes}`);
+
+  const bookings = sortedBookings(trip);
+  if(bookings.length){
+    L.push('\nBOOKINGS');
+    L.push('-'.repeat(8));
+    bookings.forEach(b=>{
+      const [,emoji,label] = bookingTypeMeta(b.type);
+      const bits = [label, b.date?fmtDateFull(b.date):null, b.time?fmtTime12(b.time):null].filter(Boolean).join(' · ');
+      L.push(`${emoji} ${b.title}`);
+      L.push(`   ${bits}`);
+      if(b.confirmation) L.push(`   Confirmation: ${b.confirmation}`);
+      if(b.notes) L.push(`   ${b.notes}`);
+    });
+  }
+
+  trip.days.forEach((d,i)=>{
+    L.push(`\nDAY ${i+1} — ${fmtDateFull(d.date)}`);
+    L.push('-'.repeat(20));
+    if(d.note) L.push(`Note: ${d.note}`);
+    if(!d.stops.length){ L.push('  (nothing planned)'); return; }
+    d.stops.forEach(s=>{
+      L.push(`  ${fmtTime12(s.time)}  ${s.name}`);
+      const meta = [s.category, s.area, s.cost?fmt$(s.cost):null].filter(Boolean).join(' · ');
+      if(meta) L.push(`           ${meta}`);
+      if(s.note) L.push(`           Note: ${s.note}`);
+    });
+  });
+
+  const planned = tripPlannedTotal(trip);
+  L.push(`\nBUDGET`);
+  L.push('-'.repeat(6));
+  L.push(`Planned: ${fmt$(planned)} of ${fmt$(trip.budget.total)}`);
+  L.push('\nMade with TripFlow');
+  return L.join('\n');
+}
+function buildPrintableHTML(trip){
+  const dest = destForTrip(trip);
+  const bookings = sortedBookings(trip);
+  return `
+    <div class="printDoc">
+      <h1>${esc(trip.title)}</h1>
+      <p class="printSub">${dest.flag} ${esc(dest.name)}${dest.country?', '+esc(dest.country):''} · ${fmtDateFull(trip.start)} – ${fmtDateFull(trip.end)} · ${trip.days.length} day${trip.days.length===1?'':'s'} · ${trip.travelers} traveler${trip.travelers===1?'':'s'}</p>
+      ${trip.notes?`<p class="printNote"><b>Trip notes:</b> ${esc(trip.notes)}</p>`:''}
+      ${bookings.length?`<h2>Bookings</h2>${bookings.map(b=>{
+        const [,emoji,label] = bookingTypeMeta(b.type);
+        return `<div class="printRow"><b>${emoji} ${esc(b.title)}</b><div>${esc(label)}${b.date?' · '+fmtDateFull(b.date):''}${b.time?' · '+fmtTime12(b.time):''}${b.confirmation?' · Confirmation '+esc(b.confirmation):''}</div>${b.notes?`<div>${esc(b.notes)}</div>`:''}</div>`;
+      }).join('')}`:''}
+      ${trip.days.map((d,i)=>`
+        <h2>Day ${i+1} — ${fmtDateFull(d.date)}</h2>
+        ${d.note?`<p class="printNote"><b>Note:</b> ${esc(d.note)}</p>`:''}
+        ${d.stops.length ? d.stops.map(s=>`
+          <div class="printRow"><b>${fmtTime12(s.time)} · ${esc(s.name)}</b>
+          <div>${[s.category,s.area,s.cost?fmt$(s.cost):null].filter(Boolean).map(esc).join(' · ')}</div>
+          ${s.note?`<div>Note: ${esc(s.note)}</div>`:''}</div>`).join('')
+          : '<p class="printNote">Nothing planned.</p>'}
+      `).join('')}
+      <h2>Budget</h2>
+      <div class="printRow">Planned ${fmt$(tripPlannedTotal(trip))} of ${fmt$(trip.budget.total)}</div>
+      <p class="printFoot">Made with TripFlow</p>
+    </div>`;
+}
+function downloadTextFile(filename, text){
+  const blob = new Blob([text], {type:'text/plain;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+function safeFileName(s){ return String(s).replace(/[^a-z0-9]+/gi,'-').replace(/^-+|-+$/g,'').toLowerCase() || 'trip'; }
+function openExportModal(trip){
+  $('exportPrintBtn').onclick = ()=>{
+    // Rendered into a print-only container in the page rather than a popup window, which
+    // browsers routinely block.
+    $('printArea').innerHTML = buildPrintableHTML(trip);
+    closeModal('modal-export');
+    setTimeout(()=>window.print(), 60);
+  };
+  $('exportTextBtn').onclick = ()=>{
+    downloadTextFile(`${safeFileName(trip.title)}-itinerary.txt`, buildItineraryText(trip));
+    closeModal('modal-export');
+    toast('Itinerary downloaded.');
+  };
+  $('exportCopyBtn').onclick = ()=>{
+    const text = buildItineraryText(trip);
+    const done = ()=>{ closeModal('modal-export'); toast('Itinerary copied to clipboard.'); };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(done).catch(()=>{ fallbackCopyText(text); done(); });
+    } else { fallbackCopyText(text); done(); }
+  };
+  openModal('modal-export');
+}
+function fallbackCopyText(text){
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+  document.body.appendChild(ta); ta.select();
+  try{ document.execCommand && document.execCommand('copy'); }catch(e){}
+  document.body.removeChild(ta);
+}
+
+/* ============================================================
+   POST-TRIP RECAP
+============================================================ */
+function tripIsOver(trip){ return trip.end < todayISO(); }
+/** Real numbers from what was actually planned — never invented "you walked N steps" style
+ * stats the app has no way to know. */
+function computeTripRecap(trip){
+  const stops = trip.days.flatMap(d=>d.stops);
+  const distance = trip.days.reduce((sum,d)=>sum+totalDistance(d.stops), 0);
+  const byType = {};
+  stops.forEach(s=>{ byType[s.type] = (byType[s.type]||0)+1; });
+  const rated = stops.filter(s=>s.rating).sort((a,b)=>b.rating-a.rating);
+  const areas = {};
+  stops.forEach(s=>{ if(s.area) areas[s.area] = (areas[s.area]||0)+1; });
+  const topArea = Object.entries(areas).sort((a,b)=>b[1]-a[1])[0];
+  return {
+    days: trip.days.length,
+    stops: stops.length,
+    distance,
+    spend: tripPlannedTotal(trip),
+    byType,
+    topRated: rated.slice(0,3),
+    topArea: topArea ? {name:topArea[0], count:topArea[1]} : null,
+    bookings: tripBookings(trip).length,
+  };
+}
+function buildRecapText(trip){
+  const r = computeTripRecap(trip);
+  const dest = destForTrip(trip);
+  const lines = [
+    `${trip.title} — trip recap`,
+    `${dest.flag} ${dest.name} · ${fmtDateFull(trip.start)} – ${fmtDateFull(trip.end)}`,
+    '',
+    `${r.days} days · ${r.stops} places · about ${r.distance.toFixed(1)} km covered`,
+    `${fmt$(r.spend)} planned spend`,
+  ];
+  if(r.topArea) lines.push(`Most time in: ${r.topArea.name} (${r.topArea.count} stops)`);
+  if(r.topRated.length) lines.push(`Highest rated: ${r.topRated.map(s=>`${s.name} (★${s.rating})`).join(', ')}`);
+  lines.push('', 'Made with TripFlow');
+  return lines.join('\n');
+}
+function renderRecapCard(trip){
+  const r = computeTripRecap(trip);
+  const dest = destForTrip(trip);
+  return `
+    <div class="card recapCard">
+      <div class="recapHead">
+        <div>
+          <div class="small" style="font-weight:800">✈️ Trip complete</div>
+          <h3 style="margin:2px 0 0">${esc(trip.title)}</h3>
+          <p class="small" style="margin:2px 0 0">${dest.flag} ${esc(dest.name)} · ${fmtDateFull(trip.start)} – ${fmtDateFull(trip.end)}</p>
+        </div>
+        <button class="btn primary sm" id="shareRecapBtn"><i class="fa-solid fa-share-nodes"></i> Share recap</button>
+      </div>
+      <div class="recapStats">
+        <div class="recapStat"><div class="v">${r.days}</div><div class="k">days</div></div>
+        <div class="recapStat"><div class="v">${r.stops}</div><div class="k">places</div></div>
+        <div class="recapStat"><div class="v">${r.distance.toFixed(1)}</div><div class="k">km covered</div></div>
+        <div class="recapStat"><div class="v">${fmt$(r.spend)}</div><div class="k">spend</div></div>
+      </div>
+      ${r.topArea?`<p class="small" style="margin:12px 0 0">You spent most of your time around <b>${esc(r.topArea.name)}</b> — ${r.topArea.count} of your ${r.stops} stops.</p>`:''}
+      ${r.topRated.length?`<div style="margin-top:12px">
+        <div class="small" style="font-weight:800;margin-bottom:8px">Highest rated places you visited</div>
+        ${r.topRated.map(s=>`<div class="recapPlace"><span>${esc(s.name)}</span><span class="small">★ ${s.rating}</span></div>`).join('')}
+      </div>`:''}
+    </div>`;
+}
+
+/* ============================================================
    TRAVEL MODE — the in-trip view
 ============================================================ */
 function todayISO(){ return toDateInput(new Date()); }
@@ -2030,6 +2213,7 @@ function renderPlannerView(tripId, ptab){
   $('ptab-'+(ptab||'dashboard')).classList.add('active');
 
   $('shareTripBtn').onclick = ()=>openShareModal(trip.id);
+  $('exportTripBtn').onclick = ()=>openExportModal(trip);
   $('optimizeBtn').onclick = ()=>openOptimizeModal(trip, plannerState.day);
   $('aiRegenBtn').onclick = ()=>{ openAI(); $('aiContextLabel').textContent = `Working on: ${trip.title}`; };
   $('addDayBtn').onclick = ()=>{ addDayToTrip(trip); plannerState.day = trip.days.length-1; renderPlannerItinerary(trip); };
@@ -2087,9 +2271,14 @@ function renderDashboardTab(trip){
 
   const upcomingDay = trip.days[0];
 
+  // A finished trip has no "next steps" worth showing — nudging someone to book a hotel for a
+  // trip they already took would be nonsense. It gets the recap instead.
+  const isOver = tripIsOver(trip);
+
   body.innerHTML = `
     <div class="dashGrid">
       <div>
+        ${isOver ? renderRecapCard(trip) : `
         <h3 style="margin:0 0 12px">Next steps</h3>
         <div class="nextStepsGrid">
           ${nextSteps.map((s,i)=>`<div class="card nextStepCard">
@@ -2098,7 +2287,7 @@ function renderDashboardTab(trip){
             <p class="small">${esc(s.desc)}</p>
             <button class="btn primary sm" data-nextstep="${i}">${esc(s.cta)}</button>
           </div>`).join('')}
-        </div>
+        </div>`}
         <h3 style="margin:26px 0 12px">Upcoming</h3>
         <div class="card">
           ${upcomingDay && upcomingDay.stops.length ? `
@@ -2130,6 +2319,14 @@ function renderDashboardTab(trip){
     </div>`;
   nextSteps.forEach((s,i)=>{ const b = body.querySelector(`[data-nextstep="${i}"]`); if(b) b.onclick = s.go; });
   body.querySelectorAll('[data-goitin]').forEach(b=>b.onclick=()=>navigate(`#/trip/${trip.id}/itinerary`));
+  const recapBtn = body.querySelector('#shareRecapBtn');
+  if(recapBtn) recapBtn.onclick = ()=>{
+    const text = buildRecapText(trip);
+    const done = ()=>toast('Trip recap copied — paste it anywhere.');
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(done).catch(()=>{ fallbackCopyText(text); done(); });
+    } else { fallbackCopyText(text); done(); }
+  };
   body.querySelector('#saveTripNotesBtn').onclick = ()=>{
     trip.notes = body.querySelector('#tripNotesInput').value.trim();
     saveState();
