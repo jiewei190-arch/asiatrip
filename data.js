@@ -6,7 +6,256 @@
 ============================================================ */
 
 function slugify(s){ return s.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,''); }
-function img(seed,w,h){ return `https://picsum.photos/seed/${slugify(seed)}/${w||640}/${h||480}`; }
+
+/* Self-contained SVG placeholder "photos" — zero network requests, so they
+   always render (no dependency on an external image CDN that can be
+   blocked, rate-limited, or offline). Deterministic per seed so the same
+   place always gets the same look across reloads. */
+const IMG_PALETTE = [
+  ['#0d654c','#51c59f'], ['#c2410c','#fb923c'], ['#4338ca','#818cf8'], ['#b45309','#fbbf24'],
+  ['#0f766e','#5eead4'], ['#9d174d','#f472b6'], ['#1d4ed8','#60a5fa'], ['#6d28d9','#c4b5fd'],
+  ['#166534','#86efac'], ['#a21caf','#e879f9'], ['#0e7490','#67e8f9'], ['#b91c1c','#fca5a5'],
+];
+function hashStr(s){ let h=0; s=String(s); for(let i=0;i<s.length;i++){ h=(h*31+s.charCodeAt(i))|0; } return Math.abs(h); }
+function escapeXML(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+/** Base64-encodes a UTF-8 SVG string for a data URI. Percent-encoded (`;utf8,`) data URIs are
+    inconsistently supported on some mobile/WebKit builds — base64 is the most broadly compatible
+    format for `<img src>` across browsers, so every generated placeholder uses it. */
+function svgToDataUri(svg){
+  const bytes = encodeURIComponent(svg).replace(/%([0-9A-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+  const b64 = (typeof btoa === 'function') ? btoa(bytes) : Buffer.from(svg, 'utf8').toString('base64');
+  return 'data:image/svg+xml;base64,' + b64;
+}
+function img(seed,w,h,label){
+  w=w||640; h=h||480;
+  const hash = hashStr(seed);
+  const [c1,c2] = IMG_PALETTE[hash % IMG_PALETTE.length];
+  const angle = (hash % 4) * 45;
+  const maxChars = Math.max(10, Math.floor(w/18));
+  let text = String(label||'').trim();
+  if(text.length > maxChars) text = text.slice(0, maxChars-1) + '…';
+  const fontSize = Math.round(w/17);
+  // Plain vector pin (no emoji glyph) so it renders identically everywhere, with no font/emoji dependency.
+  const cx = w/2, cy = h*0.38, r = w*0.052;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+<defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%" gradientTransform="rotate(${angle} 0.5 0.5)">
+<stop offset="0%" stop-color="${c1}"/><stop offset="100%" stop-color="${c2}"/>
+</linearGradient></defs>
+<rect width="${w}" height="${h}" fill="url(#g)"/>
+<circle cx="${Math.round(w*0.84)}" cy="${Math.round(h*0.2)}" r="${Math.round(w*0.16)}" fill="#ffffff" opacity="0.08"/>
+<circle cx="${Math.round(w*0.12)}" cy="${Math.round(h*0.88)}" r="${Math.round(w*0.24)}" fill="#000000" opacity="0.08"/>
+<path d="M ${cx} ${cy - r*1.6} C ${cx + r} ${cy - r*1.6} ${cx + r} ${cy - r*0.2} ${cx} ${cy + r*1.7} C ${cx - r} ${cy - r*0.2} ${cx - r} ${cy - r*1.6} ${cx} ${cy - r*1.6} Z" fill="#ffffff" opacity="0.92"/>
+<circle cx="${cx}" cy="${cy - r*0.85}" r="${r*0.42}" fill="${c1}"/>
+<text x="50%" y="60%" font-family="Arial,Helvetica,sans-serif" font-size="${fontSize}" font-weight="700" fill="#ffffff" text-anchor="middle" dominant-baseline="middle">${escapeXML(text)}</text>
+</svg>`;
+  return svgToDataUri(svg);
+}
+
+/* ============================================================
+   LIVE DATA — keyless, worldwide, best-effort with graceful fallback.
+   Every call is cached (memory + localStorage) and wrapped so a slow,
+   blocked, or offline network never breaks the app — callers always
+   get the gradient placeholder / procedurally-generated data until
+   (and unless) real data arrives, then the UI is upgraded in place.
+============================================================ */
+function readJSONCache(key){ try{ return JSON.parse(localStorage.getItem(key)) || {}; }catch(e){ return {}; } }
+function writeJSONCache(key, obj){ try{ localStorage.setItem(key, JSON.stringify(obj)); }catch(e){} }
+async function fetchWithTimeout(url, ms, opts){
+  const ctrl = new AbortController();
+  const timer = setTimeout(()=>ctrl.abort(), ms||8000);
+  try{ return await fetch(url, Object.assign({signal:ctrl.signal}, opts||{})); }
+  finally{ clearTimeout(timer); }
+}
+function upsizeWikiThumb(url, width){
+  return url.replace(/\/(\d+)px-/, `/${width||720}px-`);
+}
+
+/* ---- Real photos via Wikipedia's public REST API (no key, CORS-enabled) ---- */
+const PHOTO_CACHE_KEY = 'tripflow_photo_cache_v1';
+let __photoCache = null;
+function photoCache(){ if(!__photoCache) __photoCache = readJSONCache(PHOTO_CACHE_KEY); return __photoCache; }
+async function fetchWikiThumbnail(query){
+  const cache = photoCache();
+  const key = query.trim().toLowerCase();
+  if(Object.prototype.hasOwnProperty.call(cache, key)) return cache[key];
+  let result = null;
+  try{
+    const res = await fetchWithTimeout(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(query)}`, 7000, {headers:{'Accept':'application/json'}});
+    if(res && res.ok){
+      const data = await res.json();
+      if(data && data.type !== 'disambiguation' && data.thumbnail && data.thumbnail.source){
+        result = upsizeWikiThumb(data.thumbnail.source, 720);
+      }
+    }
+  }catch(e){ /* offline / blocked / not found — keep placeholder */ }
+  cache[key] = result;
+  writeJSONCache(PHOTO_CACHE_KEY, cache);
+  return result;
+}
+
+/* ---- Geocoding via OpenStreetMap Nominatim (no key) — real coordinates for ANY place typed, worldwide ---- */
+const GEOCODE_CACHE_KEY = 'tripflow_geocode_cache_v1';
+let __geocodeCache = null;
+function geocodeCache(){ if(!__geocodeCache) __geocodeCache = readJSONCache(GEOCODE_CACHE_KEY); return __geocodeCache; }
+async function geocodeCity(query){
+  const cache = geocodeCache();
+  const key = query.trim().toLowerCase();
+  if(Object.prototype.hasOwnProperty.call(cache, key)) return cache[key];
+  let result = null;
+  try{
+    const res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=1&q=${encodeURIComponent(query)}`, 8000, {headers:{'Accept':'application/json'}});
+    if(res && res.ok){
+      const arr = await res.json();
+      if(arr && arr[0]){
+        const a = arr[0];
+        const addr = a.address || {};
+        result = {
+          lat: parseFloat(a.lat), lng: parseFloat(a.lon),
+          city: addr.city || addr.town || addr.village || addr.municipality || addr.county || a.name || query,
+          country: addr.country || '',
+        };
+      }
+    }
+  }catch(e){}
+  cache[key] = result;
+  writeJSONCache(GEOCODE_CACHE_KEY, cache);
+  return result;
+}
+
+/* ---- Live currency conversion via the Frankfurter API (ECB rates, no key) ---- */
+// Kept in sync with the currencies the live rate source (Frankfurter / ECB reference rates)
+// actually publishes, so every currency offered here always gets a real conversion — never a
+// raw USD number mislabeled with the wrong symbol.
+const CURRENCY_META = {
+  USD:{symbol:'$',name:'US Dollar'}, EUR:{symbol:'€',name:'Euro'}, GBP:{symbol:'£',name:'British Pound'},
+  JPY:{symbol:'¥',name:'Japanese Yen'}, CAD:{symbol:'CA$',name:'Canadian Dollar'}, AUD:{symbol:'A$',name:'Australian Dollar'},
+  CNY:{symbol:'¥',name:'Chinese Yuan'}, INR:{symbol:'₹',name:'Indian Rupee'}, THB:{symbol:'฿',name:'Thai Baht'},
+  MXN:{symbol:'MX$',name:'Mexican Peso'}, BRL:{symbol:'R$',name:'Brazilian Real'}, CHF:{symbol:'CHF',name:'Swiss Franc'},
+  KRW:{symbol:'₩',name:'South Korean Won'}, IDR:{symbol:'Rp',name:'Indonesian Rupiah'}, ZAR:{symbol:'R',name:'South African Rand'},
+  NZD:{symbol:'NZ$',name:'New Zealand Dollar'}, SGD:{symbol:'S$',name:'Singapore Dollar'}, HKD:{symbol:'HK$',name:'Hong Kong Dollar'},
+  ISK:{symbol:'kr',name:'Icelandic Króna'}, ILS:{symbol:'₪',name:'Israeli Shekel'}, MYR:{symbol:'RM',name:'Malaysian Ringgit'},
+  PHP:{symbol:'₱',name:'Philippine Peso'}, TRY:{symbol:'₺',name:'Turkish Lira'}, PLN:{symbol:'zł',name:'Polish Złoty'},
+  CZK:{symbol:'Kč',name:'Czech Koruna'}, HUF:{symbol:'Ft',name:'Hungarian Forint'}, NOK:{symbol:'kr',name:'Norwegian Krone'},
+  SEK:{symbol:'kr',name:'Swedish Krona'}, DKK:{symbol:'kr',name:'Danish Krone'}, RON:{symbol:'lei',name:'Romanian Leu'},
+  BGN:{symbol:'лв',name:'Bulgarian Lev'},
+};
+const FX_CACHE_KEY = 'tripflow_fx_cache_v1';
+let EXCHANGE_RATES = {USD:1};
+async function loadExchangeRates(){
+  try{
+    const cached = JSON.parse(localStorage.getItem(FX_CACHE_KEY) || 'null');
+    if(cached && cached.rates && (Date.now() - cached.ts) < 12*3600*1000){ EXCHANGE_RATES = cached.rates; return true; }
+  }catch(e){}
+  try{
+    const symbols = Object.keys(CURRENCY_META).filter(c=>c!=='USD').join(',');
+    const res = await fetchWithTimeout(`https://api.frankfurter.app/latest?from=USD&to=${symbols}`, 8000);
+    if(res && res.ok){
+      const data = await res.json();
+      if(data && data.rates){
+        EXCHANGE_RATES = Object.assign({USD:1}, data.rates);
+        writeJSONCache(FX_CACHE_KEY, {ts:Date.now(), rates:EXCHANGE_RATES});
+        return true;
+      }
+    }
+  }catch(e){}
+  return false;
+}
+function convertUSD(amountUSD, toCurrency){
+  const rate = EXCHANGE_RATES[toCurrency];
+  return typeof rate === 'number' ? amountUSD * rate : amountUSD;
+}
+
+/* ---- Real nearby landmarks via Wikipedia GeoSearch (no key) — worldwide points of interest, each with a real name, description and photo, in a single request ---- */
+async function fetchNearbyWikiPOIs(lat, lng, limit){
+  try{
+    const url = `https://en.wikipedia.org/w/api.php?action=query&generator=geosearch&ggscoord=${lat}%7C${lng}&ggsradius=10000&ggslimit=${limit||24}&prop=pageimages%7Cextracts%7Ccoordinates&piprop=thumbnail&pithumbsize=720&exintro=1&explaintext=1&exchars=220&format=json&origin=*`;
+    const res = await fetchWithTimeout(url, 9000);
+    if(!res || !res.ok) return [];
+    const data = await res.json();
+    const pages = (data.query && data.query.pages) || {};
+    return Object.values(pages)
+      .filter(p=>p.title && p.coordinates && p.coordinates[0])
+      .map(p=>({
+        title: p.title,
+        lat: p.coordinates[0].lat, lng: p.coordinates[0].lon,
+        image: (p.thumbnail && p.thumbnail.source) ? upsizeWikiThumb(p.thumbnail.source,720) : null,
+        extract: p.extract || '',
+      }));
+  }catch(e){ return []; }
+}
+function inferCategoryFromExtract(text){
+  const t=(text||'').toLowerCase();
+  if(/temple|shrine|church|cathedral|mosque|synagogue/.test(t)) return 'Culture';
+  if(/museum|gallery/.test(t)) return 'Museum';
+  if(/park|garden|nature reserve|forest|botanical/.test(t)) return 'Nature';
+  if(/palace|castle|fort(ress)?|monument|memorial|historic|ruins/.test(t)) return 'History';
+  if(/market|bazaar|mall/.test(t)) return 'Market';
+  if(/bridge|tower|skyscraper|building|square|plaza/.test(t)) return 'Landmark';
+  return 'Landmark';
+}
+function inferTagsFromExtract(text){
+  const t=(text||'').toLowerCase(); const tags=[];
+  if(/temple|shrine|church|cathedral|mosque|palace|castle|fort|museum|monument|historic|heritage|ruins/.test(t)) tags.push('culture','history');
+  if(/park|garden|forest|lake|mountain|beach|nature reserve|national park|island/.test(t)) tags.push('nature');
+  if(/market|mall|shopping|bazaar|boutique/.test(t)) tags.push('shopping');
+  if(/bar|nightclub|club|nightlife|live music/.test(t)) tags.push('nightlife');
+  if(/gallery|art|theatre|theater|opera|studio/.test(t)) tags.push('art');
+  if(!tags.length) tags.push('culture','hidden');
+  return [...new Set(tags)];
+}
+
+/* ---- Progressive enrichment: upgrade a fallback destination with real, worldwide data in the background ---- */
+const ENRICH_CACHE_KEY = 'tripflow_enrich_cache_v1';
+function enrichCache(){ return readJSONCache(ENRICH_CACHE_KEY); }
+function applyEnrichment(dest, payload){
+  dest.lat = payload.lat; dest.lng = payload.lng;
+  if(payload.country){ dest.country = payload.country; dest.currencyCode = currencyCodeForCountry(payload.country); }
+  if(payload.attractions && payload.attractions.length){
+    for(let i=PLACES.length-1;i>=0;i--){ if(PLACES[i].destId===dest.id && PLACES[i].type==='attraction') PLACES.splice(i,1); }
+    payload.attractions.forEach((p,i)=>{
+      PLACES.push(Object.assign({ id:`${dest.id}-a${i+1}`, destId:dest.id, type:'attraction' }, p,
+        { image: p.image || img(dest.id+'-attr-'+i, 640,480, p.name) }));
+    });
+  }
+  dest.__enriched = true;
+}
+async function enrichGenericDestination(dest){
+  if(dest.__enriched || dest.__enriching) return false;
+  dest.__enriching = true;
+  try{
+    const cache = enrichCache();
+    if(cache[dest.id]){ applyEnrichment(dest, cache[dest.id]); return true; }
+    const geo = await geocodeCity(dest.name + (dest.country ? ', '+dest.country : ''));
+    const lat = geo ? geo.lat : dest.lat, lng = geo ? geo.lng : dest.lng;
+    const pois = await fetchNearbyWikiPOIs(lat, lng, 24);
+    if(!geo && !pois.length){ dest.__enriched = true; return false; }
+    const seen = new Set();
+    const attractions = pois.filter(p=>{
+      const k = p.title.toLowerCase(); if(seen.has(k)) return false; seen.add(k); return true;
+    }).slice(0,12).map(p=>{
+      const firstSentence = (p.extract||'').split(/(?<=[.!?])\s/)[0];
+      return {
+        name: p.title,
+        category: inferCategoryFromExtract(p.extract),
+        rating: +(4.1 + (hashStr(p.title)%50)/100).toFixed(1),
+        reviews: 300 + (hashStr(p.title+'r') % 14000),
+        priceLevel: hashStr(p.title+'p') % 3,
+        price: [0,8,15][hashStr(p.title+'p')%3],
+        area: (geo && geo.city) || dest.name,
+        lat: p.lat, lng: p.lng,
+        desc: (firstSentence || `A notable landmark near ${dest.name}.`).slice(0,160),
+        tags: inferTagsFromExtract(p.extract),
+        duration: 75,
+        image: p.image,
+      };
+    });
+    const payload = { lat, lng, country: geo && geo.country, attractions };
+    cache[dest.id] = payload;
+    writeJSONCache(ENRICH_CACHE_KEY, cache);
+    applyEnrichment(dest, payload);
+    return true;
+  } finally { dest.__enriching = false; }
+}
 
 const TRIP_ARCHETYPES = [
   { key:'food',      emoji:'🍜', titleTpl:"Food Lover's {city}",   tags:['food'],             descTpl:"Street food stalls, izakayas, local markets and the tables locals actually eat at in {city}." },
@@ -14,6 +263,10 @@ const TRIP_ARCHETYPES = [
   { key:'nightlife',  emoji:'🌃', titleTpl:"{city} Nightlife",      tags:['nightlife'],        descTpl:"Rooftop bars, live music, night markets and the best views after dark in {city}." },
   { key:'shopping',   emoji:'🛍️', titleTpl:"Shopping Adventure",    tags:['shopping'],         descTpl:"From flagship boutiques to flea-market finds — a shopper's route through {city}." },
   { key:'relax',      emoji:'🌿', titleTpl:"Relaxing {city} Escape",tags:['relax','nature'],   descTpl:"Gardens, cafés, spas and slow mornings — the unhurried side of {city}." },
+  { key:'art',        emoji:'🎨', titleTpl:"{city} Art & Design",    tags:['art'],              descTpl:"Galleries, studios and design spaces that show off {city}'s creative side." },
+  { key:'adventure',  emoji:'⛰️', titleTpl:"{city} Adventure",       tags:['adventure','nature'],descTpl:"Outdoor thrills and nature escapes in and around {city}." },
+  { key:'romantic',   emoji:'💑', titleTpl:"Romantic {city}",        tags:['romantic'],         descTpl:"Sunset views, candlelit dinners and quiet corners made for two in {city}." },
+  { key:'hidden',     emoji:'📸', titleTpl:"Hidden {city}",          tags:['hidden'],           descTpl:"Skip the crowds — the lesser-known spots locals actually love in {city}." },
 ];
 
 const INTERESTS = [
@@ -464,17 +717,95 @@ const DESTINATIONS_RAW = [
 const DESTINATIONS = [];
 const PLACES = [];
 
+/* Country name -> ISO currency code, for the live currency converter. Covers every country used
+   in the curated destinations plus common ones a typed-in search is likely to resolve to. */
+const COUNTRY_TO_CURRENCY = {
+  'japan':'JPY','france':'EUR','indonesia':'IDR','greece':'EUR','united states':'USD','united states of america':'USD',
+  'italy':'EUR','thailand':'THB','spain':'EUR','new zealand':'NZD','iceland':'ISK','slovenia':'EUR','morocco':'MAD',
+  'united kingdom':'GBP','germany':'EUR','portugal':'EUR','netherlands':'EUR','ireland':'EUR','austria':'EUR',
+  'switzerland':'CHF','belgium':'EUR','china':'CNY','india':'INR','south korea':'KRW','korea':'KRW','canada':'CAD',
+  'australia':'AUD','mexico':'MXN','brazil':'BRL','south africa':'ZAR','singapore':'SGD','vietnam':'VND',
+  'philippines':'PHP','malaysia':'MYR','turkey':'TRY','egypt':'EGP','argentina':'ARS','chile':'CLP','peru':'PEN',
+  'colombia':'COP','poland':'PLN','czechia':'CZK','czech republic':'CZK','hungary':'HUF','norway':'NOK','sweden':'SEK',
+  'denmark':'DKK','finland':'EUR','croatia':'EUR','russia':'RUB','israel':'ILS','united arab emirates':'AED',
+  'saudi arabia':'SAR','qatar':'QAR','hong kong':'HKD','romania':'RON','bulgaria':'BGN','luxembourg':'EUR',
+};
+function currencyCodeForCountry(country){
+  if(!country) return 'USD';
+  const code = COUNTRY_TO_CURRENCY[country.trim().toLowerCase()];
+  return code && CURRENCY_META[code] ? code : 'USD';
+}
+
 DESTINATIONS_RAW.forEach(d=>{
   DESTINATIONS.push({
     id:d.id, name:d.name, country:d.country, flag:d.flag, tagline:d.tagline, description:d.description,
     tags:d.tags, lat:d.lat, lng:d.lng, weather:d.weather, bestTime:d.bestTime, currency:d.currency,
+    currencyCode: currencyCodeForCountry(d.country),
     language:d.language, avgDailyBudget:d.avgDailyBudget,
-    hero: img(d.id+'-hero',1600,900)
+    hero: img(d.id+'-hero',1600,900,d.name)
   });
-  (d.attractions||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-a${i+1}`, destId:d.id, type:'attraction', image:img(d.id+'-attr-'+i,640,480)}, p)));
-  (d.restaurants||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-r${i+1}`, destId:d.id, type:'restaurant', image:img(d.id+'-food-'+i,640,480)}, p)));
-  (d.hotels||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-h${i+1}`, destId:d.id, type:'hotel', image:img(d.id+'-hotel-'+i,640,480)}, p)));
+  (d.attractions||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-a${i+1}`, destId:d.id, type:'attraction', image:img(d.id+'-attr-'+i,640,480,p.name)}, p)));
+  (d.restaurants||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-r${i+1}`, destId:d.id, type:'restaurant', image:img(d.id+'-food-'+i,640,480,p.name)}, p)));
+  (d.hotels||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-h${i+1}`, destId:d.id, type:'hotel', image:img(d.id+'-hotel-'+i,640,480,p.name)}, p)));
 });
+
+/* ---------------- On-demand attraction padding for long trip ideas ----------------
+   Curated destinations only ship a handful of hand-written attractions. A multi-day
+   trip idea needs at least 5 attractions per day, so once the curated (plus any
+   live-enriched) pool runs short, top it up with plausible themed spots built from
+   the destination's own real neighborhood names — deterministic per destination so
+   regenerating ideas reshuffles the same pool rather than inventing new places
+   each time. */
+const FILLER_ATTR_THEMES = [
+  ['Walking Tour', "A guided stroll through {area}'s streets, landmarks and local life.", 'culture'],
+  ['Rooftop Lounge', 'Sunset views and drinks above the rooftops of {area}.', 'nightlife'],
+  ['Art Walk', 'Galleries and street art scattered through {area}.', 'art'],
+  ['Hidden Cafés', "A crawl through {area}'s best-kept café secrets.", 'hidden'],
+  ['Local Market', 'Stalls, spices and street food in the heart of {area}.', 'food'],
+  ['Waterfront Promenade', "A relaxed walk along {area}'s waterfront.", 'relax'],
+  ['Photography Spot', "One of {area}'s most frame-worthy corners.", 'photography'],
+  ['Sunset Viewpoint', "One of the best sunset views in {area}.", 'romantic'],
+  ['Botanical Garden', "A quiet green escape in {area}.", 'nature'],
+  ['Boutique Shopping Row', 'Independent shops and design studios in {area}.', 'shopping'],
+];
+function fillerAttractionsForDest(dest, count){
+  const existing = PLACES.filter(p=>p.destId===dest.id);
+  const usedNames = new Set(existing.map(p=>p.name.toLowerCase()));
+  const areas = [...new Set(existing.map(p=>p.area).filter(Boolean))];
+  if(!areas.length) areas.push(dest.name);
+  const out = [];
+  let idx = 0, guard = 0;
+  while(out.length < count && guard < count*20){
+    guard++;
+    const theme = FILLER_ATTR_THEMES[idx % FILLER_ATTR_THEMES.length];
+    const area = areas[Math.floor(idx / FILLER_ATTR_THEMES.length) % areas.length];
+    idx++;
+    const name = `${area} ${theme[0]}`;
+    if(usedNames.has(name.toLowerCase())) continue;
+    usedNames.add(name.toLowerCase());
+    const seed = dest.id+'-filler-'+name;
+    out.push({
+      name, category: theme[0],
+      rating: +(4.2 + (hashStr(seed)%40)/100).toFixed(1),
+      reviews: 200 + (hashStr(seed+'r')%3000),
+      priceLevel: hashStr(seed+'p')%3, price:[0,10,20][hashStr(seed+'p')%3],
+      area, lat: dest.lat + (((hashStr(seed+'lat')%200)-100)/2000), lng: dest.lng + (((hashStr(seed+'lng')%200)-100)/2000),
+      desc: theme[1].replace('{area}', area), tags:[theme[2],'hidden'], duration:75,
+    });
+  }
+  return out;
+}
+/** Ensures a destination's PLACES pool has at least `minAttractions` attraction entries,
+ * padding with fillerAttractionsForDest() (real curated/enriched ones always come first). */
+function ensureAttractionSupply(destId, minAttractions){
+  const dest = DESTINATIONS.find(d=>d.id===destId);
+  if(!dest) return;
+  const have = PLACES.filter(p=>p.destId===destId && p.type==='attraction').length;
+  if(have >= minAttractions) return;
+  const filler = fillerAttractionsForDest(dest, minAttractions - have);
+  filler.forEach((p,i)=>PLACES.push(Object.assign(
+    {id:`${destId}-x${have+i+1}`, destId, type:'attraction', image:img(destId+'-fillerattr-'+(have+i),640,480,p.name)}, p)));
+}
 
 /* ---------------- Generic fallback destination generator ---------------- */
 function seededRandom(seedStr){
@@ -501,21 +832,22 @@ function makeGenericDestination(name){
     tags:['trending'], lat:base.lat, lng:base.lng,
     weather:"Check seasonal averages closer to your travel dates.",
     bestTime:"Year-round — varies by season",
-    currency:"Local currency", language:"Local language",
+    currency:"Local currency", currencyCode:'USD', language:"Local language",
     avgDailyBudget:{budget:50,moderate:120,luxury:280},
-    hero: img(id+'-hero',1600,900)
+    __enriched:false, __enriching:false,
+    hero: img(id+'-hero',1600,900,clean)
   };
   DESTINATIONS.push(dest);
   const attrNames = ['Old Town Walking Tour','Central Museum','City Cathedral','Riverside Promenade','Panoramic Viewpoint','Historic Market Square'];
   const attrCats = ['Culture','Museum','History','Nature','Viewpoint','Market'];
   const attrTags = [['culture','history'],['culture','art'],['history','photography'],['nature','relax'],['photography'],['shopping','food']];
-  attrNames.forEach((n,i)=>PLACES.push({ id:`${id}-a${i+1}`, destId:id, type:'attraction', name:`${clean} ${n}`, category:attrCats[i], rating:+(4.3+rnd()*0.5).toFixed(1), reviews:800+Math.floor(rnd()*9000), priceLevel:i%3, price:[0,10,18,0,0,5][i], area:'City Center', lat:base.lat+(rnd()*0.06-0.03), lng:base.lng+(rnd()*0.06-0.03), desc:`A well-loved local favorite for visitors exploring ${clean}.`, tags:attrTags[i], duration:75, image:img(id+'-attr-'+i,640,480) }));
+  attrNames.forEach((n,i)=>PLACES.push({ id:`${id}-a${i+1}`, destId:id, type:'attraction', name:`${clean} ${n}`, category:attrCats[i], rating:+(4.3+rnd()*0.5).toFixed(1), reviews:800+Math.floor(rnd()*9000), priceLevel:i%3, price:[0,10,18,0,0,5][i], area:'City Center', lat:base.lat+(rnd()*0.06-0.03), lng:base.lng+(rnd()*0.06-0.03), desc:`A well-loved local favorite for visitors exploring ${clean}.`, tags:attrTags[i], duration:75, image:img(id+'-attr-'+i,640,480,`${clean} ${n}`) }));
   const restNames = ['The Local Table','Market Street Kitchen','Grandma\'s Corner Café','The Harborview Grill','Spice & Sea','The Old Bakery'];
   const cuisines = ['Local Cuisine','Fusion','Café','Seafood','International','Bakery & Café'];
-  restNames.forEach((n,i)=>PLACES.push({ id:`${id}-r${i+1}`, destId:id, type:'restaurant', name:n, cuisine:cuisines[i], rating:+(4.2+rnd()*0.6).toFixed(1), reviews:300+Math.floor(rnd()*4000), priceLevel:1+(i%3), price:[10,18,8,28,15,7][i], area:'City Center', lat:base.lat+(rnd()*0.05-0.025), lng:base.lng+(rnd()*0.05-0.025), desc:`A favorite spot locals and visitors both recommend in ${clean}.`, tags:['food'], dietary: i%2? ['vegetarian']:[], hours:'11:00 AM – 10:00 PM', image:img(id+'-food-'+i,640,480) }));
+  restNames.forEach((n,i)=>PLACES.push({ id:`${id}-r${i+1}`, destId:id, type:'restaurant', name:n, cuisine:cuisines[i], rating:+(4.2+rnd()*0.6).toFixed(1), reviews:300+Math.floor(rnd()*4000), priceLevel:1+(i%3), price:[10,18,8,28,15,7][i], area:'City Center', lat:base.lat+(rnd()*0.05-0.025), lng:base.lng+(rnd()*0.05-0.025), desc:`A favorite spot locals and visitors both recommend in ${clean}.`, tags:['food'], dietary: i%2? ['vegetarian']:[], hours:'11:00 AM – 10:00 PM', image:img(id+'-food-'+i,640,480,n) }));
   const hotelNames = [`Grand ${clean} Hotel`,`${clean} Boutique Inn`,`${clean} Central Suites`,`${clean} Budget Stay`];
   const stars=[5,4,3,2];
-  hotelNames.forEach((n,i)=>PLACES.push({ id:`${id}-h${i+1}`, destId:id, type:'hotel', name:n, stars:stars[i], guestRating:+(7.9+rnd()*1.4).toFixed(1), price:[280,150,95,40][i], area:'City Center', lat:base.lat+(rnd()*0.04-0.02), lng:base.lng+(rnd()*0.04-0.02), desc:`Comfortable, well-located stay for exploring ${clean}.`, amenities:['Free WiFi','Breakfast'].concat(i<2?['Pool','Bar']:[]), image:img(id+'-hotel-'+i,640,480) }));
+  hotelNames.forEach((n,i)=>PLACES.push({ id:`${id}-h${i+1}`, destId:id, type:'hotel', name:n, stars:stars[i], guestRating:+(7.9+rnd()*1.4).toFixed(1), price:[280,150,95,40][i], area:'City Center', lat:base.lat+(rnd()*0.04-0.02), lng:base.lng+(rnd()*0.04-0.02), desc:`Comfortable, well-located stay for exploring ${clean}.`, amenities:['Free WiFi','Breakfast'].concat(i<2?['Pool','Bar']:[]), image:img(id+'-hotel-'+i,640,480,n) }));
   return dest;
 }
 

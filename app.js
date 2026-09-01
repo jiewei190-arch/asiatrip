@@ -10,7 +10,17 @@ function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;
 function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'), 2600); }
 let __uidN = 1;
 function uid(prefix){ return `${prefix}_${Date.now().toString(36)}_${(__uidN++).toString(36)}`; }
-function fmt$(n){ return '$'+Math.round(n||0).toLocaleString(); }
+/** All prices are stored in USD; fmt$ converts+formats to the user's chosen display currency (Settings). */
+function currentCurrencyCode(){
+  return (STATE.settings && STATE.settings.currencyCode) || 'USD';
+}
+function fmt$(n){
+  const code = currentCurrencyCode();
+  const meta = CURRENCY_META[code] || CURRENCY_META.USD;
+  const converted = convertUSD(n||0, code);
+  const rounded = Math.abs(converted) >= 100 || code==='JPY' || code==='KRW' || code==='IDR' ? Math.round(converted) : Math.round(converted*100)/100;
+  return meta.symbol + rounded.toLocaleString(undefined, code==='JPY'||code==='KRW'||code==='IDR'||Math.abs(converted)>=100 ? {maximumFractionDigits:0} : {minimumFractionDigits:2,maximumFractionDigits:2});
+}
 function clamp(n,a,b){ return Math.max(a,Math.min(b,n)); }
 function haversine(a,b){
   const R=6371, toRad=d=>d*Math.PI/180;
@@ -49,6 +59,32 @@ function isOpenNow(hours){
 function catColor(type){ return {attraction:'var(--cat-attraction)',restaurant:'var(--cat-restaurant)',hotel:'var(--cat-hotel)',custom:'var(--cat-explore)'}[type] || 'var(--cat-attraction)'; }
 function catEmoji(type){ return {attraction:'📍',restaurant:'🍜',hotel:'🏨',custom:'✦'}[type] || '📍'; }
 
+/* ---------------- live photo hydration ---------------- */
+function photoQuery(name, destName){ return destName ? `${name} ${destName}` : name; }
+function hydratePhotos(container){
+  if(!container) return;
+  container.querySelectorAll('img[data-photo-q]').forEach(imgEl=>{
+    if(imgEl.dataset.photoResolved) return;
+    const src = imgEl.getAttribute('src')||'';
+    if(src.indexOf('data:image/svg')!==0){ imgEl.dataset.photoResolved='1'; return; } // already a real photo
+    const q = imgEl.dataset.photoQ;
+    if(!q) return;
+    imgEl.dataset.photoResolved = '1';
+    const placeholder = imgEl.src;
+    fetchWikiThumbnail(q).then(url=>{
+      if(!url) return;
+      // If the real photo URL fails to actually load (dead link, hiccup, hotlink block), fall
+      // straight back to the placeholder instead of leaving a broken-image icon on screen.
+      imgEl.onerror = () => { imgEl.onerror = null; imgEl.src = placeholder; };
+      imgEl.src = url;
+    }).catch(()=>{});
+  });
+}
+function enrichDestinationInBackground(dest, onDone){
+  if(!dest || !dest.id.startsWith('gen-') || dest.__enriched || dest.__enriching) return;
+  enrichGenericDestination(dest).then(changed=>{ if(changed && onDone) onDone(); }).catch(()=>{});
+}
+
 /* ---------------- persistence ---------------- */
 const LS_KEY = 'tripflow_state_v1';
 const LS_GEMINI = 'tripflow_gemini_key';
@@ -56,7 +92,7 @@ const LS_GEMINI = 'tripflow_gemini_key';
 function defaultState(){
   return {
     theme:'system',
-    settings:{ name:'Jie Wei', email:'jiewei190@gmail.com', currency:'USD ($)' },
+    settings:{ name:'Jie Wei', email:'jiewei190@gmail.com', currencyCode:'USD' },
     trips:[],
     collections:[
       {id:'coll_want', name:'Want to Visit', icon:'❤️', placeIds:[]},
@@ -121,7 +157,7 @@ function buildAutoTrip(destId, title, start, end, travelers, style){
   }
   const totalBudget = Math.round((dest.avgDailyBudget[style]||dest.avgDailyBudget.moderate) * nDays * travelers);
   return {
-    id: uid('trip'), destId, title, start, end, travelers, cover: dest.hero,
+    id: uid('trip'), destId, destName: dest.name+(dest.country?', '+dest.country:''), title, start, end, travelers, cover: dest.hero,
     days,
     budget:{ total: totalBudget, style: style||'moderate', expenses:[] },
     collaborators:[ mkCollaborator('Jie Wei (you)', 'jiewei190@gmail.com', 'Owner') ],
@@ -165,6 +201,12 @@ function recomputeDayTimes(day){
 
 /* ---------------- trip helpers ---------------- */
 function getTrip(id){ return STATE.trips.find(t=>t.id===id); }
+/** Generic (worldwide) destinations aren't persisted between sessions — only their
+    resolved id/name are. Re-resolve (and re-enrich) on demand so a trip saved to
+    localStorage still opens correctly after a reload. */
+function destForTrip(trip){
+  return DESTINATIONS.find(d=>d.id===trip.destId) || findDestination(trip.destName || trip.destId);
+}
 function tripsForDest(destId){ return STATE.trips.filter(t=>t.destId===destId); }
 function getOrCreateDraftTrip(destId){
   let trip = tripsForDest(destId)[0];
@@ -173,7 +215,7 @@ function getOrCreateDraftTrip(destId){
   const start = toDateInput(new Date(Date.now()+30*86400000));
   const end = addDays(start,3);
   trip = {
-    id: uid('trip'), destId, title:`${dest.name} Trip`, start, end, travelers:2, cover: dest.hero,
+    id: uid('trip'), destId, destName: dest.name+(dest.country?', '+dest.country:''), title:`${dest.name} Trip`, start, end, travelers:2, cover: dest.hero,
     days:[{date:start,stops:[]},{date:addDays(start,1),stops:[]},{date:addDays(start,2),stops:[]},{date:addDays(start,3),stops:[]}],
     budget:{ total: Math.round((dest.avgDailyBudget.moderate)*4*2), style:'moderate', expenses:[] },
     collaborators:[ mkCollaborator('Jie Wei (you)', STATE.settings.email, 'Owner') ],
@@ -230,6 +272,14 @@ function applyTheme(){
   else if(t==='light') document.documentElement.setAttribute('data-theme','light');
   else document.documentElement.removeAttribute('data-theme');
   const tt = $('themeToggle'); if(tt) tt.checked = (t==='dark');
+  refreshMapThemesIfOpen();
+}
+function refreshMapThemesIfOpen(){
+  [window.__destMapState, window.__plannerMapState].forEach(state=>{
+    if(state && state.map && state.mode==='map'){
+      try{ state.map.removeLayer(state.layer); state.layer = createBaseTileLayer('map').addTo(state.map); state.layer.bringToBack(); }catch(e){}
+    }
+  });
 }
 
 /* ---------------- router ---------------- */
@@ -299,7 +349,7 @@ function runGlobalSearch(q){
   if(destMatches.length){
     html += `<div class="gsearch-group">Destinations</div>`;
     destMatches.forEach(d=>{
-      html += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${d.hero}" alt=""><div><div>${d.flag} ${esc(d.name)}, ${esc(d.country)}</div><div class="small">Explore destination</div></div></button>`;
+      html += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${d.hero}" alt="" data-photo-q="${esc(d.name+' skyline')}"><div><div>${d.flag} ${esc(d.name)}, ${esc(d.country)}</div><div class="small">Explore destination</div></div></button>`;
     });
     const d0 = destMatches[0];
     html += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d0.id)}/hotels"><div class="ic">🏨</div><div>Hotels in ${esc(d0.name)}</div></button>`;
@@ -310,13 +360,14 @@ function runGlobalSearch(q){
     html += `<div class="gsearch-group">Places</div>`;
     placeMatches.forEach(p=>{
       const tab = p.type==='attraction'?'things':(p.type==='restaurant'?'restaurants':'hotels');
-      html += `<button class="gsearch-row" data-place="${p.id}"><img src="${p.image}" alt=""><div><div>${esc(p.name)}</div><div class="small">${esc(DESTINATIONS.find(d=>d.id===p.destId).name)} · ${tab==='things'?'Attraction':(tab==='restaurants'?'Restaurant':'Hotel')}</div></div></button>`;
+      html += `<button class="gsearch-row" data-place="${p.id}"><img src="${p.image}" alt="" data-photo-q="${esc(photoQuery(p.name, DESTINATIONS.find(d=>d.id===p.destId).name))}"><div><div>${esc(p.name)}</div><div class="small">${esc(DESTINATIONS.find(d=>d.id===p.destId).name)} · ${tab==='things'?'Attraction':(tab==='restaurants'?'Restaurant':'Hotel')}</div></div></button>`;
     });
   }
   if(!destMatches.length && !placeMatches.length){
     html = `<div class="empty" style="padding:26px">No matches. Press Enter to explore "${esc(q)}" as a destination.</div>`;
   }
   results.innerHTML = html;
+  hydratePhotos(results);
   results.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{ closeDropdowns(); navigate(b.dataset.go); });
   results.querySelectorAll('[data-place]').forEach(b=>b.onclick=()=>{ closeDropdowns(); openPlaceDetail(b.dataset.place); });
   $('globalSearchInput').onkeydown = (e)=>{ if(e.key==='Enter'){ const d=findDestination(q); closeDropdowns(); navigate(`#/destination/${encodeURIComponent(d.id)}`); } };
@@ -354,21 +405,28 @@ function timeAgo(ts){
 /* ---------------- settings ---------------- */
 function openSettings(){
   $('settingsName').value = STATE.settings.name;
-  $('settingsCurrency').value = STATE.settings.currency;
+  populateCurrencyOptions($('settingsCurrency'));
+  $('settingsCurrency').value = currentCurrencyCode();
   $('themeToggle').checked = STATE.theme==='dark';
   openModal('modal-settings');
+}
+function populateCurrencyOptions(select){
+  select.innerHTML = Object.entries(CURRENCY_META).map(([code,m])=>`<option value="${code}">${code} — ${esc(m.name)} (${m.symbol})</option>`).join('');
 }
 function initSettingsModal(){
   $('themeToggle').onchange = (e)=>{ STATE.theme = e.target.checked?'dark':'light'; applyTheme(); saveState(); };
   $('saveSettingsBtn').onclick = ()=>{
     STATE.settings.name = $('settingsName').value.trim() || STATE.settings.name;
-    STATE.settings.currency = $('settingsCurrency').value;
+    const newCode = $('settingsCurrency').value;
+    const changed = newCode !== STATE.settings.currencyCode;
+    STATE.settings.currencyCode = newCode;
     saveState();
     $('profileName').textContent = STATE.settings.name;
     const inits = initialsOf(STATE.settings.name);
     $$('.avatar#profileToggle, .profileHead .avatar').forEach(a=>a.textContent=inits);
-    toast('Settings saved.');
+    toast('Settings saved.' + (changed ? ` Prices now show in ${newCode}.` : ''));
     closeModal('modal-settings');
+    if(changed) refreshCurrentView();
   };
 }
 
@@ -390,7 +448,7 @@ function placeCardHTML(p, opts){
   return `
   <div class="placeCard" data-place="${p.id}">
     <div class="placeImgWrap">
-      <img src="${p.image}" alt="${esc(p.name)}" loading="lazy">
+      <img src="${p.image}" alt="${esc(p.name)}" loading="lazy" data-photo-q="${esc(photoQuery(p.name, dest&&dest.name))}">
       <span class="placeCatBadge">${esc(catLabel)}</span>
       <button class="placeSaveBtn" data-save="${p.id}" title="Save">${isSaved?'♥':'♡'}</button>
     </div>
@@ -418,12 +476,13 @@ function wirePlaceCards(container){
   container.querySelectorAll('[data-add]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openAddToTrip(b.dataset.add); });
   container.querySelectorAll('[data-detail]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openPlaceDetail(b.dataset.detail); });
   container.querySelectorAll('[data-mapview]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); viewPlaceOnMap(b.dataset.mapview); });
+  hydratePhotos(container);
 }
 function viewPlaceOnMap(placeId){
   const p = placeById(placeId);
   if(!p) return;
   navigate(`#/destination/${encodeURIComponent(p.destId)}/map`);
-  setTimeout(()=>{ if(window.__destMap){ window.__destMap.flyTo([p.lat,p.lng],15); const m=window.__destMarkerById[p.id]; if(m) m.openPopup(); } }, 260);
+  setTimeout(()=>{ if(typeof focusDestMapPlace==='function') focusDestMapPlace(p); }, 260);
 }
 
 /* ---------------- place detail modal ---------------- */
@@ -458,7 +517,7 @@ function openPlaceDetail(placeId){
       </div>
       <button class="xbtn" data-close="modal-placeDetail">×</button>
     </div>
-    <div class="pdHero"><img src="${p.image}" alt=""></div>
+    <div class="pdHero"><img src="${p.image}" alt="" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
     <div class="pdGrid">
       <div>
         <p>${esc(p.desc)}</p>
@@ -478,6 +537,7 @@ function openPlaceDetail(placeId){
   $('pdAddBtn').onclick = ()=>{ closeModal('modal-placeDetail'); openAddToTrip(p.id); };
   $('pdSaveBtn').onclick = ()=>{ openSaveTo(p.id); };
   $('pdMapBtn').onclick = ()=>{ closeModal('modal-placeDetail'); viewPlaceOnMap(p.id); };
+  hydratePhotos($('placeDetailContent'));
   openModal('modal-placeDetail');
 }
 
@@ -623,12 +683,13 @@ function renderHomeView(){
 function destCardHTML(d, tagLabel){
   return `<button class="destCard" data-dest="${d.id}">
     ${tagLabel?`<span class="destCardTag">${esc(tagLabel)}</span>`:''}
-    <img src="${d.hero}" alt="${esc(d.name)}" loading="lazy">
+    <img src="${d.hero}" alt="${esc(d.name)}" loading="lazy" data-photo-q="${esc(d.name+' skyline')}">
     <div class="destCardBody"><h4>${d.flag} ${esc(d.name)}</h4><span>${esc(d.country)}</span></div>
   </button>`;
 }
 function wireDestCards(container){
   container.querySelectorAll('[data-dest]').forEach(b=>b.onclick=()=>navigate(`#/destination/${encodeURIComponent(b.dataset.dest)}`));
+  hydratePhotos(container);
 }
 
 function initHero(){
@@ -709,7 +770,7 @@ function renderDestinationView(idOrName, tab){
   destState.tab = tab || destState.tab || 'overview';
 
   $('destHero').innerHTML = `
-    <img src="${dest.hero}" alt="${esc(dest.name)}">
+    <img src="${dest.hero}" alt="${esc(dest.name)}" data-photo-q="${esc(dest.name+' skyline')}">
     <div class="destHeroActions">
       <button class="btn" id="destSaveBtn"><i class="fa-solid fa-heart"></i> Save destination</button>
     </div>
@@ -718,6 +779,15 @@ function renderDestinationView(idOrName, tab){
       <h1>${esc(dest.name)}</h1>
       <p>${esc(dest.tagline)}</p>
     </div>`;
+  hydratePhotos($('destHero'));
+  if(dest.id.startsWith('gen-')){
+    enrichDestinationInBackground(dest, ()=>{
+      if(location.hash.includes('/destination/'+encodeURIComponent(dest.id))){
+        toast(`Found real places near ${dest.name}!`);
+        renderDestinationView(dest.id, destState.tab);
+      }
+    });
+  }
   $('destSaveBtn').onclick = ()=>{
     const c = STATE.collections[0];
     if(!c.placeIds.includes('dest:'+dest.id)){ c.placeIds.push('dest:'+dest.id); toast(`Saved ${dest.name} to ${c.name}.`); }
@@ -759,6 +829,17 @@ function renderDestOverview(dest, body){
         <div class="ovCard"><div class="k">Luxury</div><div class="v" style="font-size:20px">${fmt$(dest.avgDailyBudget.luxury)}<span class="small">/day</span></div></div>
       </div>
     </div>
+    <div class="card" style="margin-top:16px">
+      <h3>💱 Currency converter</h3>
+      <div class="currencyConvRow">
+        <div class="field"><label>Amount</label><input type="number" id="convAmount" value="100" min="0"></div>
+        <div class="field"><label>From</label><select id="convFrom"></select></div>
+        <button class="iconbtn" id="convSwap" title="Swap"><i class="fa-solid fa-right-left"></i></button>
+        <div class="field"><label>To</label><select id="convTo"></select></div>
+      </div>
+      <div class="currencyConvResult" id="convResult">—</div>
+      <div class="small" id="convRateNote"></div>
+    </div>
     <div class="panelHead" style="padding:22px 0 12px;border:0"><h3 style="font-size:19px">Top attractions</h3><button class="linklike" data-tab="things">See all →</button></div>
     <div class="placeGrid">${top.map(p=>placeCardHTML(p,{noDesc:false})).join('')}</div>
     <div class="panelHead" style="padding:22px 0 12px;border:0"><h3 style="font-size:19px">Top restaurants</h3><button class="linklike" data-tab="restaurants">See all →</button></div>
@@ -768,9 +849,37 @@ function renderDestOverview(dest, body){
   `;
   wirePlaceCards(body);
   body.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>navigate(`#/destination/${encodeURIComponent(dest.id)}/${b.dataset.tab}`));
-  const ideas = generateAllIdeas(dest.id).slice(0,2);
+  const ideas = getCurrentIdeas(dest.id).slice(0,2);
   $('ovIdeaPreview').innerHTML = ideas.map(idea=>ideaCardHTML(idea)).join('');
   wireIdeaCards($('ovIdeaPreview'));
+  initCurrencyConverter(dest);
+}
+function initCurrencyConverter(dest){
+  populateCurrencyOptions($('convFrom'));
+  populateCurrencyOptions($('convTo'));
+  $('convFrom').value = currentCurrencyCode();
+  $('convTo').value = dest.currencyCode || 'USD';
+  function update(){
+    const amount = Number($('convAmount').value) || 0;
+    const from = $('convFrom').value, to = $('convTo').value;
+    const rateFrom = EXCHANGE_RATES[from], rateTo = EXCHANGE_RATES[to];
+    if(typeof rateFrom !== 'number' || typeof rateTo !== 'number'){
+      $('convResult').textContent = 'Rates unavailable — check your connection.';
+      $('convRateNote').textContent = '';
+      return;
+    }
+    const usd = amount / rateFrom;
+    const converted = usd * rateTo;
+    const fromMeta = CURRENCY_META[from] || CURRENCY_META.USD, toMeta = CURRENCY_META[to] || CURRENCY_META.USD;
+    $('convResult').textContent = `${fromMeta.symbol}${amount.toLocaleString()} = ${toMeta.symbol}${converted.toLocaleString(undefined,{maximumFractionDigits: converted>=100?0:2})}`;
+    const rate = rateTo / rateFrom;
+    $('convRateNote').textContent = `1 ${from} = ${rate.toLocaleString(undefined,{maximumFractionDigits:4})} ${to} · live rates, updated daily`;
+  }
+  $('convAmount').oninput = update;
+  $('convFrom').onchange = update;
+  $('convTo').onchange = update;
+  $('convSwap').onclick = ()=>{ const f=$('convFrom').value; $('convFrom').value=$('convTo').value; $('convTo').value=f; update(); };
+  update();
 }
 
 /* ---------------- Things To Do tab ---------------- */
@@ -935,39 +1044,47 @@ function addPlaceToTripSilent(trip, dayIdx, place){
   day.stops.push(mkStopFromPlace(place, nextTime));
 }
 
-/* ---------------- Map tab (destination discovery map) ---------------- */
-window.__destMarkerById = {};
+/* ---------------- Map tab (destination discovery map, real embedded Google Maps) ---------------- */
+window.__destMapPlaceId = null;
 function renderDestMap(dest, body){
   body.innerHTML = `
     <div class="panel mapPanel" style="min-height:600px">
-      <div class="panelHead"><h3>Explore ${esc(dest.name)} on the map</h3><div class="rowgap"><button class="btn sm" id="destMapCenter"><i class="fa-solid fa-crosshairs"></i> Center</button></div></div>
+      <div class="panelHead"><h3>Explore ${esc(dest.name)} on the map</h3>
+        <div class="rowgap">
+          <a class="btn sm" id="destMapOpen" href="${gmapsExternalLink(dest.name+(dest.country?', '+dest.country:''))}" target="_blank" rel="noopener"><i class="fa-solid fa-up-right-from-square"></i> Open in Google Maps</a>
+          <button class="btn sm" id="destMapCenter"><i class="fa-solid fa-crosshairs"></i> Center</button>
+        </div>
+      </div>
       <div class="mapLegend" id="destMapLegend"></div>
-      <div class="map" id="destMap" style="min-height:520px"></div>
+      <div class="mapSplit">
+        <div class="map" id="destMap" style="min-height:420px">
+          ${navigator.onLine===false ? mapUnavailableHTML() : `<iframe id="destMapFrame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen src="${gmapsSearchEmbedUrl(dest.name+(dest.country?', '+dest.country:''),13)}"></iframe>`}
+        </div>
+        <div class="mapPlaceList" id="destMapList"></div>
+      </div>
     </div>`;
   const legends = [['attraction','Attractions','var(--cat-attraction)'],['restaurant','Restaurants','var(--cat-restaurant)'],['hotel','Hotels','var(--cat-hotel)']];
   $('destMapLegend').innerHTML = legends.map(([k,l,c])=>`<button class="legend ${destState.mapCats.has(k)?'active':''}" data-cat="${k}"><span class="legendDot" style="background:${c}"></span>${l}</button>`).join('');
-  if(typeof L === 'undefined'){ $('destMap').innerHTML = mapUnavailableHTML(); return; }
-  let map;
-  try{ map = L.map('destMap',{zoomControl:true}).setView([dest.lat,dest.lng],13); }
-  catch(e){ $('destMap').innerHTML = mapUnavailableHTML(); return; }
-  window.__destMap = map;
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
-  window.__destMarkerById = {};
+  window.__destMapDest = dest;
+  window.__destMapPlaceId = null;
   function draw(){
-    Object.values(window.__destMarkerById).forEach(m=>map.removeLayer(m));
-    window.__destMarkerById = {};
     const list = PLACES.filter(p=>p.destId===dest.id && destState.mapCats.has(p.type));
-    list.forEach(p=>{
-      const icon = L.divIcon({className:'custom-map-pin', html:`<span>${catEmoji(p.type)}</span>`, iconSize:[28,28], iconAnchor:[14,28]});
-      const marker = L.marker([p.lat,p.lng],{icon}).addTo(map);
-      marker.getElement && setTimeout(()=>{ const el = marker.getElement(); if(el) el.querySelector('.custom-map-pin').style.background = catColor(p.type); },0);
-      const popupEl = document.createElement('div');
-      popupEl.className='mapPopup';
-      popupEl.innerHTML = `<img src="${p.image}"><h4>${esc(p.name)}</h4><p>${p.rating?('★ '+p.rating+' · '):''}${esc(p.area)}</p><button class="btn primary sm" data-popadd="${p.id}">＋ Add to Trip</button>`;
-      marker.bindPopup(popupEl);
-      marker.on('popupopen', ()=>{ popupEl.querySelector('[data-popadd]').onclick=()=>openAddToTrip(p.id); });
-      window.__destMarkerById[p.id] = marker;
-    });
+    $('destMapList').innerHTML = list.map(p=>`
+      <div class="mapPlaceRow ${p.id===window.__destMapPlaceId?'active':''}" data-mapplace="${p.id}">
+        <div class="stopThumb"><span class="num" style="background:${catColor(p.type)}">${catEmoji(p.type)}</span><img src="${p.image}" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
+        <div class="mapPlaceInfo">
+          <h4>${esc(p.name)}</h4>
+          <p>${p.rating?('★ '+p.rating+' · '):''}${esc(p.area||'')}</p>
+        </div>
+        <button class="btn sm primary" data-popadd="${p.id}">＋</button>
+      </div>`).join('') || `<div class="empty small">No places in this category.</div>`;
+    $('destMapList').querySelectorAll('[data-mapplace]').forEach(row=>row.addEventListener('click',(e)=>{
+      if(e.target.closest('[data-popadd]')) return;
+      const p = placeById(row.dataset.mapplace);
+      if(p) focusDestMapPlace(p);
+    }));
+    $('destMapList').querySelectorAll('[data-popadd]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openAddToTrip(b.dataset.popadd); });
+    hydratePhotos($('destMapList'));
   }
   draw();
   $('destMapLegend').querySelectorAll('[data-cat]').forEach(b=>b.onclick=()=>{
@@ -976,57 +1093,109 @@ function renderDestMap(dest, body){
     b.classList.toggle('active');
     draw();
   });
-  $('destMapCenter').onclick = ()=>map.setView([dest.lat,dest.lng],13);
-  setTimeout(()=>map.invalidateSize(),150);
+  $('destMapCenter').onclick = ()=>{
+    window.__destMapPlaceId = null;
+    const frame = $('destMapFrame');
+    if(frame) frame.src = gmapsSearchEmbedUrl(dest.name+(dest.country?', '+dest.country:''),13);
+    draw();
+  };
+}
+function focusDestMapPlace(p){
+  const dest = window.__destMapDest || DESTINATIONS.find(d=>d.id===p.destId);
+  window.__destMapPlaceId = p.id;
+  const frame = $('destMapFrame');
+  if(frame) frame.src = gmapsSearchEmbedUrl(p.name+(dest?', '+dest.name:''),16);
+  const open = $('destMapOpen');
+  if(open) open.href = gmapsExternalLink(p.name+(dest?', '+dest.name:''));
+  $$('#destMapList .mapPlaceRow').forEach(row=>row.classList.toggle('active', row.dataset.mapplace===p.id));
 }
 
 /* ---------------- Trip Ideas tab ---------------- */
 function renderDestIdeas(dest, body){
-  body.innerHTML = `<div id="destIdeasGrid" class="ideaCardGrid"></div>`;
-  const ideas = generateAllIdeas(dest.id);
-  $('destIdeasGrid').innerHTML = ideas.map(idea=>ideaCardHTML(idea)).join('');
-  wireIdeaCards($('destIdeasGrid'));
+  body.innerHTML = `
+    <div class="panelHead" style="padding:0 0 14px;border:0">
+      <p class="small" style="margin:0">${TRIP_ARCHETYPES.length} themed trip concepts for ${esc(dest.name)}.</p>
+      <button class="btn primary" id="destIdeasRegen">🔄 Generate New Ideas</button>
+    </div>
+    <div id="destIdeasGrid" class="ideaCardGrid"></div>`;
+  function render(ideas){
+    $('destIdeasGrid').innerHTML = ideas.map(idea=>ideaCardHTML(idea)).join('');
+    wireIdeaCards($('destIdeasGrid'));
+    hydratePhotos($('destIdeasGrid'));
+  }
+  render(getCurrentIdeas(dest.id));
+  $('destIdeasRegen').onclick = ()=>{ render(regenerateIdeas(dest.id)); toast('Generated a fresh set of trip ideas!'); };
 }
 
 /* ============================================================
    AI TRIP IDEA GENERATOR
 ============================================================ */
 const IDEA_STORE = {};
-const IDEA_DEFAULT_DAYS = {food:3, culture:4, nightlife:2, shopping:2, relax:3};
-function generateIdea(destId, archetype, overrides){
-  const id = `${destId}-idea-${archetype.key}`;
-  if(IDEA_STORE[id] && !overrides) return IDEA_STORE[id];
+const DEST_CURRENT_IDEA_IDS = {}; // destId -> [ideaId,...] — the "current" stable batch shown until the user explicitly regenerates
+const IDEA_DEFAULT_DAYS = {food:3, culture:4, nightlife:2, shopping:2, relax:3, art:2, adventure:3, romantic:2, hidden:3};
+
+function shuffle(arr){
+  const a = arr.slice();
+  for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
+  return a;
+}
+const MIN_ATTRACTIONS_PER_DAY = 5;
+function pickFromPool(pool, wantCount, filters){
+  let filtered = pool.filter(p=>filters.every(f=>f(p)));
+  if(filtered.length < wantCount) filtered = pool; // relax filters rather than come up short
+  const byRating = filtered.slice().sort((a,b)=>b.rating-a.rating);
+  const candidatePool = byRating.slice(0, Math.min(byRating.length, wantCount + 8));
+  return shuffle(candidatePool).slice(0, Math.min(wantCount, candidatePool.length));
+}
+function pickPlacesForIdea(destId, interests, budgetStyle, days){
+  const neededAttr = days*MIN_ATTRACTIONS_PER_DAY;
+  ensureAttractionSupply(destId, neededAttr); // top up with themed spots if the curated pool is too small
+  const priceOk = p=> budgetStyle==='budget' ? (p.priceLevel||0)<=2 : true;
+  const interestOk = p=> (p.tags||[]).some(t=>interests.includes(t));
+
+  const attrPool = placesFor(destId,'attraction');
+  const restPool = placesFor(destId,'restaurant');
+  const neededRest = Math.min(restPool.length, days*2);
+
+  const attractions = pickFromPool(attrPool, neededAttr, [interestOk, priceOk]);
+  const restaurants = pickFromPool(restPool, neededRest, [priceOk]);
+  return attractions.concat(restaurants);
+}
+function buildIdea(destId, archetype, overrides){
   const dest = DESTINATIONS.find(d=>d.id===destId);
-  const days = (overrides && overrides.days) || (IDEA_STORE[id]?.days) || IDEA_DEFAULT_DAYS[archetype.key] || 3;
-  const budgetStyle = (overrides && overrides.budgetStyle) || (IDEA_STORE[id]?.budgetStyle) || 'moderate';
-  const pace = (overrides && overrides.pace) || (IDEA_STORE[id]?.pace) || 'Balanced';
+  const days = (overrides && overrides.days) || IDEA_DEFAULT_DAYS[archetype.key] || 3;
+  const budgetStyle = (overrides && overrides.budgetStyle) || 'moderate';
+  const pace = (overrides && overrides.pace) || 'Balanced';
   const interests = (overrides && overrides.interests) || archetype.tags.slice();
-  let pool = PLACES.filter(p=>p.destId===destId && (p.type==='attraction'||p.type==='restaurant') && (p.tags||[]).some(t=>interests.includes(t)));
-  if(pool.length<4) pool = placesFor(destId,'attraction').concat(placesFor(destId,'restaurant').slice(0,2));
-  const priceOk = p=>{
-    const lvl = p.priceLevel||0;
-    if(budgetStyle==='budget') return lvl<=2;
-    return true;
-  };
-  let list = pool.filter(priceOk).sort((a,b)=>b.rating-a.rating);
-  if(list.length<4) list = pool.slice().sort((a,b)=>b.rating-a.rating);
-  list = list.slice(0, Math.max(5, days*2));
+  const id = (overrides && overrides.__keepId) || uid('idea');
   const idea = { id, destId, key:archetype.key, emoji:archetype.emoji,
     title: archetype.titleTpl.replace('{city}', dest.name),
     desc: archetype.descTpl.replace(/{city}/g, dest.name),
-    days, budgetStyle, pace, interests, places:list };
+    days, budgetStyle, pace, interests,
+    places: pickPlacesForIdea(destId, interests, budgetStyle, days) };
   IDEA_STORE[id] = idea;
   return idea;
 }
-function generateAllIdeas(destId){ return TRIP_ARCHETYPES.map(a=>generateIdea(destId,a)); }
+/** Explicit "Generate" action — always produces a brand-new, randomized batch of ideas. */
+function regenerateIdeas(destId){
+  const ideas = TRIP_ARCHETYPES.map(a=>buildIdea(destId, a));
+  DEST_CURRENT_IDEA_IDS[destId] = ideas.map(i=>i.id);
+  return ideas;
+}
+/** Passive view (tab switch, overview preview) — stable until the user asks to regenerate. */
+function getCurrentIdeas(destId){
+  const ids = DEST_CURRENT_IDEA_IDS[destId];
+  if(ids && ids.length && ids.every(id=>IDEA_STORE[id])) return ids.map(id=>IDEA_STORE[id]);
+  return regenerateIdeas(destId);
+}
 
 function ideaCardHTML(idea){
   const dest = DESTINATIONS.find(d=>d.id===idea.destId);
-  const imgs = idea.places.slice(0,3).map(p=>p.image);
-  while(imgs.length<3) imgs.push(dest.hero);
+  const imgs = idea.places.slice(0,3).map(p=>({src:p.image, q:photoQuery(p.name, dest.name)}));
+  while(imgs.length<3) imgs.push({src:dest.hero, q:dest.name+' skyline'});
   const budgetLabel = idea.budgetStyle.charAt(0).toUpperCase()+idea.budgetStyle.slice(1);
   return `<div class="ideaCard" data-idea="${idea.id}">
-    <div class="ideaCoverRow">${imgs.map(i=>`<img src="${i}" alt="" loading="lazy">`).join('')}</div>
+    <div class="ideaCoverRow">${imgs.map(i=>`<img src="${i.src}" alt="" loading="lazy" data-photo-q="${esc(i.q)}">`).join('')}</div>
     <div class="ideaBody">
       <h3>${idea.emoji} ${esc(idea.title)}</h3>
       <p>${esc(idea.desc)}</p>
@@ -1049,17 +1218,28 @@ function wireIdeaCards(container){
     toast(`Saved "${trip.title}" to My Trips.`);
     navigate('#/trips');
   });
+  hydratePhotos(container);
 }
 
 function distributeIntoDays(places, nDays){
   const attractions = places.filter(p=>p.type==='attraction');
   const restaurants = places.filter(p=>p.type==='restaurant');
-  const buckets = Array.from({length:nDays},()=>({attrs:[],rests:[]}));
-  attractions.forEach((p,i)=>buckets[i%nDays].attrs.push(p));
-  restaurants.forEach((p,i)=>buckets[i%nDays].rests.push(p));
-  return buckets.map(b=>{
-    const half = Math.ceil(b.attrs.length/2);
-    const ordered = [...b.attrs.slice(0,half), ...b.rests, ...b.attrs.slice(half)];
+  // Round-robin attractions and restaurants into day buckets SEPARATELY (not as one combined
+  // list) so every day is guaranteed its fair share of attractions specifically — mixing both
+  // into a single interleaved queue before dealing can let a day end up attraction-light just
+  // because more restaurants happened to land in its slice.
+  const attrBuckets = Array.from({length:nDays},()=>[]);
+  attractions.forEach((p,i)=> attrBuckets[i % nDays].push(p));
+  // Stagger where the restaurant round-robin starts so its leftover "extra" item doesn't land
+  // on the same day as the attractions' leftover — otherwise both remainders stack onto day 1,
+  // leaving day 1 overloaded and the last day thin (e.g. 3/2/1 instead of an even 2/2/2).
+  const restOffset = attractions.length % nDays;
+  const restBuckets = Array.from({length:nDays},()=>[]);
+  restaurants.forEach((p,i)=> restBuckets[(i+restOffset) % nDays].push(p));
+  return attrBuckets.map((attrs, d)=>{
+    const rests = restBuckets[d];
+    const half = Math.ceil(attrs.length/2);
+    const ordered = [...attrs.slice(0,half), ...rests, ...attrs.slice(half)];
     let t = '09:00';
     return ordered.map(place=>{ const time=t; t=addMinutesToTime(t,(place.duration||90)+20); return {place,time}; });
   });
@@ -1079,7 +1259,7 @@ function openItineraryPreview(ideaId){
         ${days[current].length ? days[current].map(({place,time})=>`
           <div class="stop" style="cursor:default">
             <div class="stopTop">
-              <div class="num ${place.type}">${catEmoji(place.type)}</div>
+              <div class="stopThumb"><img src="${place.image}" alt="" data-photo-q="${esc(photoQuery(place.name, dest.name))}"></div>
               <div class="stopBody"><h4>${esc(place.name)}</h4><p>${esc(place.desc||'')}</p>
                 <div class="stopMeta"><span>🕒 ${fmtTime12(time)}</span><span>📍 ${esc(place.area)}</span>${place.rating?`<span>★ ${place.rating}</span>`:''}${place.price?`<span>${fmt$(place.price)}</span>`:''}</div>
               </div>
@@ -1092,6 +1272,7 @@ function openItineraryPreview(ideaId){
       </div>`;
     content.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>closeModal('modal-itineraryPreview'));
     content.querySelectorAll('[data-day]').forEach(b=>b.onclick=()=>{ current=Number(b.dataset.day); render(); });
+    hydratePhotos(content);
     $('useItineraryBtn').onclick = ()=>{
       const trip = createTripFromIdea(idea, days);
       closeModal('modal-itineraryPreview');
@@ -1111,7 +1292,7 @@ function createTripFromIdea(idea, precomputedDays){
   const travelers = (hp && hp.travelers) || 2;
   const total = Math.round((dest.avgDailyBudget[idea.budgetStyle]||dest.avgDailyBudget.moderate) * idea.days * travelers);
   const trip = {
-    id: uid('trip'), destId: dest.id, title: idea.title, start, end: addDays(start, idea.days-1), travelers,
+    id: uid('trip'), destId: dest.id, destName: dest.name+(dest.country?', '+dest.country:''), title: idea.title, start, end: addDays(start, idea.days-1), travelers,
     cover: (idea.places[0] && idea.places[0].image) || dest.hero,
     days: days.map((dayPlaces,i)=>({ date: addDays(start,i), stops: dayPlaces.map(({place,time})=>mkStopFromPlace(place,time)) })),
     budget:{ total, style: idea.budgetStyle, expenses:[] },
@@ -1147,7 +1328,8 @@ function initCustomizeModal(){
       pace: $('custPace').value,
       interests: interests.length? interests : archetype.tags.slice(),
     };
-    generateIdea(idea.destId, archetype, overrides);
+    overrides.__keepId = __customizeIdeaId;
+    buildIdea(idea.destId, archetype, overrides);
     closeModal('modal-customize');
     toast('Trip idea updated with your preferences!');
     refreshCurrentView();
@@ -1169,11 +1351,14 @@ function renderIdeasView(destIdParam){
   if(destIdParam){
     const dest = DESTINATIONS.find(d=>d.id===destIdParam) || findDestination(destIdParam);
     $('ideasDestInput').value = `${dest.name}, ${dest.country}`.replace(/, $/, '');
-    const ideas = generateAllIdeas(dest.id);
+    // navigating here represents an explicit "generate" action — always give a fresh, varied batch
+    const ideas = regenerateIdeas(dest.id);
     $('ideasGrid').innerHTML = ideas.map(idea=>ideaCardHTML(idea)).join('');
     wireIdeaCards($('ideasGrid'));
+    hydratePhotos($('ideasGrid'));
+    if(dest.id.startsWith('gen-')) enrichDestinationInBackground(dest, ()=>{ if(location.hash.includes('/ideas/'+encodeURIComponent(dest.id))){ const fresh = regenerateIdeas(dest.id); $('ideasGrid').innerHTML = fresh.map(idea=>ideaCardHTML(idea)).join(''); wireIdeaCards($('ideasGrid')); hydratePhotos($('ideasGrid')); } });
   } else {
-    $('ideasGrid').innerHTML = '<div class="empty" style="grid-column:1/-1">Search a destination above to generate 5 themed trip ideas — food, culture, nightlife, shopping and relaxation.</div>';
+    $('ideasGrid').innerHTML = `<div class="empty" style="grid-column:1/-1">Search a destination above to generate ${TRIP_ARCHETYPES.length} themed trip ideas — food, culture, nightlife, shopping, relaxation, art, adventure, romance and hidden gems.</div>`;
   }
 }
 
@@ -1191,12 +1376,12 @@ function renderTripsView(){
   $('newTripBtn2').onclick = openNewTripModal;
 }
 function tripCardHTML(t){
-  const dest = DESTINATIONS.find(d=>d.id===t.destId);
+  const dest = destForTrip(t);
   const planned = tripPlannedTotal(t);
   const pct = clamp(Math.round(planned/(t.budget.total||1)*100),0,140);
   const over = planned>t.budget.total;
   return `<div class="tripCard2" data-trip="${t.id}">
-    <div class="tripCoverWrap"><img src="${t.cover||dest.hero}" alt=""><span class="badge2">${dest.flag} ${esc(dest.name)}</span></div>
+    <div class="tripCoverWrap"><img src="${t.cover||dest.hero}" alt="" data-photo-q="${esc(dest.name+' skyline')}"><span class="badge2">${dest.flag} ${esc(dest.name)}</span></div>
     <div class="tripCardBody">
       <h3>${esc(t.title)}</h3>
       <div class="tripMetaRow"><span>📅 ${fmtDateShort(t.start)} – ${fmtDateShort(t.end)}</span><span>${t.days.length} days</span></div>
@@ -1230,6 +1415,7 @@ function wireTripCards(container){
       renderTripsView();
     });
   });
+  hydratePhotos(container);
 }
 function duplicateTrip(id){
   const t = getTrip(id);
@@ -1351,7 +1537,7 @@ function renderSavedView(collId){
   }).filter(Boolean);
   grid.innerHTML = items.map(p=>{
     if(p.__isDest){
-      return `<div class="placeCard"><div class="placeImgWrap"><img src="${p.hero}" alt=""><span class="placeCatBadge">Destination</span></div><div class="placeBody"><h4>${p.flag} ${esc(p.name)}</h4><p class="placeDesc">${esc(p.tagline)}</p><div class="placeFoot"><button class="btn primary block" data-godest="${p.id}">Explore</button><button class="btn" data-unsavedest="${p.id}">Remove</button></div></div></div>`;
+      return `<div class="placeCard"><div class="placeImgWrap"><img src="${p.hero}" alt="" data-photo-q="${esc(p.name+' skyline')}"><span class="placeCatBadge">Destination</span></div><div class="placeBody"><h4>${p.flag} ${esc(p.name)}</h4><p class="placeDesc">${esc(p.tagline)}</p><div class="placeFoot"><button class="btn primary block" data-godest="${p.id}">Explore</button><button class="btn" data-unsavedest="${p.id}">Remove</button></div></div></div>`;
     }
     return placeCardHTML(p,{showDest:true});
   }).join('');
@@ -1364,13 +1550,13 @@ function renderSavedView(collId){
    TRIP PLANNER
 ============================================================ */
 let plannerState = { tripId:null, day:0 };
-let __plannerMap=null, __plannerMarkers=[], __plannerRoute=null;
 
 function renderPlannerView(tripId, ptab){
   const trip = getTrip(tripId);
   if(!trip){ navigate('#/trips'); return; }
   if(plannerState.tripId !== tripId) plannerState = { tripId, day:0 };
-  const dest = DESTINATIONS.find(d=>d.id===trip.destId);
+  const dest = destForTrip(trip);
+  if(dest.id.startsWith('gen-')) enrichDestinationInBackground(dest, ()=>{ if(plannerState.tripId===trip.id) renderPlannerView(trip.id, location.hash.split('/')[3]||'itinerary'); });
 
   $('plannerEyebrow').textContent = `${dest.flag} ${dest.name} trip workspace`;
   $('plannerTitle').textContent = trip.title;
@@ -1386,7 +1572,7 @@ function renderPlannerView(tripId, ptab){
   $('aiRegenBtn').onclick = ()=>{ openAI(); $('aiContextLabel').textContent = `Working on: ${trip.title}`; };
   $('addDayBtn').onclick = ()=>{ addDayToTrip(trip); plannerState.day = trip.days.length-1; renderPlannerItinerary(trip); };
   $('addStopBtn2').onclick = ()=>openAddPlaceSearch(trip);
-  $('centerBtn2').onclick = ()=>{ if(__plannerMap) __plannerMap.setView([dest.lat,dest.lng],13); };
+  $('centerBtn2').onclick = ()=>renderPlannerMap(trip, trip.days[plannerState.day]);
   $('mapSearchToggle').onclick = ()=>$('mapSearchBar').classList.toggle('hidden');
   $('mapSearchGo').onclick = ()=>plannerMapSearch(trip);
   $('mapSearchInput').onkeydown = e=>{ if(e.key==='Enter') plannerMapSearch(trip); };
@@ -1398,10 +1584,19 @@ function renderPlannerView(tripId, ptab){
 function renderCollabStack(trip){ $('collabStack').innerHTML = trip.collaborators.map(c=>`<div class="avatar sm" title="${esc(c.name)}">${c.initials}</div>`).join(''); }
 function plannerMapSearch(trip){
   const q = $('mapSearchInput').value.trim().toLowerCase();
-  if(!q || !__plannerMap) return;
+  if(!q) return;
+  const dest = destForTrip(trip);
   const match = PLACES.find(p=>p.destId===trip.destId && p.name.toLowerCase().includes(q));
-  if(match){ __plannerMap.flyTo([match.lat,match.lng],15); toast(`Found "${match.name}" — use "Add place" to add it to this day.`); }
-  else toast('No matching place found in this destination.');
+  const frame = $('map2Frame');
+  if(match && frame){
+    frame.src = gmapsSearchEmbedUrl(match.name+', '+dest.name, 16);
+    toast(`Found "${match.name}" — use "Add place" to add it to this day.`);
+  } else if(frame){
+    frame.src = gmapsSearchEmbedUrl(q+', '+dest.name, 14);
+    toast(`Searching Google Maps for "${q}" — use "Add place" to add a stop.`);
+  } else {
+    toast('No matching place found in this destination.');
+  }
 }
 
 function renderPlannerItinerary(trip){
@@ -1430,14 +1625,14 @@ function renderPlannerItinerary(trip){
   renderPlannerStats(trip, day);
 }
 
-function stopHTML(s, i, total){
+function stopHTML(s, i, total, destName){
   const showTransit = i < total-1;
   return `
   <div class="stop" draggable="true" data-idx="${i}" data-stopid="${s.id}">
     <div class="stopTop">
-      <div class="num ${s.type}">${catEmoji(s.type)}</div>
+      <div class="stopThumb"><img src="${s.image}" alt="" data-photo-q="${esc(photoQuery(s.name, destName))}"><span class="num ${s.type}">${i+1}</span></div>
       <div class="stopBody">
-        <h4>${i+1}. ${esc(s.name)}</h4>
+        <h4>${esc(s.name)}</h4>
         <p>${esc(s.category||'')}${s.area?' · '+esc(s.area):''}</p>
         <div class="stopMeta">
           <input class="stopTimeInput" type="time" value="${s.time}" data-time="${s.id}">
@@ -1478,8 +1673,10 @@ function transitRowHTML(s){
 function renderTimeline(trip, day){
   const el = $('timeline2');
   if(!day.stops.length){ el.innerHTML = '<div class="empty">No stops yet. Use "Add place" above, or generate a Trip Idea for this destination.</div>'; return; }
-  el.innerHTML = day.stops.map((s,i)=>stopHTML(s,i,day.stops.length)).join('');
+  const destName = destForTrip(trip).name;
+  el.innerHTML = day.stops.map((s,i)=>stopHTML(s,i,day.stops.length,destName)).join('');
   wireStopEvents(trip, day);
+  hydratePhotos(el);
 }
 function wireStopEvents(trip, day){
   const el = $('timeline2');
@@ -1544,7 +1741,7 @@ function wireStopEvents(trip, day){
   });
 }
 function openAddPlaceSearch(trip){
-  const dest = DESTINATIONS.find(d=>d.id===trip.destId);
+  const dest = destForTrip(trip);
   $('addToTripSub').textContent = `Search places in ${dest.name} to add to Day ${plannerState.day+1}`;
   const usedIds = new Set(trip.days.flatMap(d=>d.stops.map(s=>s.placeId)));
   function render(q){
@@ -1554,7 +1751,7 @@ function openAddPlaceSearch(trip){
     $('addToTripBody').innerHTML = `
       <input id="addPlaceSearchInput" placeholder="Search attractions, restaurants, hotels…" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:12px;font-weight:600;background:var(--surface2);color:var(--ink)" value="${esc(q||'')}">
       <div class="list" style="max-height:360px;overflow:auto">
-        ${arr.length? arr.map(p=>`<div class="listRow"><div class="left"><img src="${p.image}" style="width:38px;height:38px;border-radius:8px;object-fit:cover;flex-shrink:0"><div><div>${esc(p.name)}</div><div class="small">${catEmoji(p.type)} ${esc(p.category||p.cuisine||'Hotel')} · ★ ${p.rating||p.guestRating}</div></div></div><button class="btn primary sm" data-quickadd="${p.id}">＋ Add</button></div>`).join('') : '<div class="empty">No matching places.</div>'}
+        ${arr.length? arr.map(p=>`<div class="listRow"><div class="left"><img src="${p.image}" style="width:38px;height:38px;border-radius:8px;object-fit:cover;flex-shrink:0" data-photo-q="${esc(photoQuery(p.name, dest.name))}"><div><div>${esc(p.name)}</div><div class="small">${catEmoji(p.type)} ${esc(p.category||p.cuisine||'Hotel')} · ★ ${p.rating||p.guestRating}</div></div></div><button class="btn primary sm" data-quickadd="${p.id}">＋ Add</button></div>`).join('') : '<div class="empty">No matching places.</div>'}
       </div>`;
     $('addPlaceSearchInput').oninput = debounce(e=>render(e.target.value),150);
     $('addToTripBody').querySelectorAll('[data-quickadd]').forEach(b=>b.onclick=()=>{
@@ -1562,6 +1759,7 @@ function openAddPlaceSearch(trip){
       addPlaceToTrip(trip, plannerState.day, p);
       closeModal('modal-addToTrip');
     });
+    hydratePhotos($('addToTripBody'));
   }
   render('');
   openModal('modal-addToTrip');
@@ -1571,48 +1769,52 @@ function openAddPlaceSearch(trip){
 function mapUnavailableHTML(){
   return `<div class="empty" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:0">
     <div style="font-size:26px;margin-bottom:8px">🗺️</div>
-    <div>Map couldn't load (offline or blocked resource).</div>
+    <div>Map couldn't load — you appear to be offline.</div>
     <div class="small" style="margin-top:4px">Everything else in TripFlow still works normally.</div>
   </div>`;
 }
+
+/* ---------------- Real Google Maps, embedded (no API key required) ---------------- */
+// Google's keyless "output=embed" iframe is the same product as maps.google.com: real street
+// data, satellite imagery, street view and native pan/zoom/search — no tile CDN, no API key.
+function gmapsSearchEmbedUrl(query, zoom){
+  return `https://www.google.com/maps?q=${encodeURIComponent(query)}&z=${zoom||14}&output=embed`;
+}
+function gmapsCoordEmbedUrl(lat, lng, zoom){
+  return `https://www.google.com/maps?q=${lat},${lng}&z=${zoom||14}&output=embed`;
+}
+function gmapsDirectionsEmbedUrl(stops){
+  const pts = stops.map(s=>`${s.lat},${s.lng}`);
+  const saddr = pts[0];
+  const daddr = pts.slice(1).join('+to:');
+  return `https://www.google.com/maps?saddr=${saddr}&daddr=${daddr}&output=embed`;
+}
+function gmapsExternalLink(query){
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
 function renderPlannerMap(trip, day){
-  if(typeof L === 'undefined'){ $('map2').innerHTML = mapUnavailableHTML(); renderPlannerStatsMapFallback(); return; }
   try{ renderPlannerMapInner(trip, day); }
   catch(e){ $('map2').innerHTML = mapUnavailableHTML(); }
 }
-function renderPlannerStatsMapFallback(){ $('mapLegend2').innerHTML=''; }
+const GMAPS_MAX_WAYPOINTS = 10; // legacy keyless directions embed only plots up to ~10 stops
 function renderPlannerMapInner(trip, day){
-  const dest = DESTINATIONS.find(d=>d.id===trip.destId);
-  if(!__plannerMap){
-    __plannerMap = L.map('map2',{zoomControl:true}).setView([dest.lat,dest.lng],13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(__plannerMap);
+  const dest = destForTrip(trip);
+  const stops = day.stops;
+  let src, note = '';
+  if(stops.length===0){
+    src = gmapsCoordEmbedUrl(dest.lat, dest.lng, 13);
+  } else if(stops.length===1){
+    src = gmapsSearchEmbedUrl(stops[0].name+', '+dest.name, 15);
   } else {
-    __plannerMap.setView([dest.lat,dest.lng], __plannerMap.getZoom());
+    const routed = stops.length>GMAPS_MAX_WAYPOINTS ? stops.slice(0,GMAPS_MAX_WAYPOINTS) : stops;
+    src = gmapsDirectionsEmbedUrl(routed);
+    if(stops.length>GMAPS_MAX_WAYPOINTS) note = `Showing route for the first ${GMAPS_MAX_WAYPOINTS} of ${stops.length} stops.`;
   }
-  __plannerMarkers.forEach(m=>__plannerMap.removeLayer(m));
-  __plannerMarkers = [];
-  if(__plannerRoute){ __plannerMap.removeLayer(__plannerRoute); __plannerRoute=null; }
-  day.stops.forEach((s,i)=>{
-    const icon = L.divIcon({className:'custom-map-pin', html:`<span>${i+1}</span>`, iconSize:[28,28], iconAnchor:[14,28]});
-    const marker = L.marker([s.lat,s.lng],{icon}).addTo(__plannerMap);
-    setTimeout(()=>{ const elm=marker.getElement(); if(elm){ const pin=elm.querySelector('.custom-map-pin'); if(pin) pin.style.background=catColor(s.type); } },0);
-    const popupEl = document.createElement('div');
-    popupEl.className='mapPopup';
-    popupEl.innerHTML = `<img src="${s.image}"><h4>${i+1}. ${esc(s.name)}</h4><p>${fmtTime12(s.time)} · ${esc(s.area||'')}${s.rating?` · ★ ${s.rating}`:''}</p>`;
-    marker.bindPopup(popupEl);
-    __plannerMarkers.push(marker);
-  });
-  if(day.stops.length>1){
-    __plannerRoute = L.polyline(day.stops.map(s=>[s.lat,s.lng]), {color:'#11795c', weight:4, opacity:.85, dashArray:'6,8'}).addTo(__plannerMap);
-    __plannerMap.fitBounds(__plannerRoute.getBounds().pad(0.25));
-  } else if(day.stops.length===1){
-    __plannerMap.setView([day.stops[0].lat, day.stops[0].lng], 14);
-  } else {
-    __plannerMap.setView([dest.lat,dest.lng],13);
-  }
-  setTimeout(()=>__plannerMap.invalidateSize(),150);
+  $('map2').innerHTML = navigator.onLine===false ? mapUnavailableHTML()
+    : `<iframe id="map2Frame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen src="${src}"></iframe>`;
+  window.__plannerMapDest = dest;
   const legends = [['attraction','Attractions','var(--cat-attraction)'],['restaurant','Restaurants','var(--cat-restaurant)'],['hotel','Hotels','var(--cat-hotel)']];
-  $('mapLegend2').innerHTML = legends.map(([k,l,c])=>`<span class="legend"><span class="legendDot" style="background:${c}"></span>${l}</span>`).join('');
+  $('mapLegend2').innerHTML = legends.map(([k,l,c])=>`<span class="legend"><span class="legendDot" style="background:${c}"></span>${l}</span>`).join('') + (note?`<span class="small" style="margin-left:auto">${esc(note)}</span>`:'');
 }
 function renderPlannerStats(trip, day){
   let dist=0; for(let i=0;i<day.stops.length-1;i++) dist += haversine(day.stops[i],day.stops[i+1]);
@@ -1659,7 +1861,7 @@ function renderBudgetTab(trip){
   $('budgetStyleRow').innerHTML = ['budget','moderate','luxury'].map(s=>`<button class="styleBtn ${trip.budget.style===s?'active':''}" data-style="${s}">${s.charAt(0).toUpperCase()+s.slice(1)}</button>`).join('');
   $('budgetStyleRow').querySelectorAll('[data-style]').forEach(b=>b.onclick=()=>{
     trip.budget.style = b.dataset.style;
-    const dest = DESTINATIONS.find(d=>d.id===trip.destId);
+    const dest = destForTrip(trip);
     trip.budget.total = Math.round(dest.avgDailyBudget[b.dataset.style]*trip.days.length*trip.travelers);
     saveState();
     toast(`Budget style set to ${b.dataset.style} — suggested total is now ${fmt$(trip.budget.total)}.`);
@@ -1788,7 +1990,7 @@ async function sendAI(){
   }
   if(STATE.geminiKey){
     try{
-      const dest = trip ? DESTINATIONS.find(d=>d.id===trip.destId) : null;
+      const dest = trip ? destForTrip(trip) : null;
       const context = trip ? `The user is planning "${trip.title}" to ${dest.name}, ${trip.days.length} days, ${trip.budget.style} budget style, total budget ${fmt$(trip.budget.total)}.` : `The user hasn't opened a specific trip yet.`;
       const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${STATE.geminiKey}`, {
         method:'POST', headers:{'Content-Type':'application/json'},
@@ -1856,7 +2058,7 @@ function makeDayRelaxed(day){
 
 function handleIntent(text, trip){
   const t = text.toLowerCase().trim();
-  const dest = trip ? DESTINATIONS.find(d=>d.id===trip.destId) : null;
+  const dest = trip ? destForTrip(trip) : null;
 
   let m = t.match(/what should i do in ([a-z\s,]+?)(?: for (\d+)\s*days?)?[.?!]?$/);
   if(m && m[1].trim().length>1){
@@ -1993,6 +2195,7 @@ function init(){
   initAI();
   renderNotifications();
   route();
+  loadExchangeRates().then(ok=>{ if(ok && currentCurrencyCode()!=='USD') refreshCurrentView(); });
 }
 window.addEventListener('hashchange', route);
 document.addEventListener('DOMContentLoaded', init);

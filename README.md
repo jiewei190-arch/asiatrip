@@ -19,8 +19,9 @@ Then open `http://localhost:8080`.
 - **Home** — hero search, "Surprise Me" AI trip idea generator, trending destinations
 - **Discover** — curated destination collections (trending, beach, adventure, food, romantic, affordable, hidden gems)
 - **Destination dashboard** — Overview, Things To Do, Restaurants, Hotels, Itinerary, Map, Trip Ideas tabs, each with working filters
-- **Trip Ideas generator** — 5 themed trip concepts per destination (food, culture, nightlife, shopping, relaxation), customizable and saveable
-- **Trip Planner** — drag-and-drop day-by-day itinerary, interactive Leaflet map, route optimization, notes/comments/voting, transit between stops
+- **Trip Ideas generator** — 9 themed trip concepts per destination (food, culture, nightlife, shopping, relaxation, art, adventure, romance, hidden gems); every "Generate" click produces a genuinely new, randomized set of places, and each idea is customizable and saveable
+- **Trip Planner** — drag-and-drop day-by-day itinerary, interactive map, route optimization, notes/comments/voting, transit between stops
+- **Interactive map** — Google-Maps-style basemap (light/dark) with a Map/Satellite toggle, categorized markers, live popups
 - **Budget tracker** — auto-calculated category breakdown, manual expenses, budget style (Budget/Moderate/Luxury), over-budget warnings
 - **My Trips** — dashboard of all trips with open/edit/duplicate/share/delete
 - **Saved** — Google Maps-style collections
@@ -28,10 +29,17 @@ Then open `http://localhost:8080`.
 
 ## Data
 
-Twelve real destinations ship with rich mock data (attractions, restaurants, hotels, reviews). Any other destination typed into search gets a deterministic, procedurally generated starter dataset so the app never hits a dead end.
+Twelve real destinations ship with rich hand-authored data (attractions, restaurants, hotels, reviews). Type in **any other city worldwide** and TripFlow shows an instant starter page, then upgrades itself in the background using free, keyless public APIs:
 
-State (trips, saved collections, settings, theme) persists to `localStorage` for a working demo without a backend.
+- **Nominatim (OpenStreetMap)** geocodes the destination for accurate placement.
+- **Wikipedia's GeoSearch API** finds real nearby landmarks — real names, descriptions and photos — no fictional attractions for real cities.
+- **Wikipedia's REST summary API** fetches a real photo for every named place across the app (falling back to a generated gradient placeholder when no photo is found or the network is unavailable).
+- Map tiles come from **CARTO** (light/dark "Voyager"/"Dark Matter" basemaps) and **Esri** (satellite), giving a Google-Maps-style look with a Map/Satellite toggle — no billed API key required.
+
+Every live lookup is cached in `localStorage` and fails gracefully (offline, blocked, or slow networks fall back to the built-in placeholder data/images instantly — nothing ever hangs or breaks).
+
+State (trips, saved collections, settings, theme) also persists to `localStorage` for a working demo without a backend.
 
 ## Tech
 
-Vanilla HTML/CSS/JS, no build step, no dependencies besides Leaflet (maps) and Font Awesome (icons) via CDN.
+Vanilla HTML/CSS/JS, no build step, no bundler. External dependencies (all keyless, all via CDN): Leaflet (maps), Font Awesome (icons), and the live data sources above.

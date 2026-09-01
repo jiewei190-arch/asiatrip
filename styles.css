@@ -104,10 +104,12 @@ h1,h2,h3,h4{font-family:'Plus Jakarta Sans',sans-serif}
 
 /* ---------- Landing / hero ---------- */
 .hero-land{position:relative;padding:90px 24px 70px;overflow:hidden;color:#fff}
-.hero-land-bg{position:absolute;inset:0;background:
-  linear-gradient(180deg,rgba(8,22,17,.55),rgba(8,22,17,.85)),
-  url('https://picsum.photos/seed/tripflow-hero-world/1800/1000') center/cover;
-  z-index:0}
+.hero-land-bg{position:absolute;inset:0;z-index:0;background:
+  radial-gradient(circle at 15% 20%, rgba(81,197,159,.35), transparent 45%),
+  radial-gradient(circle at 85% 15%, rgba(255,132,93,.28), transparent 50%),
+  radial-gradient(circle at 75% 85%, rgba(94,168,214,.25), transparent 55%),
+  radial-gradient(circle at 20% 90%, rgba(224,165,39,.2), transparent 50%),
+  linear-gradient(160deg,#0b1f19,#10251e 55%,#0d2a22)}
 .hero-land-inner{position:relative;z-index:1;max-width:880px;margin:0 auto;text-align:center}
 .eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.14em;color:var(--green);font-weight:800}
 .eyebrow.light{color:#bdf3da}
@@ -215,6 +217,12 @@ main{max-width:1280px;margin:0 auto;padding:0 24px 60px;min-height:60vh}
 .destHeroBody p{margin:0;max-width:640px;opacity:.92;font-size:14px}
 .destHeroActions{position:absolute;top:20px;right:20px;display:flex;gap:8px;z-index:1}
 .destOverviewGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0}
+.currencyConvRow{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;margin-top:12px}
+.currencyConvRow .field{flex:1;min-width:110px}
+.currencyConvRow input[type=number]{width:100%;border:0;outline:0;font-weight:700;background:transparent;color:var(--ink)}
+.currencyConvRow select{width:100%;border:0;outline:0;font-weight:700;background:transparent;color:var(--ink)}
+.currencyConvRow .iconbtn{margin-bottom:2px}
+.currencyConvResult{font-size:22px;font-weight:800;margin-top:14px;color:var(--green)}
 .ovCard{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px}
 .ovCard .k{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:800;margin-bottom:5px}
 .ovCard .v{font-weight:700;font-size:14px;line-height:1.4}
@@ -271,6 +279,9 @@ main{max-width:1280px;margin:0 auto;padding:0 24px 60px;min-height:60vh}
 .num{width:26px;height:26px;border-radius:50%;background:var(--mint);color:var(--green);display:grid;place-items:center;font-weight:800;flex-shrink:0;font-size:12px}
 .num.restaurant{background:#ffe3d8;color:var(--orange)}
 .num.hotel{background:#e3e6fb;color:var(--cat-hotel)}
+.stopThumb{position:relative;width:64px;height:64px;border-radius:12px;overflow:hidden;flex-shrink:0;background:var(--soft)}
+.stopThumb img{width:100%;height:100%;object-fit:cover;display:block}
+.stopThumb .num{position:absolute;top:-3px;left:-3px;width:20px;height:20px;font-size:10px;box-shadow:0 1px 4px rgba(0,0,0,.3)}
 .stopBody{flex:1;min-width:0}
 .stopBody h4{margin:0 0 3px;font-size:14.5px}
 .stopBody p{margin:0;color:var(--muted);font-size:12px;line-height:1.4}
@@ -290,20 +301,28 @@ main{max-width:1280px;margin:0 auto;padding:0 24px 60px;min-height:60vh}
 .transitRow select{border:1px solid var(--line);border-radius:8px;padding:4px 6px;background:var(--surface2);font-weight:700;font-size:11px}
 
 .mapPanel{min-height:560px;position:relative}
-.map{flex:1;min-height:420px;border-radius:0 0 18px 18px;position:relative;z-index:1}
-.mapLegend{display:flex;gap:8px;padding:10px 14px;flex-wrap:wrap;border-bottom:1px solid var(--line)}
+.map{flex:1;min-height:420px;border-radius:0 0 18px 18px;position:relative;z-index:1;overflow:hidden;background:var(--soft)}
+.map iframe{width:100%;height:100%;min-height:420px;border:0;display:block}
+.mapLegend{display:flex;gap:8px;padding:10px 14px;flex-wrap:wrap;border-bottom:1px solid var(--line);align-items:center}
 .legend{padding:6px 10px;border-radius:99px;background:var(--soft);font-size:11px;color:var(--muted);font-weight:700;display:flex;align-items:center;gap:5px}
 .legend.active{background:var(--dark);color:#fff}
 .legendDot{width:8px;height:8px;border-radius:50%}
 .mapSearchBar{display:flex;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line)}
 .mapSearchBar input{flex:1;border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-weight:600;background:var(--surface2)}
-.custom-map-pin{width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35)}
-.custom-map-pin span{transform:rotate(45deg);color:#fff;font-weight:800;font-size:11px}
-.mapPopup img{width:100%;height:90px;object-fit:cover;border-radius:8px;margin-bottom:6px}
-.mapPopup h4{margin:0 0 3px;font-size:13.5px}
-.mapPopup p{margin:0 0 6px;font-size:11.5px;color:var(--muted)}
-.mapPopup .btn{padding:6px 9px;font-size:11px}
-.leaflet-popup-content-wrapper{border-radius:12px}
+.mapSplit{display:flex;gap:0;min-height:420px}
+.mapSplit .map{flex:1.4;border-radius:0 0 0 18px}
+.mapPlaceList{flex:1;min-width:240px;max-height:520px;overflow-y:auto;border-left:1px solid var(--line);border-radius:0 0 18px 0}
+.mapPlaceRow{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line);cursor:pointer}
+.mapPlaceRow:hover{background:var(--soft)}
+.mapPlaceRow.active{background:var(--mint)}
+.mapPlaceInfo{flex:1;min-width:0}
+.mapPlaceInfo h4{margin:0 0 2px;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mapPlaceInfo p{margin:0;font-size:11px;color:var(--muted)}
+@media(max-width:900px){
+  .mapSplit{flex-direction:column}
+  .mapSplit .map{border-radius:0}
+  .mapPlaceList{max-height:340px;border-left:0;border-top:1px solid var(--line);border-radius:0 0 18px 18px}
+}
 
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
 .stat{padding:14px;background:var(--surface);border:1px solid var(--line);border-radius:14px}
