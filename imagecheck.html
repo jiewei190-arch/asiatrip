@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TripFlow — Image System Diagnostic</title>
+<style>
+  :root{ color-scheme: light; }
+  *{box-sizing:border-box}
+  body{margin:0;padding:18px;background:#f4f6f5;color:#10251e;
+       font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:#5b6b65;font-size:13px;margin:0 0 18px}
+  .test{background:#fff;border:1px solid #dfe5e2;border-radius:12px;padding:14px;margin-bottom:12px}
+  .name{font-weight:700;font-size:14px;margin-bottom:8px}
+  .status{font-weight:800;font-size:15px;margin-bottom:6px}
+  .pass{color:#11795c}
+  .fail{color:#c94c4c}
+  .pending{color:#8a968f}
+  .detail{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;line-height:1.45;
+          background:#f4f6f5;border-radius:8px;padding:9px;margin-top:8px;
+          word-break:break-all;white-space:pre-wrap;max-height:190px;overflow:auto}
+  img.probe{max-width:100%;border-radius:8px;margin-top:8px;display:block;background:#e8ecea}
+  .big{font-size:17px;font-weight:800;padding:12px;border-radius:10px;margin-bottom:16px;text-align:center}
+  .big.pass{background:#dff3ec}
+  .big.fail{background:#fbe7e7}
+  button{font:inherit;font-weight:700;background:#11795c;color:#fff;border:0;
+         border-radius:10px;padding:11px 16px;width:100%;margin-bottom:16px}
+</style>
+</head>
+<body>
+
+<h1>TripFlow image diagnostic</h1>
+<p class="sub">Runs the exact photo lookups the app uses, on this device and network. Screenshot the whole page and send it back.</p>
+
+<div class="big pending" id="verdict">Running tests…</div>
+<button id="rerun">Re-run tests</button>
+<div id="out"></div>
+
+<script>
+'use strict';
+const out = document.getElementById('out');
+const verdict = document.getElementById('verdict');
+
+function card(name){
+  const el = document.createElement('div');
+  el.className = 'test';
+  el.innerHTML = '<div class="name">'+name+'</div><div class="status pending">running…</div>';
+  out.appendChild(el);
+  return {
+    set(ok, text, detail){
+      el.querySelector('.status').className = 'status ' + (ok ? 'pass' : 'fail');
+      el.querySelector('.status').textContent = (ok ? '✅ ' : '❌ ') + text;
+      if(detail){
+        const d = document.createElement('div');
+        d.className = 'detail';
+        d.textContent = detail;
+        el.appendChild(d);
+      }
+    },
+    addImage(url){
+      const im = document.createElement('img');
+      im.className = 'probe';
+      im.src = url;
+      el.appendChild(im);
+    }
+  };
+}
+
+// Loads a URL as a real <img> — this path does NOT require CORS, so it isolates
+// "image host unreachable" from "API blocked by CORS/content blocker".
+function probeImage(url, timeoutMs){
+  return new Promise(resolve=>{
+    const im = new Image();
+    let done = false;
+    const finish = (ok, why)=>{ if(done) return; done = true; resolve({ok, why, w: im.naturalWidth, h: im.naturalHeight}); };
+    im.onload = ()=> finish(im.naturalWidth > 0, im.naturalWidth > 0 ? 'loaded' : 'loaded but zero width');
+    im.onerror = ()=> finish(false, 'onerror (blocked, 404, or unreachable)');
+    setTimeout(()=> finish(false, 'timed out after '+(timeoutMs/1000)+'s'), timeoutMs);
+    im.src = url;
+  });
+}
+
+const API = q => 'https://en.wikipedia.org/w/api.php?action=query&generator=search'
+  + '&gsrsearch=' + encodeURIComponent(q)
+  + '&gsrlimit=1&prop=pageimages&piprop=thumbnail&pithumbsize=720&format=json&origin=*';
+
+async function apiLookup(q, c){
+  let res;
+  try{
+    res = await fetch(API(q), {headers:{'Accept':'application/json'}});
+  }catch(err){
+    c.set(false, 'fetch threw — API unreachable from this browser',
+      'This usually means a content blocker, "Prevent Cross-Site Tracking",\n'
+      + 'iCloud Private Relay, a VPN, or a network firewall is blocking the\n'
+      + 'request to en.wikipedia.org.\n\nError: ' + err.name + ': ' + err.message);
+    return null;
+  }
+  if(!res.ok){
+    c.set(false, 'API returned HTTP ' + res.status, 'URL:\n' + API(q));
+    return null;
+  }
+  let data;
+  try{ data = await res.json(); }
+  catch(err){ c.set(false, 'API response was not valid JSON', String(err)); return null; }
+
+  const pages = (data.query && data.query.pages) || {};
+  const page = Object.values(pages)[0];
+  if(!page){
+    c.set(false, 'API worked, but the search matched no article',
+      'Raw response:\n' + JSON.stringify(data).slice(0, 600));
+    return null;
+  }
+  if(!page.thumbnail || !page.thumbnail.source){
+    c.set(false, 'Article "' + page.title + '" found, but it has NO page image',
+      'Raw response:\n' + JSON.stringify(data).slice(0, 600));
+    return null;
+  }
+  c.set(true, 'API OK — "' + page.title + '" → ' + page.thumbnail.width + 'px wide',
+    page.thumbnail.source);
+  return page.thumbnail;
+}
+
+async function testDestination(name){
+  const c = card('Destination lookup: ' + name);
+  const thumb = await apiLookup(name, c);
+  if(!thumb) return { api:false, img:false, upscale:null };
+
+  const ic = card('Image load: ' + name + ' (URL the API returned)');
+  const r = await probeImage(thumb.source, 12000);
+  ic.set(r.ok, r.ok ? ('Image rendered, ' + r.w + '×' + r.h) : ('Image FAILED — ' + r.why), thumb.source);
+  if(r.ok) ic.addImage(thumb.source);
+
+  // The old bug: force the URL to 720px even when the original is narrower.
+  let upscale = null;
+  if(thumb.width < 720){
+    const forced = thumb.source.replace(/\/(\d+)px-/, '/720px-');
+    const uc = card('Upscaled-URL check: ' + name + ' (the bug that was just fixed)');
+    const ur = await probeImage(forced, 12000);
+    upscale = ur.ok;
+    uc.set(ur.ok,
+      ur.ok ? 'Forced 720px URL still loaded' : 'Forced 720px URL is DEAD — ' + ur.why,
+      'Original is only ' + thumb.width + 'px wide.\nForced URL:\n' + forced);
+  }
+  return { api:true, img:r.ok, upscale };
+}
+
+async function run(){
+  out.innerHTML = '';
+  verdict.className = 'big pending';
+  verdict.textContent = 'Running tests…';
+
+  // Show any poisoned cache entries still sitting in this browser.
+  const cc = card('Saved photo cache in this browser');
+  try{
+    const raw = localStorage.getItem('tripflow_photo_cache_v1');
+    if(!raw){
+      cc.set(true, 'Empty — nothing cached yet');
+    } else {
+      const obj = JSON.parse(raw);
+      const keys = Object.keys(obj);
+      const bad = keys.filter(k => !obj[k]);
+      cc.set(bad.length === 0,
+        keys.length + ' entries, ' + bad.length + ' of them failed lookups',
+        bad.length ? 'Stuck-on-placeholder entries:\n' + bad.join('\n') : 'All cached entries hold a real photo URL.');
+    }
+  }catch(err){ cc.set(false, 'Could not read localStorage', String(err)); }
+
+  const results = [];
+  for(const d of ['Tokyo','Paris','Amalfi Coast','Chefchaouen']){
+    results.push(await testDestination(d));
+  }
+
+  const env = card('This browser');
+  env.set(true, 'Environment details',
+    'userAgent: ' + navigator.userAgent
+    + '\nonLine: ' + navigator.onLine
+    + '\npage origin: ' + location.origin);
+
+  const apiOk = results.some(r => r.api);
+  const imgOk = results.some(r => r.img);
+  if(!apiOk){
+    verdict.className = 'big fail';
+    verdict.textContent = 'The Wikipedia API is blocked on this device/network. That is why photos never load.';
+  } else if(!imgOk){
+    verdict.className = 'big fail';
+    verdict.textContent = 'The API works, but the image files themselves will not load.';
+  } else {
+    verdict.className = 'big pass';
+    verdict.textContent = 'Photo lookups work on this device. Real photos loaded successfully.';
+  }
+}
+
+document.getElementById('rerun').onclick = run;
+run();
+</script>
+</body>
+</html>
