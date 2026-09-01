@@ -75,8 +75,17 @@ async function fetchWithTimeout(url, ms, opts){
   try{ return await fetch(url, Object.assign({signal:ctrl.signal}, opts||{})); }
   finally{ clearTimeout(timer); }
 }
-function upsizeWikiThumb(url, width){
-  return url.replace(/\/(\d+)px-/, `/${width||720}px-`);
+/** Wikipedia's thumbnailer refuses to upscale past an image's original dimensions, and the API
+ * already caps the thumbnail it hands back at the source image's real width. Rewriting that URL
+ * to force a larger size therefore manufactures a 404 for every image whose original is narrower
+ * than the size we asked for — which silently cost those destinations their photo. Trust the
+ * width the API actually returned; only shrink an oversized one, never grow it. */
+function capWikiThumb(url, maxWidth){
+  const m = url.match(/\/(\d+)px-/);
+  if(!m) return url;
+  const actual = parseInt(m[1], 10);
+  if(!actual || actual <= (maxWidth||720)) return url;
+  return url.replace(/\/(\d+)px-/, `/${maxWidth||720}px-`);
 }
 
 /* ---- Real photos via Wikipedia's public REST API (no key, CORS-enabled) ---- */
@@ -102,7 +111,7 @@ async function fetchWikiThumbnail(query){
       const pages = (data.query && data.query.pages) || {};
       const page = Object.values(pages)[0];
       if(page && page.thumbnail && page.thumbnail.source){
-        result = upsizeWikiThumb(page.thumbnail.source, 720);
+        result = capWikiThumb(page.thumbnail.source, 720);
       }
     }
   }catch(e){ /* offline / blocked / not found — keep placeholder */ }
@@ -228,7 +237,7 @@ async function fetchNearbyWikiPOIs(lat, lng, limit){
       .map(p=>({
         title: p.title,
         lat: p.coordinates[0].lat, lng: p.coordinates[0].lon,
-        image: (p.thumbnail && p.thumbnail.source) ? upsizeWikiThumb(p.thumbnail.source,720) : null,
+        image: (p.thumbnail && p.thumbnail.source) ? capWikiThumb(p.thumbnail.source,720) : null,
         extract: p.extract || '',
       }));
   }catch(e){ return []; }
