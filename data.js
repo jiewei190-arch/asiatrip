@@ -1,0 +1,534 @@
+/* ============================================================
+   TripFlow — mock data layer
+   All destinations, attractions, restaurants and hotels below
+   are illustrative demo content (realistic, not lorem ipsum).
+   Prices are approximate USD for consistent budget math.
+============================================================ */
+
+function slugify(s){ return s.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,''); }
+function img(seed,w,h){ return `https://picsum.photos/seed/${slugify(seed)}/${w||640}/${h||480}`; }
+
+const TRIP_ARCHETYPES = [
+  { key:'food',      emoji:'🍜', titleTpl:"Food Lover's {city}",   tags:['food'],             descTpl:"Street food stalls, izakayas, local markets and the tables locals actually eat at in {city}." },
+  { key:'culture',    emoji:'🏯', titleTpl:"Culture & History",     tags:['culture','history'],descTpl:"Temples, museums, monuments and old neighborhoods that tell {city}'s story." },
+  { key:'nightlife',  emoji:'🌃', titleTpl:"{city} Nightlife",      tags:['nightlife'],        descTpl:"Rooftop bars, live music, night markets and the best views after dark in {city}." },
+  { key:'shopping',   emoji:'🛍️', titleTpl:"Shopping Adventure",    tags:['shopping'],         descTpl:"From flagship boutiques to flea-market finds — a shopper's route through {city}." },
+  { key:'relax',      emoji:'🌿', titleTpl:"Relaxing {city} Escape",tags:['relax','nature'],   descTpl:"Gardens, cafés, spas and slow mornings — the unhurried side of {city}." },
+];
+
+const INTERESTS = [
+  ['food','🍜','Foodie','markets, tastings, local spots'],
+  ['culture','🏯','Culture','temples, history, neighborhoods'],
+  ['nature','🌿','Nature','parks, gardens, views'],
+  ['hidden','📸','Hidden gems','less touristy, unique finds'],
+  ['shopping','🛍️','Shopping','boutiques, markets, souvenirs'],
+  ['nightlife','🌙','Nightlife','bars, live music, late nights'],
+  ['art','🎨','Art','galleries, immersive spaces'],
+  ['adventure','⛰️','Adventure','hikes, thrills, outdoors'],
+  ['relax','🫶','Relaxed','slow mornings, low pressure'],
+  ['romantic','💑','Romantic','sunsets, fine dining, views'],
+];
+
+const REVIEW_NAMES = ['Alex M.','Priya K.','Jordan T.','Sofia R.','Liam C.','Mei L.','Noah B.','Ava S.','Diego F.','Hana Y.','Emma W.','Lucas P.','Zara Q.','Ethan G.','Nina V.'];
+const REVIEW_TEMPLATES = {
+  attraction: [
+    "Absolutely worth the visit — go early to beat the crowds.",
+    "Beautiful spot, better than the photos honestly. Budget 1.5–2 hours.",
+    "A must-see. We almost skipped it and would have regretted that.",
+    "Loved the atmosphere here. A little touristy but still special.",
+    "Great for photos and just soaking in the local culture.",
+    "Worth the trip — bring cash for the small stalls nearby."
+  ],
+  restaurant: [
+    "The food here was incredible — we came back a second night.",
+    "Small menu but everything was executed perfectly. No reservation needed at lunch.",
+    "Best meal of the trip. A bit of a wait but moved fast.",
+    "Great value for the quality. Loved the local ingredients.",
+    "Cozy spot, friendly staff, and the flavors were spot on.",
+    "Portions were generous and the vibe was exactly what we wanted."
+  ],
+  hotel: [
+    "Room was spotless and the location made everything walkable.",
+    "Staff went above and beyond — upgraded us on arrival.",
+    "Great breakfast, comfy beds, and the view was unreal.",
+    "Quiet, clean, and close to everything we wanted to see.",
+    "A little pricey but worth it for the service and location.",
+    "Perfect base for exploring — would book again in a heartbeat."
+  ]
+};
+
+function generateReviews(place, seedKey){
+  const pool = REVIEW_TEMPLATES[place.type] || REVIEW_TEMPLATES.attraction;
+  const n = 3;
+  const out = [];
+  let h = 0; for(const c of (seedKey||place.name)) h = (h*31 + c.charCodeAt(0)) % 997;
+  for(let i=0;i<n;i++){
+    const ni = (h + i*7) % REVIEW_NAMES.length;
+    const ti = (h + i*13) % pool.length;
+    const rating = Math.max(3, Math.min(5, Math.round((place.rating||4.5) + (i===2?-0.5:0))));
+    out.push({ name: REVIEW_NAMES[ni], rating, text: pool[ti], daysAgo: 3 + ((h+i*17)%160) });
+  }
+  return out;
+}
+
+/* ---------------- DESTINATIONS (raw, nested) ---------------- */
+const DESTINATIONS_RAW = [
+
+{ id:'tokyo', name:'Tokyo', country:'Japan', flag:'🇯🇵',
+  tagline:"Neon nights, ancient temples, and the best food on Earth.",
+  description:"Tokyo layers ultramodern skyscrapers over centuries-old shrines, with world-class food at every price point. Bullet trains, quiet gardens, and electric nightlife all sit minutes apart.",
+  tags:['trending','food','culture','nightlife','shopping'],
+  lat:35.6762, lng:139.6503,
+  weather:"Autumn (Sep–Nov): 15–23°C, crisp and dry — ideal for walking.",
+  bestTime:"March–May & September–November",
+  currency:"Japanese Yen (¥)", language:"Japanese",
+  avgDailyBudget:{budget:70,moderate:150,luxury:350},
+  attractions:[
+    {name:'Senso-ji Temple', category:'Culture', rating:4.7, reviews:48210, priceLevel:0, price:0, area:'Asakusa', lat:35.7148,lng:139.7967, desc:"Tokyo's oldest temple, approached through a lantern-lit market street.", tags:['culture','history','photography'], duration:90},
+    {name:'Shibuya Sky', category:'Viewpoint', rating:4.6, reviews:21870, priceLevel:2, price:25, area:'Shibuya', lat:35.6580,lng:139.7016, desc:"Open-air rooftop deck with 360° views over Shibuya Crossing.", tags:['photography','nightlife'], duration:75},
+    {name:'Meiji Jingu Shrine', category:'Nature', rating:4.7, reviews:31450, priceLevel:0, price:0, area:'Harajuku', lat:35.6764,lng:139.6993, desc:"A forested shrine sanctuary in the middle of the city.", tags:['nature','relax','culture'], duration:80},
+    {name:'teamLab Planets', category:'Art', rating:4.6, reviews:18320, priceLevel:3, price:32, area:'Toyosu', lat:35.6462,lng:139.7930, desc:"Immersive, barefoot digital art installations that react to you.", tags:['art','photography'], duration:120},
+    {name:'Tsukiji Outer Market', category:'Market', rating:4.6, reviews:26900, priceLevel:1, price:15, area:'Tsukiji', lat:35.6655,lng:139.7708, desc:"Narrow lanes of sushi counters, tamagoyaki and seafood snacks.", tags:['food','shopping'], duration:90},
+    {name:'Kappabashi Kitchen Town', category:'Shopping', rating:4.5, reviews:5210, priceLevel:1, price:10, area:'Asakusa', lat:35.7143,lng:139.7906, desc:"Chef knives, ceramics and famously realistic plastic food models.", tags:['shopping','hidden'], duration:60},
+  ],
+  restaurants:[
+    {name:'Ichiran Ramen Shibuya', cuisine:'Ramen', rating:4.5, reviews:12040, priceLevel:2, price:13, area:'Shibuya', lat:35.6595,lng:139.7005, desc:"Solo tonkotsu ramen booths with a build-your-own flavor form.", tags:['food'], dietary:[], hours:'11:00 AM – 11:00 PM'},
+    {name:'Omoide Yokocho', cuisine:'Yakitori', rating:4.4, reviews:9800, priceLevel:2, price:22, area:'Shinjuku', lat:35.6935,lng:139.6982, desc:"Tiny smoke-filled yakitori lanes tucked beside Shinjuku Station.", tags:['food','nightlife'], dietary:[], hours:'5:00 PM – 12:00 AM'},
+    {name:'Sushi Dai', cuisine:'Sushi', rating:4.7, reviews:6400, priceLevel:3, price:45, area:'Toyosu', lat:35.6455,lng:139.7715, desc:"Legendary omakase counter — arrive early, the line is worth it.", tags:['food'], dietary:[], hours:'6:00 AM – 1:30 PM'},
+    {name:'Afuri Ramen', cuisine:'Ramen', rating:4.5, reviews:7100, priceLevel:2, price:15, area:'Ebisu', lat:35.6467,lng:139.7100, desc:"Citrusy yuzu-shio ramen in a sleek, modern noodle bar.", tags:['food'], dietary:['vegetarian'], hours:'11:00 AM – 11:00 PM'},
+    {name:'Gonpachi Nishi-Azabu', cuisine:'Izakaya', rating:4.4, reviews:5300, priceLevel:3, price:38, area:'Nishi-Azabu', lat:35.6590,lng:139.7256, desc:"Dramatic wooden izakaya hall said to have inspired Kill Bill.", tags:['food','nightlife','romantic'], dietary:[], hours:'11:30 AM – 3:30 AM'},
+  ],
+  hotels:[
+    {name:'Park Hyatt Tokyo', stars:5, guestRating:9.3, price:520, area:'Shinjuku', lat:35.6852,lng:139.6900, desc:"Iconic skyline views made famous on the big screen.", amenities:['Pool','Spa','Gym','Bar','Free WiFi']},
+    {name:'Shibuya Stream Excel Hotel', stars:4, guestRating:8.9, price:210, area:'Shibuya', lat:35.6570,lng:139.7010, desc:"Sleek rooms steps from Shibuya Crossing and the station.", amenities:['Gym','Bar','Free WiFi','Restaurant']},
+    {name:'Asakusa View Hotel', stars:4, guestRating:8.6, price:165, area:'Asakusa', lat:35.7139,lng:139.7980, desc:"Old-town charm with Skytree views from upper floors.", amenities:['Pool','Bar','Free WiFi']},
+    {name:'UNPLAN Kagurazaka Hostel', stars:2, guestRating:8.7, price:48, area:'Kagurazaka', lat:35.7013,lng:139.7405, desc:"Design-forward hostel in a quiet, café-lined neighborhood.", amenities:['Free WiFi','Shared kitchen','Lounge']},
+  ]
+},
+
+{ id:'paris', name:'Paris', country:'France', flag:'🇫🇷',
+  tagline:"Cobblestones, café culture, and world-class art around every corner.",
+  description:"Paris pairs iconic landmarks with slow café mornings, candlelit bistros and some of the world's finest museums, all connected by an easy-to-love Métro.",
+  tags:['trending','romantic','food','culture'],
+  lat:48.8566, lng:2.3522,
+  weather:"Spring (Apr–Jun): 12–20°C, blooming gardens and long daylight.",
+  bestTime:"April–June & September–October",
+  currency:"Euro (€)", language:"French",
+  avgDailyBudget:{budget:80,moderate:180,luxury:400},
+  attractions:[
+    {name:'Eiffel Tower', category:'Landmark', rating:4.7, reviews:302000, priceLevel:2, price:28, area:'Champ de Mars', lat:48.8584,lng:2.2945, desc:"Paris's icon — best viewed from Trocadéro at sunset.", tags:['photography','romantic'], duration:120},
+    {name:'The Louvre', category:'Museum', rating:4.7, reviews:265000, priceLevel:2, price:22, area:'1st Arrondissement', lat:48.8606,lng:2.3376, desc:"The world's largest art museum, home to the Mona Lisa.", tags:['culture','art','history'], duration:180},
+    {name:'Montmartre & Sacré-Cœur', category:'Neighborhood', rating:4.7, reviews:118000, priceLevel:0, price:0, area:'Montmartre', lat:48.8867,lng:2.3431, desc:"Cobblestone lanes, artists' squares and a basilica with a view.", tags:['culture','photography','hidden'], duration:150},
+    {name:"Musée d'Orsay", category:'Museum', rating:4.7, reviews:76000, priceLevel:2, price:18, area:'7th Arrondissement', lat:48.8600,lng:2.3266, desc:"Impressionist masterpieces inside a former Beaux-Arts train station.", tags:['culture','art'], duration:120},
+    {name:'Seine River Cruise', category:'Tour', rating:4.6, reviews:54000, priceLevel:2, price:18, area:'Pont Neuf', lat:48.8566,lng:2.3376, desc:"An hour gliding past Notre-Dame, the Louvre and the Eiffel Tower.", tags:['romantic','photography'], duration:70},
+    {name:'Le Marais', category:'Neighborhood', rating:4.6, reviews:39000, priceLevel:1, price:0, area:'Le Marais', lat:48.8575,lng:2.3622, desc:"Historic Jewish quarter turned boutique-and-falafel wonderland.", tags:['shopping','food','hidden'], duration:120},
+  ],
+  restaurants:[
+    {name:"L'As du Fallafel", cuisine:'Middle Eastern', rating:4.5, reviews:14200, priceLevel:1, price:10, area:'Le Marais', lat:48.8572,lng:2.3600, desc:"The falafel line everyone tells you about — worth the wait.", tags:['food'], dietary:['vegetarian'], hours:'11:00 AM – 12:00 AM'},
+    {name:'Café de Flore', cuisine:'French Café', rating:4.3, reviews:19800, priceLevel:3, price:32, area:'Saint-Germain', lat:48.8540,lng:2.3328, desc:"Historic literary café — perfect for people-watching over coffee.", tags:['food','romantic'], dietary:['vegetarian'], hours:'7:30 AM – 1:30 AM'},
+    {name:'Bistrot Paul Bert', cuisine:'French Bistro', rating:4.6, reviews:6300, priceLevel:3, price:48, area:'11th Arrondissement', lat:48.8532,lng:2.3838, desc:"Classic steak-frites bistro locals actually eat at.", tags:['food','romantic'], dietary:[], hours:'12:00 PM – 11:00 PM'},
+    {name:'Marché des Enfants Rouges', cuisine:'Market', rating:4.5, reviews:8100, priceLevel:1, price:14, area:'Le Marais', lat:48.8631,lng:2.3629, desc:"Paris's oldest covered market with global street-food stalls.", tags:['food','shopping'], dietary:['vegetarian','vegan'], hours:'8:30 AM – 8:00 PM'},
+    {name:'Septime', cuisine:'Modern French', rating:4.7, reviews:3200, priceLevel:4, price:95, area:'11th Arrondissement', lat:48.8534,lng:2.3789, desc:"Tasting-menu darling of Paris's new-wave dining scene.", tags:['food','romantic'], dietary:[], hours:'7:00 PM – 10:30 PM'},
+  ],
+  hotels:[
+    {name:'Hôtel Plaza Athénée', stars:5, guestRating:9.4, price:850, area:'8th Arrondissement', lat:48.8659,lng:2.3033, desc:"Legendary luxury with red awnings on Avenue Montaigne.", amenities:['Spa','Restaurant','Bar','Free WiFi']},
+    {name:'Hôtel Malte Opera', stars:4, guestRating:8.7, price:190, area:'2nd Arrondissement', lat:48.8698,lng:2.3350, desc:"Boutique charm minutes from the Opéra and grand boulevards.", amenities:['Free WiFi','Breakfast']},
+    {name:'Le Citizen Hotel', stars:4, guestRating:8.8, price:175, area:'Canal Saint-Martin', lat:48.8712,lng:2.3654, desc:"Minimalist design hotel beside the trendy canal.", amenities:['Free WiFi','Bar']},
+    {name:'Generator Paris', stars:2, guestRating:8.3, price:55, area:'10th Arrondissement', lat:48.8809,lng:2.3600, desc:"Stylish hostel with a rooftop bar and skyline views.", amenities:['Bar','Free WiFi','Rooftop']},
+  ]
+},
+
+{ id:'bali', name:'Bali', country:'Indonesia', flag:'🇮🇩',
+  tagline:"Rice terraces, temple sunrises, and beach days that never rush.",
+  description:"Bali blends jungle waterfalls and terraced rice paddies with surf towns and cliffside temples — an island built for slowing down, on almost any budget.",
+  tags:['beach','affordable','relax','hidden'],
+  lat:-8.4095, lng:115.1889,
+  weather:"Dry season (Apr–Oct): 26–31°C, sunny with low humidity.",
+  bestTime:"April–October",
+  currency:"Indonesian Rupiah (Rp)", language:"Indonesian & Balinese",
+  avgDailyBudget:{budget:35,moderate:80,luxury:220},
+  attractions:[
+    {name:'Tegallalang Rice Terraces', category:'Nature', rating:4.5, reviews:41200, priceLevel:1, price:3, area:'Ubud', lat:-8.4312,lng:115.2777, desc:"Emerald stepped rice paddies with jungle swings overlooking the valley.", tags:['nature','photography'], duration:90},
+    {name:'Uluwatu Temple', category:'Culture', rating:4.6, reviews:38700, priceLevel:1, price:4, area:'Uluwatu', lat:-8.8291,lng:115.0849, desc:"Clifftop sea temple famous for sunset Kecak fire dances.", tags:['culture','photography','romantic'], duration:100},
+    {name:'Sacred Monkey Forest', category:'Nature', rating:4.4, reviews:36400, priceLevel:1, price:4, area:'Ubud', lat:-8.5188,lng:115.2588, desc:"Jungle sanctuary of moss-covered temples and free-roaming macaques.", tags:['nature'], duration:70},
+    {name:'Tirta Empul Water Temple', category:'Culture', rating:4.6, reviews:19800, priceLevel:1, price:3, area:'Tampaksiring', lat:-8.4155,lng:115.3153, desc:"Sacred spring where locals and visitors take ritual purification baths.", tags:['culture','hidden'], duration:80},
+    {name:'Nusa Penida Day Trip', category:'Nature', rating:4.7, reviews:22100, priceLevel:3, price:45, area:'Nusa Penida', lat:-8.7276,lng:115.5444, desc:"Dramatic cliffs, turquoise coves and the iconic Kelingking viewpoint.", tags:['nature','adventure','photography'], duration:480},
+    {name:'Canggu Surf Lesson', category:'Adventure', rating:4.6, reviews:8900, priceLevel:2, price:25, area:'Canggu', lat:-8.6478,lng:115.1385, desc:"Beginner-friendly waves with laid-back beach clubs steps away.", tags:['adventure','relax'], duration:120},
+  ],
+  restaurants:[
+    {name:'Locavore', cuisine:'Modern Indonesian', rating:4.8, reviews:4100, priceLevel:4, price:65, area:'Ubud', lat:-8.5060,lng:115.2620, desc:"Tasting-menu darling built entirely on Indonesian ingredients.", tags:['food'], dietary:['vegetarian-options'], hours:'6:00 PM – 10:00 PM'},
+    {name:'Warung Babi Guling Ibu Oka', cuisine:'Balinese', rating:4.4, reviews:9200, priceLevel:1, price:6, area:'Ubud', lat:-8.5069,lng:115.2624, desc:"Legendary roast suckling pig warung, a Ubud institution.", tags:['food'], dietary:[], hours:'11:00 AM – 5:00 PM'},
+    {name:'La Brisa Beach Club', cuisine:'Seafood', rating:4.5, reviews:12300, priceLevel:3, price:28, area:'Canggu', lat:-8.6555,lng:115.1319, desc:"Driftwood-boat beach club with sunset seafood and cocktails.", tags:['food','nightlife','romantic'], dietary:['vegan'], hours:'8:00 AM – 12:00 AM'},
+    {name:'Sisterfields Café', cuisine:'Brunch', rating:4.5, reviews:7600, priceLevel:2, price:12, area:'Seminyak', lat:-8.6890,lng:115.1660, desc:"Bright Australian-style brunch spot loved by digital nomads.", tags:['food','relax'], dietary:['vegetarian','vegan'], hours:'7:00 AM – 10:00 PM'},
+    {name:'Metis Restaurant', cuisine:'French-Balinese', rating:4.5, reviews:3900, priceLevel:3, price:32, area:'Seminyak', lat:-8.6805,lng:115.1615, desc:"Rice-paddy views with elegant French-Indonesian plates.", tags:['food','romantic'], dietary:[], hours:'11:00 AM – 11:00 PM'},
+  ],
+  hotels:[
+    {name:'Four Seasons Sayan', stars:5, guestRating:9.6, price:780, area:'Ubud', lat:-8.4890,lng:115.2660, desc:"Jungle-canopy resort built around a lotus pond and river gorge.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
+    {name:'COMO Uma Ubud', stars:5, guestRating:9.2, price:420, area:'Ubud', lat:-8.5130,lng:115.2530, desc:"Wellness-focused resort with rice-field yoga pavilions.", amenities:['Pool','Spa','Gym','Free WiFi']},
+    {name:'The Slow Canggu', stars:4, guestRating:8.9, price:150, area:'Canggu', lat:-8.6570,lng:115.1370, desc:"Design-forward boutique hotel near Canggu's beach clubs.", amenities:['Pool','Bar','Free WiFi']},
+    {name:'Puri Garden Hostel', stars:2, guestRating:8.5, price:18, area:'Ubud', lat:-8.5050,lng:115.2600, desc:"Budget-friendly courtyard hostel walkable to Ubud center.", amenities:['Pool','Free WiFi','Breakfast']},
+  ]
+},
+
+{ id:'santorini', name:'Santorini', country:'Greece', flag:'🇬🇷',
+  tagline:"Whitewashed cliffs, blue domes, and the world's best sunset.",
+  description:"Santorini's caldera-view villages, volcanic beaches and family-run wineries make it one of the most photographed islands on Earth — and one of the most romantic.",
+  tags:['beach','romantic','trending'],
+  lat:36.3932, lng:25.4615,
+  weather:"Summer (Jun–Aug): 24–29°C, dry with strong afternoon winds.",
+  bestTime:"May–June & September–October",
+  currency:"Euro (€)", language:"Greek",
+  avgDailyBudget:{budget:90,moderate:200,luxury:450},
+  attractions:[
+    {name:'Oia Sunset Point', category:'Viewpoint', rating:4.8, reviews:61000, priceLevel:0, price:0, area:'Oia', lat:36.4610,lng:25.3753, desc:"The postcard sunset over blue-domed churches and the caldera.", tags:['romantic','photography'], duration:90},
+    {name:'Fira to Oia Caldera Hike', category:'Nature', rating:4.7, reviews:15400, priceLevel:0, price:0, area:'Fira', lat:36.4167,lng:25.4320, desc:"A 3-hour clifftop trail with the island's best views the whole way.", tags:['nature','adventure','photography'], duration:180},
+    {name:'Red Beach', category:'Beach', rating:4.4, reviews:18700, priceLevel:0, price:0, area:'Akrotiri', lat:36.3500,lng:25.3958, desc:"Volcanic red cliffs framing a striking crescent of dark sand.", tags:['relax','photography'], duration:120},
+    {name:'Akrotiri Archaeological Site', category:'History', rating:4.5, reviews:8100, priceLevel:1, price:12, area:'Akrotiri', lat:36.3512,lng:25.4030, desc:"A Bronze Age city preserved in volcanic ash — the 'Greek Pompeii'.", tags:['history','culture'], duration:90},
+    {name:'Santo Wines Sunset Tasting', category:'Wine', rating:4.6, reviews:9200, priceLevel:2, price:35, area:'Pyrgos', lat:36.3800,lng:25.4460, desc:"Volcanic-soil wines paired with caldera views at golden hour.", tags:['romantic','relax'], duration:90},
+    {name:'Ammoudi Bay', category:'Hidden gem', rating:4.6, reviews:6800, priceLevel:1, price:0, area:'Oia', lat:36.4650,lng:25.3690, desc:"A quiet fishing cove below Oia with cliffside seafood tavernas.", tags:['hidden','relax','food'], duration:100},
+  ],
+  restaurants:[
+    {name:'Ammoudi Fish Tavern', cuisine:'Seafood', rating:4.6, reviews:5100, priceLevel:3, price:38, area:'Ammoudi Bay', lat:36.4652,lng:25.3688, desc:"Just-caught seafood steps from the water below Oia.", tags:['food','romantic'], dietary:[], hours:'12:00 PM – 10:00 PM'},
+    {name:'Metaxi Mas', cuisine:'Greek', rating:4.7, reviews:7300, priceLevel:2, price:28, area:'Exo Gonia', lat:36.3800,lng:25.4550, desc:"Family taverna locals drive across the island to eat at.", tags:['food'], dietary:['vegetarian'], hours:'1:00 PM – 11:00 PM'},
+    {name:'To Psaraki', cuisine:'Seafood', rating:4.5, reviews:3200, priceLevel:2, price:26, area:'Vlychada', lat:36.3480,lng:25.4110, desc:"Unpretentious harbor-side spot for grilled octopus and ouzo.", tags:['food','hidden'], dietary:[], hours:'12:00 PM – 11:00 PM'},
+    {name:'Selene', cuisine:'Fine Dining Greek', rating:4.7, reviews:1900, priceLevel:4, price:85, area:'Pyrgos', lat:36.3806,lng:25.4552, desc:"Tasting menus built on heirloom Cycladic ingredients.", tags:['food','romantic'], dietary:[], hours:'7:00 PM – 11:00 PM'},
+    {name:'Melitini', cuisine:'Cretan-Greek', rating:4.6, reviews:2600, priceLevel:2, price:24, area:'Pyrgos', lat:36.3790,lng:25.4545, desc:"Cozy courtyard taverna with slow-cooked lamb and local cheeses.", tags:['food'], dietary:['vegetarian'], hours:'6:00 PM – 11:00 PM'},
+  ],
+  hotels:[
+    {name:'Canaves Oia Suites', stars:5, guestRating:9.5, price:650, area:'Oia', lat:36.4605,lng:25.3760, desc:"Cave-style suites carved into the caldera cliffside.", amenities:['Pool','Spa','Bar','Free WiFi']},
+    {name:'Grace Hotel Santorini', stars:5, guestRating:9.4, price:590, area:'Imerovigli', lat:36.4310,lng:25.4290, desc:"Infinity pools cascading down the caldera edge.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
+    {name:'Aria Suites', stars:4, guestRating:9.0, price:240, area:'Fira', lat:36.4172,lng:25.4310, desc:"Bright caldera-view suites in the heart of Fira.", amenities:['Pool','Free WiFi','Breakfast']},
+    {name:'Santorini Camping', stars:2, guestRating:8.1, price:35, area:'Fira', lat:36.4090,lng:25.4400, desc:"Budget-friendly bungalows a short walk from town.", amenities:['Pool','Free WiFi']},
+  ]
+},
+
+{ id:'new-york', name:'New York City', country:'United States', flag:'🇺🇸',
+  tagline:"The city that never sleeps — culture, skyline and food from everywhere.",
+  description:"From Broadway to Brooklyn rooftops, world museums to late-night bodegas, New York packs the entire world's food and culture into five relentless boroughs.",
+  tags:['trending','food','nightlife','shopping'],
+  lat:40.7128, lng:-74.0060,
+  weather:"Fall (Sep–Nov): 10–20°C, crisp air and changing leaves in Central Park.",
+  bestTime:"April–June & September–November",
+  currency:"US Dollar ($)", language:"English",
+  avgDailyBudget:{budget:120,moderate:250,luxury:550},
+  attractions:[
+    {name:'Top of the Rock', category:'Viewpoint', rating:4.7, reviews:88000, priceLevel:3, price:40, area:'Midtown', lat:40.7590,lng:-73.9787, desc:"An open-air deck with the Empire State Building in your skyline.", tags:['photography'], duration:75},
+    {name:'The Met', category:'Museum', rating:4.8, reviews:112000, priceLevel:2, price:30, area:'Upper East Side', lat:40.7794,lng:-73.9632, desc:"Two million works spanning 5,000 years of art history.", tags:['culture','art','history'], duration:180},
+    {name:'Central Park', category:'Nature', rating:4.8, reviews:190000, priceLevel:0, price:0, area:'Manhattan', lat:40.7829,lng:-73.9654, desc:"843 acres of lakes, bridges and skyline views in the middle of it all.", tags:['nature','relax'], duration:120},
+    {name:'High Line', category:'Park', rating:4.7, reviews:68000, priceLevel:0, price:0, area:'Chelsea', lat:40.7480,lng:-74.0048, desc:"An elevated rail line reborn as a mile-long garden walkway.", tags:['nature','photography','hidden'], duration:60},
+    {name:'Brooklyn Bridge Walk', category:'Landmark', rating:4.8, reviews:75000, priceLevel:0, price:0, area:'DUMBO', lat:40.7061,lng:-73.9969, desc:"Walk into Brooklyn for the classic Manhattan skyline shot.", tags:['photography','romantic'], duration:60},
+    {name:'Chelsea Market', category:'Market', rating:4.6, reviews:52000, priceLevel:1, price:18, area:'Chelsea', lat:40.7424,lng:-74.0061, desc:"A converted factory packed with global food stalls and shops.", tags:['food','shopping'], duration:75},
+  ],
+  restaurants:[
+    {name:"Katz's Delicatessen", cuisine:'Deli', rating:4.5, reviews:29000, priceLevel:2, price:24, area:'Lower East Side', lat:40.7223,lng:-73.9874, desc:"The pastrami sandwich that launched a thousand imitators.", tags:['food'], dietary:[], hours:'8:00 AM – 10:45 PM'},
+    {name:"Joe's Pizza", cuisine:'Pizza', rating:4.5, reviews:15200, priceLevel:1, price:5, area:'Greenwich Village', lat:40.7308,lng:-74.0021, desc:"A no-frills New York slice institution since 1975.", tags:['food'], dietary:['vegetarian'], hours:'10:00 AM – 4:00 AM'},
+    {name:'Peter Luger Steak House', cuisine:'Steakhouse', rating:4.5, reviews:8700, priceLevel:4, price:95, area:'Williamsburg', lat:40.7099,lng:-73.9624, desc:"Century-old dry-aged porterhouse in an old-school dining room.", tags:['food','romantic'], dietary:[], hours:'11:45 AM – 9:45 PM'},
+    {name:"Xi'an Famous Foods", cuisine:'Chinese', rating:4.4, reviews:6300, priceLevel:1, price:12, area:'East Village', lat:40.7280,lng:-73.9860, desc:"Hand-pulled biang biang noodles with fiery Xi'an spice.", tags:['food'], dietary:['vegetarian-options'], hours:'11:00 AM – 10:00 PM'},
+    {name:'Rooftop at 230 Fifth', cuisine:'Bar & Lounge', rating:4.3, reviews:19800, priceLevel:3, price:22, area:'NoMad', lat:40.7440,lng:-73.9880, desc:"Skyline cocktails with an Empire State Building backdrop.", tags:['nightlife','romantic'], dietary:[], hours:'4:00 PM – 4:00 AM'},
+  ],
+  hotels:[
+    {name:'The Plaza', stars:5, guestRating:9.2, price:780, area:'Midtown', lat:40.7644,lng:-73.9744, desc:"Legendary Fifth Avenue landmark facing Central Park.", amenities:['Spa','Restaurant','Bar','Free WiFi']},
+    {name:'The Ludlow Hotel', stars:4, guestRating:8.9, price:340, area:'Lower East Side', lat:40.7203,lng:-73.9877, desc:"Moody, design-driven rooms in the heart of downtown nightlife.", amenities:['Bar','Free WiFi','Restaurant']},
+    {name:'Pod 51 Hotel', stars:3, guestRating:8.4, price:145, area:'Midtown East', lat:40.7530,lng:-73.9730, desc:"Compact, budget-savvy rooms with a rooftop lounge.", amenities:['Free WiFi','Rooftop']},
+    {name:'HI NYC Hostel', stars:2, guestRating:8.0, price:55, area:'Upper West Side', lat:40.8010,lng:-73.9700, desc:"Historic building turned social, budget-friendly hostel.", amenities:['Free WiFi','Shared kitchen']},
+  ]
+},
+
+{ id:'rome', name:'Rome', country:'Italy', flag:'🇮🇹',
+  tagline:"Three thousand years of history, one plate of pasta at a time.",
+  description:"Rome layers empire ruins beneath Renaissance piazzas and unbeatable trattorias — every corner turns into another postcard, and every meal is an event.",
+  tags:['culture','food','romantic','trending'],
+  lat:41.9028, lng:12.4964,
+  weather:"Spring (Apr–Jun): 14–24°C, sunny with blooming piazzas.",
+  bestTime:"April–May & September–October",
+  currency:"Euro (€)", language:"Italian",
+  avgDailyBudget:{budget:70,moderate:160,luxury:380},
+  attractions:[
+    {name:'The Colosseum', category:'History', rating:4.8, reviews:210000, priceLevel:2, price:24, area:'Centro Storico', lat:41.8902,lng:12.4922, desc:"The ancient arena that once held 50,000 roaring spectators.", tags:['history','culture','photography'], duration:120},
+    {name:'Vatican Museums & Sistine Chapel', category:'Museum', rating:4.7, reviews:158000, priceLevel:3, price:32, area:'Vatican City', lat:41.9065,lng:12.4536, desc:"Michelangelo's ceiling and miles of Renaissance masterpieces.", tags:['culture','art','history'], duration:180},
+    {name:'Trevi Fountain', category:'Landmark', rating:4.7, reviews:196000, priceLevel:0, price:0, area:'Centro Storico', lat:41.9009,lng:12.4833, desc:"Toss a coin over your shoulder to guarantee your return.", tags:['photography','romantic'], duration:30},
+    {name:'Pantheon', category:'History', rating:4.8, reviews:110000, priceLevel:0, price:0, area:'Centro Storico', lat:41.8986,lng:12.4769, desc:"A 2,000-year-old dome still standing exactly as built.", tags:['history','culture'], duration:45},
+    {name:'Trastevere Evening Walk', category:'Neighborhood', rating:4.7, reviews:41200, priceLevel:0, price:0, area:'Trastevere', lat:41.8896,lng:12.4696, desc:"Ivy-covered lanes, trattorias and Rome's liveliest evenings.", tags:['nightlife','food','hidden'], duration:120},
+    {name:'Borghese Gallery & Gardens', category:'Museum', rating:4.7, reviews:38700, priceLevel:2, price:22, area:'Villa Borghese', lat:41.9142,lng:12.4922, desc:"Bernini sculptures inside a garden villa above the city.", tags:['art','culture','relax'], duration:120},
+  ],
+  restaurants:[
+    {name:'Roscioli', cuisine:'Roman', rating:4.6, reviews:9800, priceLevel:3, price:42, area:'Centro Storico', lat:41.8945,lng:12.4736, desc:"Deli-restaurant famous for cacio e pepe and a legendary wine list.", tags:['food'], dietary:[], hours:'12:30 PM – 4:00 PM, 6:30 PM – 12:00 AM'},
+    {name:'Da Enzo al 29', cuisine:'Roman Trattoria', rating:4.6, reviews:7200, priceLevel:2, price:28, area:'Trastevere', lat:41.8873,lng:12.4712, desc:"Tiny trattoria locals queue for — go early or wait happily.", tags:['food'], dietary:['vegetarian'], hours:'1:00 PM – 3:00 PM, 7:30 PM – 11:00 PM'},
+    {name:'Pizzarium Bonci', cuisine:'Pizza al Taglio', rating:4.6, reviews:8900, priceLevel:1, price:9, area:'Prati', lat:41.9083,lng:12.4535, desc:"Rome's best sliced pizza, sold by weight from a tiny counter.", tags:['food'], dietary:['vegetarian'], hours:'11:00 AM – 10:00 PM'},
+    {name:'Gelateria dei Gracchi', cuisine:'Gelato', rating:4.7, reviews:5100, priceLevel:1, price:5, area:'Prati', lat:41.9070,lng:12.4590, desc:"Small-batch, all-natural gelato without the tourist markup.", tags:['food'], dietary:['vegetarian'], hours:'11:00 AM – 11:00 PM'},
+    {name:'Aroma at Palazzo Manfredi', cuisine:'Fine Dining Italian', rating:4.7, reviews:2400, priceLevel:4, price:110, area:'Celio', lat:41.8901,lng:12.4960, desc:"Michelin-starred plates with the Colosseum floodlit outside.", tags:['food','romantic'], dietary:[], hours:'12:30 PM – 3:00 PM, 7:00 PM – 11:00 PM'},
+  ],
+  hotels:[
+    {name:'Hotel de Russie', stars:5, guestRating:9.3, price:620, area:'Piazza del Popolo', lat:41.9106,lng:12.4780, desc:"Secret garden courtyard steps from the Spanish Steps.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
+    {name:'The Fifteen Keys Hotel', stars:4, guestRating:9.0, price:230, area:'Centro Storico', lat:41.8940,lng:12.4720, desc:"Boutique rooms a short walk from the Pantheon.", amenities:['Free WiFi','Breakfast']},
+    {name:'Hotel Trastevere', stars:3, guestRating:8.5, price:130, area:'Trastevere', lat:41.8880,lng:12.4700, desc:"Simple, comfortable rooms in Rome's liveliest quarter.", amenities:['Free WiFi']},
+    {name:'The Yellow Hostel', stars:2, guestRating:8.2, price:38, area:'Termini', lat:41.9010,lng:12.5030, desc:"Social hostel with a lively bar, near Termini station.", amenities:['Bar','Free WiFi']},
+  ]
+},
+
+{ id:'bangkok', name:'Bangkok', country:'Thailand', flag:'🇹🇭',
+  tagline:"Golden temples, floating markets, and street food you'll dream about.",
+  description:"Bangkok runs on contrast — gilded temples beside glass skyscrapers, tuk-tuks weaving past rooftop bars, and some of the best street food anywhere, at prices that go far.",
+  tags:['affordable','food','nightlife'],
+  lat:13.7563, lng:100.5018,
+  weather:"Cool season (Nov–Feb): 24–32°C, the most comfortable months.",
+  bestTime:"November–February",
+  currency:"Thai Baht (฿)", language:"Thai",
+  avgDailyBudget:{budget:30,moderate:70,luxury:180},
+  attractions:[
+    {name:'Grand Palace & Wat Phra Kaew', category:'Culture', rating:4.6, reviews:98000, priceLevel:2, price:15, area:'Rattanakosin', lat:13.7500,lng:100.4913, desc:"Glittering former royal residence and the Emerald Buddha temple.", tags:['culture','history','photography'], duration:150},
+    {name:'Wat Arun', category:'Culture', rating:4.6, reviews:52000, priceLevel:1, price:3, area:'Bangkok Yai', lat:13.7437,lng:100.4888, desc:"The Temple of Dawn, best photographed from across the river.", tags:['culture','photography'], duration:75},
+    {name:'Chatuchak Weekend Market', category:'Market', rating:4.5, reviews:61000, priceLevel:1, price:0, area:'Chatuchak', lat:13.7999,lng:100.5500, desc:"15,000 stalls of everything from antiques to street snacks.", tags:['shopping','food'], duration:150},
+    {name:'Damnoen Saduak Floating Market', category:'Market', rating:4.4, reviews:33200, priceLevel:2, price:20, area:'Ratchaburi', lat:13.5170,lng:99.9550, desc:"Boat-vendors selling fruit and noodles along narrow canals.", tags:['culture','food','hidden'], duration:180},
+    {name:'Lumphini Park', category:'Nature', rating:4.5, reviews:24100, priceLevel:0, price:0, area:'Pathum Wan', lat:13.7307,lng:100.5418, desc:"A green escape with monitor lizards and skyline backdrops.", tags:['nature','relax'], duration:60},
+    {name:'Mahanakhon SkyWalk', category:'Viewpoint', rating:4.5, reviews:20900, priceLevel:2, price:28, area:'Silom', lat:13.7229,lng:100.5288, desc:"Glass-floor observation deck atop Bangkok's tallest building.", tags:['photography'], duration:60},
+  ],
+  restaurants:[
+    {name:'Jay Fai', cuisine:'Street Food', rating:4.6, reviews:8100, priceLevel:3, price:25, area:'Old Town', lat:13.7530,lng:100.5040, desc:"Michelin-starred crab omelet cooked over roaring charcoal woks.", tags:['food'], dietary:[], hours:'2:00 PM – 12:00 AM'},
+    {name:'Thipsamai Pad Thai', cuisine:'Thai', rating:4.5, reviews:12300, priceLevel:1, price:5, area:'Old Town', lat:13.7548,lng:100.5027, desc:"Bangkok's most famous pad thai since 1966.", tags:['food'], dietary:['vegetarian-options'], hours:'5:00 PM – 2:00 AM'},
+    {name:'Chinatown Street Food Crawl', cuisine:'Street Food', rating:4.6, reviews:9700, priceLevel:1, price:12, area:'Yaowarat', lat:13.7404,lng:100.5090, desc:"Neon-lit Yaowarat Road, wall-to-wall with grills and noodle carts.", tags:['food','nightlife'], dietary:[], hours:'6:00 PM – 1:00 AM'},
+    {name:'Sky Bar at Lebua', cuisine:'Rooftop Bar', rating:4.4, reviews:15200, priceLevel:4, price:35, area:'Silom', lat:13.7220,lng:100.5150, desc:"The Hangover Part II rooftop, 63 floors above the city.", tags:['nightlife','romantic'], dietary:[], hours:'6:00 PM – 1:00 AM'},
+    {name:'Err Urban Rustic Thai', cuisine:'Thai', rating:4.5, reviews:4200, priceLevel:2, price:18, area:'Rattanakosin', lat:13.7460,lng:100.4930, desc:"Punchy regional Thai plates and cold beer near the Grand Palace.", tags:['food'], dietary:['vegetarian'], hours:'11:00 AM – 11:00 PM'},
+  ],
+  hotels:[
+    {name:'Mandarin Oriental Bangkok', stars:5, guestRating:9.4, price:480, area:'Riverside', lat:13.7239,lng:100.5140, desc:"Historic riverside icon hosting royalty since 1876.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
+    {name:'137 Pillars Suites', stars:5, guestRating:9.2, price:260, area:'Sukhumvit', lat:13.7390,lng:100.5560, desc:"All-suite colonial-style hotel with a rooftop pool.", amenities:['Pool','Spa','Free WiFi']},
+    {name:'Chatrium Riverside', stars:4, guestRating:8.7, price:110, area:'Riverside', lat:13.7080,lng:100.5060, desc:"River-view rooms with an infinity pool over the Chao Phraya.", amenities:['Pool','Gym','Free WiFi']},
+    {name:'NapPark Hostel', stars:2, guestRating:8.4, price:15, area:'Khao San Road', lat:13.7590,lng:100.4970, desc:"Pod-style hostel steps from Khao San's nightlife.", amenities:['Free WiFi','Lounge']},
+  ]
+},
+
+{ id:'barcelona', name:'Barcelona', country:'Spain', flag:'🇪🇸',
+  tagline:"Gaudí's fantasies, tapas bars, and Mediterranean beach afternoons.",
+  description:"Barcelona pairs surreal Gaudí architecture with beach clubs, late-night tapas crawls and a nightlife that barely starts before midnight.",
+  tags:['beach','culture','nightlife','trending'],
+  lat:41.3874, lng:2.1686,
+  weather:"Summer (Jun–Aug): 22–29°C, warm with sea breezes.",
+  bestTime:"May–June & September",
+  currency:"Euro (€)", language:"Spanish & Catalan",
+  avgDailyBudget:{budget:65,moderate:140,luxury:320},
+  attractions:[
+    {name:'Sagrada Família', category:'Landmark', rating:4.8, reviews:245000, priceLevel:3, price:33, area:'Eixample', lat:41.4036,lng:2.1744, desc:"Gaudí's unfinished basilica — still under construction since 1882.", tags:['culture','art','photography'], duration:120},
+    {name:'Park Güell', category:'Park', rating:4.6, reviews:151000, priceLevel:2, price:10, area:'Gràcia', lat:41.4145,lng:2.1527, desc:"Mosaic-covered terraces and gingerbread pavilions above the city.", tags:['art','photography','nature'], duration:90},
+    {name:'Gothic Quarter Walk', category:'Neighborhood', rating:4.7, reviews:63000, priceLevel:0, price:0, area:'Barri Gòtic', lat:41.3833,lng:2.1765, desc:"Medieval alleys, hidden plazas and the old Roman city walls.", tags:['culture','history','hidden'], duration:120},
+    {name:'La Boqueria Market', category:'Market', rating:4.5, reviews:58000, priceLevel:1, price:12, area:'La Rambla', lat:41.3818,lng:2.1716, desc:"A dazzling covered market of jamón, seafood and fresh juice.", tags:['food','shopping'], duration:60},
+    {name:'Barceloneta Beach', category:'Beach', rating:4.4, reviews:71000, priceLevel:0, price:0, area:'Barceloneta', lat:41.3785,lng:2.1925, desc:"The city's main beach, backed by seafood chiringuitos.", tags:['relax','nightlife'], duration:150},
+    {name:'Bunkers del Carmel', category:'Viewpoint', rating:4.7, reviews:22400, priceLevel:0, price:0, area:'El Carmel', lat:41.4198,lng:2.1590, desc:"Old anti-aircraft bunkers turned the city's best free sunset spot.", tags:['hidden','photography','romantic'], duration:75},
+  ],
+  restaurants:[
+    {name:'Cal Pep', cuisine:'Tapas', rating:4.6, reviews:6700, priceLevel:3, price:32, area:'El Born', lat:41.3838,lng:2.1830, desc:"Standing-room tapas bar with the freshest seafood in town.", tags:['food'], dietary:[], hours:'1:15 PM – 3:45 PM, 7:30 PM – 11:15 PM'},
+    {name:'Bar Cañete', cuisine:'Tapas', rating:4.6, reviews:4300, priceLevel:3, price:35, area:'Raval', lat:41.3800,lng:2.1730, desc:"Chef-counter tapas bar loved by locals and critics alike.", tags:['food'], dietary:[], hours:'1:00 PM – 4:00 PM, 8:00 PM – 12:00 AM'},
+    {name:'Quimet & Quimet', cuisine:'Tapas', rating:4.6, reviews:5100, priceLevel:2, price:20, area:'Poble Sec', lat:41.3735,lng:2.1650, desc:"Tiny, bottle-lined family bar famous for gourmet montaditos.", tags:['food','hidden'], dietary:[], hours:'12:00 PM – 4:00 PM, 7:00 PM – 10:30 PM'},
+    {name:'Can Solé', cuisine:'Seafood Paella', rating:4.5, reviews:3200, priceLevel:3, price:38, area:'Barceloneta', lat:41.3800,lng:2.1900, desc:"Century-old fisherman's restaurant famous for rice dishes.", tags:['food','romantic'], dietary:[], hours:'1:00 PM – 4:00 PM, 8:00 PM – 11:00 PM'},
+    {name:'Pacha Barcelona', cuisine:'Nightclub', rating:4.3, reviews:9800, priceLevel:3, price:25, area:'Port Olímpic', lat:41.3880,lng:2.1960, desc:"Beachfront club with international DJs into the early hours.", tags:['nightlife'], dietary:[], hours:'12:00 AM – 6:00 AM'},
+  ],
+  hotels:[
+    {name:'Hotel Arts Barcelona', stars:5, guestRating:9.3, price:520, area:'Port Olímpic', lat:41.3870,lng:2.1960, desc:"Beachfront tower with sweeping Mediterranean views.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
+    {name:'Casa Bonay', stars:4, guestRating:9.0, price:220, area:'Eixample', lat:41.3930,lng:2.1690, desc:"Design hotel with a buzzy courtyard café and rooftop.", amenities:['Free WiFi','Bar','Breakfast']},
+    {name:'H10 Casa Mimosa', stars:4, guestRating:8.8, price:175, area:'Eixample', lat:41.3960,lng:2.1620, desc:"Modernist-district boutique hotel near Casa Batlló.", amenities:['Free WiFi','Breakfast']},
+    {name:'Kabul Party Hostel', stars:2, guestRating:8.1, price:28, area:'Gothic Quarter', lat:41.3800,lng:2.1770, desc:"Social hostel right on Plaça Reial, famous for its rooftop.", amenities:['Bar','Free WiFi']},
+  ]
+},
+
+{ id:'queenstown', name:'Queenstown', country:'New Zealand', flag:'🇳🇿',
+  tagline:"Bungee jumps, alpine lakes, and the world's adventure capital.",
+  description:"Ringed by the Remarkables mountains on Lake Wakatipu, Queenstown is New Zealand's adrenaline capital — but just as good for wine, hikes and impossibly scenic drives.",
+  tags:['adventure','trending'],
+  lat:-45.0312, lng:168.6626,
+  weather:"Summer (Dec–Feb): 10–22°C, long daylight for hiking.",
+  bestTime:"December–February & June–August (ski season)",
+  currency:"NZ Dollar (NZ$)", language:"English",
+  avgDailyBudget:{budget:90,moderate:190,luxury:420},
+  attractions:[
+    {name:'Kawarau Gorge Bungy', category:'Adventure', rating:4.8, reviews:14200, priceLevel:4, price:150, area:'Kawarau Gorge', lat:-45.0605,lng:168.7530, desc:"The world's first commercial bungy jump, 43 meters over the river.", tags:['adventure'], duration:90},
+    {name:'Skyline Gondola & Luge', category:'Adventure', rating:4.6, reviews:21800, priceLevel:2, price:45, area:'Ben Lomond', lat:-45.0300,lng:168.6650, desc:"Cable car to panoramic lake views, then a hillside luge track down.", tags:['adventure','photography'], duration:120},
+    {name:'Milford Sound Day Cruise', category:'Nature', rating:4.8, reviews:33200, priceLevel:4, price:120, area:'Fiordland', lat:-44.6720,lng:167.9250, desc:"Waterfalls, seals and fiord walls on a full-day scenic cruise.", tags:['nature','photography'], duration:660},
+    {name:'Lake Wakatipu Waterfront', category:'Nature', rating:4.6, reviews:18900, priceLevel:0, price:0, area:'Queenstown Bay', lat:-45.0320,lng:168.6600, desc:"Alpine lake promenade framed by the jagged Remarkables range.", tags:['nature','relax'], duration:60},
+    {name:'Gibbston Valley Wine Tasting', category:'Wine', rating:4.6, reviews:5100, priceLevel:2, price:25, area:'Gibbston', lat:-45.0430,lng:168.9040, desc:"Cellar-door tastings of the region's famous Pinot Noir.", tags:['relax','hidden'], duration:120},
+    {name:'Ben Lomond Track', category:'Hiking', rating:4.7, reviews:6300, priceLevel:0, price:0, area:'Ben Lomond', lat:-45.0180,lng:168.6480, desc:"A challenging summit hike with 360° views over the Southern Alps.", tags:['adventure','nature'], duration:360},
+  ],
+  restaurants:[
+    {name:'Fergburger', cuisine:'Burgers', rating:4.5, reviews:31200, priceLevel:2, price:16, area:'Queenstown Central', lat:-45.0315,lng:168.6600, desc:"Legendary late-night burger joint with a line down the block.", tags:['food'], dietary:['vegetarian'], hours:'8:00 AM – 5:00 AM'},
+    {name:'Rata', cuisine:'Modern NZ', rating:4.7, reviews:3200, priceLevel:3, price:48, area:'Queenstown Central', lat:-45.0313,lng:168.6612, desc:"Chef Josh Emett's seasonal, locally-sourced fine dining.", tags:['food','romantic'], dietary:[], hours:'5:00 PM – 10:00 PM'},
+    {name:'Botswana Butchery', cuisine:'Steakhouse', rating:4.5, reviews:4100, priceLevel:4, price:55, area:'Lakefront', lat:-45.0320,lng:168.6595, desc:"Lakefront steaks with Remarkables views from every table.", tags:['food','romantic'], dietary:[], hours:'12:00 PM – 10:00 PM'},
+    {name:'Vudu Cafe & Larder', cuisine:'Café', rating:4.5, reviews:2900, priceLevel:2, price:14, area:'Queenstown Central', lat:-45.0308,lng:168.6605, desc:"Local favorite for brunch before a big day outdoors.", tags:['food','relax'], dietary:['vegetarian'], hours:'7:00 AM – 4:00 PM'},
+    {name:'Pub on Wharf', cuisine:'Pub', rating:4.3, reviews:5600, priceLevel:2, price:20, area:'Steamer Wharf', lat:-45.0330,lng:168.6580, desc:"Waterfront pub with craft beer and Southern Alps sunsets.", tags:['nightlife'], dietary:[], hours:'11:00 AM – 1:00 AM'},
+  ],
+  hotels:[
+    {name:"Eichardt's Private Hotel", stars:5, guestRating:9.4, price:590, area:'Lakefront', lat:-45.0322,lng:168.6598, desc:"Historic five-suite hotel right on the Queenstown waterfront.", amenities:['Spa','Restaurant','Bar','Free WiFi']},
+    {name:'The Rees Hotel', stars:5, guestRating:9.2, price:340, area:'Queenstown Bay', lat:-45.0270,lng:168.6540, desc:"Lakeside apartments with full mountain and water views.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
+    {name:'Novotel Queenstown Lakeside', stars:4, guestRating:8.7, price:190, area:'Queenstown Central', lat:-45.0300,lng:168.6620, desc:"Central lakeside base for gondola, bars and adventure tours.", amenities:['Gym','Free WiFi','Restaurant']},
+    {name:'YHA Queenstown Lakefront', stars:2, guestRating:8.5, price:35, area:'Queenstown Central', lat:-45.0290,lng:168.6610, desc:"Budget lakefront hostel with a communal fireplace lounge.", amenities:['Free WiFi','Shared kitchen']},
+  ]
+},
+
+{ id:'reykjavik', name:'Reykjavik', country:'Iceland', flag:'🇮🇸',
+  tagline:"Northern lights, glacier hikes, and geothermal hot springs.",
+  description:"Reykjavik is the launchpad for Iceland's otherworldly landscapes — waterfalls, volcanoes and glaciers all within a day's drive of colorful streets and steamy lagoons.",
+  tags:['adventure','hidden','nature'],
+  lat:64.1466, lng:-21.9426,
+  weather:"Summer (Jun–Aug): 10–15°C, near-endless daylight.",
+  bestTime:"June–August (midnight sun) & Sep–Mar (northern lights)",
+  currency:"Icelandic Króna (kr)", language:"Icelandic",
+  avgDailyBudget:{budget:110,moderate:230,luxury:480},
+  attractions:[
+    {name:'Blue Lagoon', category:'Hot Spring', rating:4.5, reviews:61200, priceLevel:3, price:75, area:'Grindavík', lat:63.8804,lng:-22.4495, desc:"Milky-blue geothermal spa set in a black lava field.", tags:['relax','photography'], duration:150},
+    {name:'Golden Circle Tour', category:'Nature', rating:4.7, reviews:38400, priceLevel:3, price:95, area:'South Iceland', lat:64.3100,lng:-20.1200, desc:"Geysers, waterfalls and the rift between two continents in a day.", tags:['nature','adventure','photography'], duration:480},
+    {name:'Hallgrímskirkja Church', category:'Landmark', rating:4.6, reviews:41200, priceLevel:1, price:8, area:'Skólavörðuholt', lat:64.1417,lng:-21.9268, desc:"Basalt-column-inspired church tower with the city's best skyline view.", tags:['photography','culture'], duration:45},
+    {name:'Sky Lagoon', category:'Hot Spring', rating:4.7, reviews:9800, priceLevel:3, price:65, area:'Kópavogur', lat:64.1150,lng:-21.9400, desc:"An infinity-edge geothermal pool facing the open Atlantic.", tags:['relax','hidden'], duration:150},
+    {name:'Jökulsárlón Glacier Lagoon', category:'Nature', rating:4.8, reviews:22100, priceLevel:0, price:0, area:'South Coast', lat:64.0784,lng:-16.2306, desc:"Icebergs calve from a glacier and drift out to a black-sand beach.", tags:['nature','adventure','photography'], duration:120},
+    {name:'Northern Lights Hunt', category:'Adventure', rating:4.6, reviews:15300, priceLevel:2, price:60, area:'Reykjavik outskirts', lat:64.2000,lng:-21.9000, desc:"A guided night drive chasing the aurora away from city lights.", tags:['adventure','photography','hidden'], duration:240},
+  ],
+  restaurants:[
+    {name:'Bæjarins Beztu Pylsur', cuisine:'Hot Dog Stand', rating:4.5, reviews:9800, priceLevel:1, price:4, area:'Downtown', lat:64.1477,lng:-21.9400, desc:"A legendary hot dog cart even presidents have stopped at.", tags:['food'], dietary:[], hours:'10:00 AM – 1:00 AM'},
+    {name:'Matur og Drykkur', cuisine:'New Icelandic', rating:4.7, reviews:2100, priceLevel:3, price:52, area:'Grandi', lat:64.1520,lng:-21.9450, desc:"Old Icelandic recipes reinvented in a former fish factory.", tags:['food'], dietary:[], hours:'6:00 PM – 10:00 PM'},
+    {name:'Icelandic Fish & Chips', cuisine:'Seafood', rating:4.5, reviews:3600, priceLevel:2, price:22, area:'Downtown', lat:64.1490,lng:-21.9390, desc:"Sustainably-caught fish with organic-flour batter and skyr dips.", tags:['food'], dietary:['gluten-free-options'], hours:'11:30 AM – 9:00 PM'},
+    {name:'Café Loki', cuisine:'Icelandic', rating:4.4, reviews:4100, priceLevel:2, price:18, area:'Skólavörðuholt', lat:64.1420,lng:-21.9270, desc:"Traditional rye bread and lamb soup beside Hallgrímskirkja.", tags:['food','hidden'], dietary:['vegetarian'], hours:'9:00 AM – 9:00 PM'},
+    {name:'Kaffibarinn', cuisine:'Bar', rating:4.3, reviews:5200, priceLevel:2, price:14, area:'Downtown', lat:64.1465,lng:-21.9410, desc:"Reykjavik's iconic hole-in-the-wall bar, buzzing until dawn.", tags:['nightlife'], dietary:[], hours:'3:00 PM – 4:30 AM'},
+  ],
+  hotels:[
+    {name:'Hotel Borg', stars:5, guestRating:9.1, price:340, area:'Downtown', lat:64.1468,lng:-21.9400, desc:"Art Deco landmark on Reykjavik's main square since 1930.", amenities:['Spa','Restaurant','Bar','Free WiFi']},
+    {name:'Canopy by Hilton Reykjavik', stars:4, guestRating:8.9, price:210, area:'Downtown', lat:64.1500,lng:-21.9350, desc:"Modern rooms and a rooftop bar in the city center.", amenities:['Bar','Free WiFi','Restaurant']},
+    {name:'Kex Hostel', stars:2, guestRating:8.6, price:60, area:'Laugavegur', lat:64.1480,lng:-21.9200, desc:"Former biscuit factory turned design-forward social hostel.", amenities:['Bar','Free WiFi','Restaurant']},
+    {name:'Reykjavik Domestic Airport Hotel', stars:3, guestRating:8.2, price:130, area:'Skerjafjörður', lat:64.1300,lng:-21.9350, desc:"Simple, convenient rooms near the domestic airport.", amenities:['Free WiFi','Breakfast']},
+  ]
+},
+
+{ id:'ljubljana', name:'Ljubljana', country:'Slovenia', flag:'🇸🇮',
+  tagline:"A fairy-tale river town most travelers still haven't discovered.",
+  description:"Ljubljana's dragon-guarded bridges, riverside cafés and hilltop castle make it one of Europe's most underrated capitals — walkable, green, and refreshingly affordable.",
+  tags:['hidden','affordable'],
+  lat:46.0569, lng:14.5058,
+  weather:"Summer (Jun–Aug): 18–27°C, warm with occasional storms.",
+  bestTime:"May–June & September",
+  currency:"Euro (€)", language:"Slovenian",
+  avgDailyBudget:{budget:45,moderate:100,luxury:240},
+  attractions:[
+    {name:'Ljubljana Castle', category:'History', rating:4.6, reviews:19800, priceLevel:1, price:12, area:'Castle Hill', lat:46.0489,lng:14.5086, desc:"A funicular ride up to a medieval castle with rooftop city views.", tags:['history','photography'], duration:90},
+    {name:'Triple Bridge & Dragon Bridge', category:'Landmark', rating:4.7, reviews:12300, priceLevel:0, price:0, area:'Old Town', lat:46.0511,lng:14.5060, desc:"The photogenic bridges that frame the old town's river walk.", tags:['photography','culture'], duration:45},
+    {name:'Tivoli Park', category:'Nature', rating:4.6, reviews:8900, priceLevel:0, price:0, area:'Tivoli', lat:46.0580,lng:14.4930, desc:"The city's green lung — paths, ponds and a hilltop mansion.", tags:['nature','relax'], duration:75},
+    {name:'Ljubljanica Riverside Cafés', category:'Neighborhood', rating:4.7, reviews:9100, priceLevel:0, price:0, area:'Old Town', lat:46.0500,lng:14.5070, desc:"Riverside terraces perfect for a slow afternoon coffee.", tags:['relax','hidden'], duration:60},
+    {name:'Central Market', category:'Market', rating:4.5, reviews:4600, priceLevel:1, price:8, area:'Old Town', lat:46.0524,lng:14.5075, desc:"Plečnik-designed colonnade market for produce and local bites.", tags:['food','shopping'], duration:50},
+    {name:'Metelkova Mesto', category:'Nightlife', rating:4.4, reviews:3900, priceLevel:1, price:10, area:'Metelkova', lat:46.0577,lng:14.5155, desc:"A graffiti-covered squat-turned-cultural district with clubs and bars.", tags:['nightlife','hidden'], duration:120},
+  ],
+  restaurants:[
+    {name:'Odprta Kuhna (Open Kitchen)', cuisine:'Street Food Market', rating:4.6, reviews:5100, priceLevel:1, price:12, area:'Pogačarjev Trg', lat:46.0515,lng:14.5065, desc:"Friday street-food market from the city's best chefs.", tags:['food'], dietary:['vegetarian','vegan'], hours:'Fri 10:00 AM – 9:00 PM'},
+    {name:'Gostilna As', cuisine:'Slovenian', rating:4.6, reviews:2900, priceLevel:3, price:38, area:'Old Town', lat:46.0512,lng:14.5052, desc:"Elegant courtyard restaurant reinventing classic Slovenian dishes.", tags:['food','romantic'], dietary:[], hours:'12:00 PM – 11:00 PM'},
+    {name:'Ljubljanski Dvor Pizzeria', cuisine:'Pizza', rating:4.4, reviews:3300, priceLevel:1, price:9, area:'Riverside', lat:46.0505,lng:14.5075, desc:"Riverside pizza-by-the-slice window, always packed at lunch.", tags:['food'], dietary:['vegetarian'], hours:'10:00 AM – 10:00 PM'},
+    {name:'Cacao', cuisine:'Café & Dessert', rating:4.5, reviews:2100, priceLevel:1, price:7, area:'Old Town', lat:46.0498,lng:14.5069, desc:"Riverside café famous for its Slovenian-chocolate desserts.", tags:['food','relax'], dietary:['vegetarian'], hours:'8:00 AM – 10:00 PM'},
+    {name:'Julija', cuisine:'Slovenian-Italian', rating:4.5, reviews:1800, priceLevel:2, price:22, area:'Old Town', lat:46.0508,lng:14.5058, desc:"Cozy old-town spot for handmade pasta and local wine.", tags:['food'], dietary:['vegetarian'], hours:'11:00 AM – 11:00 PM'},
+  ],
+  hotels:[
+    {name:'Grand Hotel Union', stars:5, guestRating:9.0, price:220, area:'City Center', lat:46.0530,lng:14.5045, desc:"Art Nouveau grand dame on the main square since 1905.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
+    {name:'Vander Urbani Resort', stars:4, guestRating:9.1, price:190, area:'Riverside', lat:46.0500,lng:14.5040, desc:"Boutique riverside hotel with a rooftop pool deck.", amenities:['Pool','Free WiFi','Bar']},
+    {name:'Hotel Park', stars:3, guestRating:8.3, price:95, area:'City Center', lat:46.0560,lng:14.5130, desc:"Simple, central rooms walkable to Tivoli Park and Old Town.", amenities:['Free WiFi','Breakfast']},
+    {name:'Hostel Celica', stars:2, guestRating:8.5, price:30, area:'Metelkova', lat:46.0575,lng:14.5150, desc:"Former prison cells turned artist-designed hostel rooms.", amenities:['Free WiFi','Bar']},
+  ]
+},
+
+{ id:'marrakech', name:'Marrakech', country:'Morocco', flag:'🇲🇦',
+  tagline:"Maze-like souks, riad courtyards, and the Atlas Mountains on the horizon.",
+  description:"Marrakech overwhelms the senses — spice-scented souks, snake charmers in Jemaa el-Fna, and hidden riads behind unmarked doors, all beneath the Atlas Mountains.",
+  tags:['adventure','affordable','hidden'],
+  lat:31.6295, lng:-7.9811,
+  weather:"Spring (Mar–May): 18–28°C, warm days and cool evenings.",
+  bestTime:"March–May & September–November",
+  currency:"Moroccan Dirham (MAD)", language:"Arabic & French",
+  avgDailyBudget:{budget:35,moderate:85,luxury:220},
+  attractions:[
+    {name:'Jemaa el-Fna', category:'Landmark', rating:4.6, reviews:71200, priceLevel:0, price:0, area:'Medina', lat:31.6258,lng:-7.9891, desc:"A chaotic square of storytellers, musicians and food carts by night.", tags:['culture','food','photography'], duration:120},
+    {name:'Majorelle Garden', category:'Garden', rating:4.6, reviews:48900, priceLevel:2, price:12, area:'Gueliz', lat:31.6412,lng:-8.0033, desc:"Cobalt-blue villa gardens once owned by Yves Saint Laurent.", tags:['nature','photography','relax'], duration:75},
+    {name:'Bahia Palace', category:'History', rating:4.6, reviews:34500, priceLevel:1, price:8, area:'Medina', lat:31.6217,lng:-7.9836, desc:"A 19th-century palace of carved cedar and zellige-tiled courtyards.", tags:['history','culture','photography'], duration:75},
+    {name:'Souks of Marrakech', category:'Market', rating:4.5, reviews:39800, priceLevel:1, price:0, area:'Medina', lat:31.6300,lng:-7.9870, desc:"A labyrinth of leather, lanterns, spices and rugs — haggling expected.", tags:['shopping','culture'], duration:120},
+    {name:'Atlas Mountains Day Trip', category:'Adventure', rating:4.7, reviews:22100, priceLevel:3, price:55, area:'Imlil', lat:31.1360,lng:-7.9160, desc:"Berber villages and valley hikes an hour outside the city.", tags:['adventure','nature','hidden'], duration:480},
+    {name:'Agafay Desert Sunset', category:'Adventure', rating:4.6, reviews:9800, priceLevel:3, price:60, area:'Agafay', lat:31.4900,lng:-8.2200, desc:"Rocky desert camp with camel rides and dinner under the stars.", tags:['adventure','romantic','photography'], duration:300},
+  ],
+  restaurants:[
+    {name:'Nomad', cuisine:'Modern Moroccan', rating:4.6, reviews:6100, priceLevel:2, price:22, area:'Medina', lat:31.6295,lng:-7.9865, desc:"Rooftop terrace reinventing Moroccan classics with a view of the souks.", tags:['food','romantic'], dietary:['vegetarian'], hours:'12:00 PM – 11:00 PM'},
+    {name:'Le Jardin', cuisine:'Moroccan', rating:4.5, reviews:4200, priceLevel:2, price:20, area:'Medina', lat:31.6280,lng:-7.9880, desc:"Leafy courtyard restaurant tucked behind an unmarked riad door.", tags:['food','hidden','relax'], dietary:['vegetarian'], hours:'9:00 AM – 11:00 PM'},
+    {name:'Cafe Clock', cuisine:'Moroccan Fusion', rating:4.5, reviews:3600, priceLevel:2, price:16, area:'Medina', lat:31.6270,lng:-7.9845, desc:"Camel burgers and storytelling nights near the Kasbah.", tags:['food','culture'], dietary:['vegetarian'], hours:'9:00 AM – 10:00 PM'},
+    {name:'Street Food Stalls of Jemaa el-Fna', cuisine:'Street Food', rating:4.4, reviews:15200, priceLevel:1, price:6, area:'Medina', lat:31.6258,lng:-7.9891, desc:"Grilled skewers, snail soup and fresh orange juice by lantern light.", tags:['food','nightlife'], dietary:[], hours:'6:00 PM – 12:00 AM'},
+    {name:'La Mamounia Restaurant', cuisine:'Fine Dining Moroccan', rating:4.7, reviews:1800, priceLevel:4, price:90, area:'Hivernage', lat:31.6220,lng:-7.9940, desc:"Palatial garden dining inside Marrakech's most legendary hotel.", tags:['food','romantic'], dietary:[], hours:'7:00 PM – 11:00 PM'},
+  ],
+  hotels:[
+    {name:'La Mamounia', stars:5, guestRating:9.5, price:650, area:'Hivernage', lat:31.6220,lng:-7.9940, desc:"A century-old palace hotel set in 20 acres of gardens.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
+    {name:'Riad Yasmine', stars:4, guestRating:9.3, price:140, area:'Medina', lat:31.6290,lng:-7.9875, desc:"Rooftop-pool riad hidden behind an unmarked medina door.", amenities:['Pool','Free WiFi','Breakfast']},
+    {name:'Riad El Zohar', stars:3, guestRating:8.9, price:75, area:'Medina', lat:31.6265,lng:-7.9900, desc:"Family-run riad with home-cooked breakfast on the terrace.", amenities:['Free WiFi','Breakfast']},
+    {name:'Hostel Ronda', stars:2, guestRating:8.3, price:16, area:'Gueliz', lat:31.6380,lng:-8.0090, desc:"Budget-friendly courtyard hostel in the modern district.", amenities:['Free WiFi','Shared kitchen']},
+  ]
+},
+
+];
+
+/* ---------------- Flatten into DESTINATIONS + PLACES ---------------- */
+const DESTINATIONS = [];
+const PLACES = [];
+
+DESTINATIONS_RAW.forEach(d=>{
+  DESTINATIONS.push({
+    id:d.id, name:d.name, country:d.country, flag:d.flag, tagline:d.tagline, description:d.description,
+    tags:d.tags, lat:d.lat, lng:d.lng, weather:d.weather, bestTime:d.bestTime, currency:d.currency,
+    language:d.language, avgDailyBudget:d.avgDailyBudget,
+    hero: img(d.id+'-hero',1600,900)
+  });
+  (d.attractions||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-a${i+1}`, destId:d.id, type:'attraction', image:img(d.id+'-attr-'+i,640,480)}, p)));
+  (d.restaurants||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-r${i+1}`, destId:d.id, type:'restaurant', image:img(d.id+'-food-'+i,640,480)}, p)));
+  (d.hotels||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-h${i+1}`, destId:d.id, type:'hotel', image:img(d.id+'-hotel-'+i,640,480)}, p)));
+});
+
+/* ---------------- Generic fallback destination generator ---------------- */
+function seededRandom(seedStr){
+  let h = 1779033703 ^ seedStr.length;
+  for(let i=0;i<seedStr.length;i++){ h = Math.imul(h ^ seedStr.charCodeAt(i), 3432918353); h = (h << 13) | (h >>> 19); }
+  return function(){
+    h = Math.imul(h ^ (h >>> 16), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    h ^= h >>> 16;
+    return (h >>> 0) / 4294967296;
+  };
+}
+function makeGenericDestination(name){
+  const id = 'gen-'+slugify(name);
+  const clean = name.split(',')[0].trim() || name.trim();
+  const existing = DESTINATIONS.find(d=>d.id===id);
+  if(existing) return existing;
+  const rnd = seededRandom(id);
+  const base = { lat: 20 + (rnd()*40-20), lng: (rnd()*340-170) };
+  const dest = {
+    id, name:clean, country:'', flag:'🌍',
+    tagline:`Discover ${clean} — attractions, food and stays curated for your trip.`,
+    description:`${clean} is ready to explore. We've put together a starter set of top-rated attractions, restaurants and places to stay while you fine-tune your plan.`,
+    tags:['trending'], lat:base.lat, lng:base.lng,
+    weather:"Check seasonal averages closer to your travel dates.",
+    bestTime:"Year-round — varies by season",
+    currency:"Local currency", language:"Local language",
+    avgDailyBudget:{budget:50,moderate:120,luxury:280},
+    hero: img(id+'-hero',1600,900)
+  };
+  DESTINATIONS.push(dest);
+  const attrNames = ['Old Town Walking Tour','Central Museum','City Cathedral','Riverside Promenade','Panoramic Viewpoint','Historic Market Square'];
+  const attrCats = ['Culture','Museum','History','Nature','Viewpoint','Market'];
+  const attrTags = [['culture','history'],['culture','art'],['history','photography'],['nature','relax'],['photography'],['shopping','food']];
+  attrNames.forEach((n,i)=>PLACES.push({ id:`${id}-a${i+1}`, destId:id, type:'attraction', name:`${clean} ${n}`, category:attrCats[i], rating:+(4.3+rnd()*0.5).toFixed(1), reviews:800+Math.floor(rnd()*9000), priceLevel:i%3, price:[0,10,18,0,0,5][i], area:'City Center', lat:base.lat+(rnd()*0.06-0.03), lng:base.lng+(rnd()*0.06-0.03), desc:`A well-loved local favorite for visitors exploring ${clean}.`, tags:attrTags[i], duration:75, image:img(id+'-attr-'+i,640,480) }));
+  const restNames = ['The Local Table','Market Street Kitchen','Grandma\'s Corner Café','The Harborview Grill','Spice & Sea','The Old Bakery'];
+  const cuisines = ['Local Cuisine','Fusion','Café','Seafood','International','Bakery & Café'];
+  restNames.forEach((n,i)=>PLACES.push({ id:`${id}-r${i+1}`, destId:id, type:'restaurant', name:n, cuisine:cuisines[i], rating:+(4.2+rnd()*0.6).toFixed(1), reviews:300+Math.floor(rnd()*4000), priceLevel:1+(i%3), price:[10,18,8,28,15,7][i], area:'City Center', lat:base.lat+(rnd()*0.05-0.025), lng:base.lng+(rnd()*0.05-0.025), desc:`A favorite spot locals and visitors both recommend in ${clean}.`, tags:['food'], dietary: i%2? ['vegetarian']:[], hours:'11:00 AM – 10:00 PM', image:img(id+'-food-'+i,640,480) }));
+  const hotelNames = [`Grand ${clean} Hotel`,`${clean} Boutique Inn`,`${clean} Central Suites`,`${clean} Budget Stay`];
+  const stars=[5,4,3,2];
+  hotelNames.forEach((n,i)=>PLACES.push({ id:`${id}-h${i+1}`, destId:id, type:'hotel', name:n, stars:stars[i], guestRating:+(7.9+rnd()*1.4).toFixed(1), price:[280,150,95,40][i], area:'City Center', lat:base.lat+(rnd()*0.04-0.02), lng:base.lng+(rnd()*0.04-0.02), desc:`Comfortable, well-located stay for exploring ${clean}.`, amenities:['Free WiFi','Breakfast'].concat(i<2?['Pool','Bar']:[]), image:img(id+'-hotel-'+i,640,480) }));
+  return dest;
+}
+
+function findDestination(query){
+  if(!query) return null;
+  const q = query.trim().toLowerCase();
+  if(!q) return null;
+  let d = DESTINATIONS.find(x=> x.name.toLowerCase()===q || `${x.name}, ${x.country}`.toLowerCase()===q);
+  if(d) return d;
+  d = DESTINATIONS.find(x=> x.name.toLowerCase().includes(q) || q.includes(x.name.toLowerCase()) || x.country.toLowerCase().includes(q));
+  if(d) return d;
+  return makeGenericDestination(query);
+}
+
+function placesFor(destId, type){ return PLACES.filter(p=>p.destId===destId && (!type || p.type===type)); }
+function placeById(id){ return PLACES.find(p=>p.id===id); }
