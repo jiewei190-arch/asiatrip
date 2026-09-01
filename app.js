@@ -2910,18 +2910,31 @@ function renderBudgetTab(trip){
     saveState(); renderBudgetTab(trip); toast('Expense removed.');
   });
 
+  renderSplitPanel(trip);
+
   $('addExpenseBtn').onclick = ()=>{
     $('expenseModalTitle').textContent = 'Add expense';
     $('expenseDesc').value=''; $('expenseAmount').value='';
     $('expenseCat').innerHTML = EXPENSE_CATS.map(c=>`<option>${c}</option>`).join('');
+    const names = trip.collaborators.map(c=>c.name);
+    $('expensePaidBy').innerHTML = names.map(n=>`<option>${esc(n)}</option>`).join('');
+    // Everyone is included by default — the common case is a shared cost, and unticking is
+    // easier than remembering to tick.
+    $('expenseSplit').innerHTML = names.map(n=>`<label class="splitChip"><input type="checkbox" data-split="${esc(n)}" checked> ${esc(n)}</label>`).join('');
     $('saveExpenseBtn').onclick = ()=>{
       const desc = $('expenseDesc').value.trim();
       const amount = Number($('expenseAmount').value);
       if(!desc || !amount){ toast('Enter a description and an amount.'); return; }
-      trip.budget.expenses.push({id:uid('exp'), desc, cat:$('expenseCat').value, amount});
+      const splitAmong = Array.from($('expenseSplit').querySelectorAll('[data-split]'))
+        .filter(cb=>cb.checked).map(cb=>cb.dataset.split);
+      trip.budget.expenses.push({
+        id:uid('exp'), desc, cat:$('expenseCat').value, amount,
+        paidBy: $('expensePaidBy').value,
+        splitAmong,
+      });
       saveState();
       closeModal('modal-expense');
-      toast('Expense added.');
+      toast(splitAmong.length>1 ? `Expense added and split ${splitAmong.length} ways.` : 'Expense added.');
       renderBudgetTab(trip);
     };
     openModal('modal-expense');
@@ -2939,10 +2952,173 @@ function initEditBudgetModal(){
   };
 }
 
+/* ---------------- Expense splitting ---------------- */
+/** Net position per person: what they actually paid, minus their share of everything they were
+ * included in. Only expenses that carry split information count — an expense logged before
+ * splitting existed (or deliberately left unsplit) is still counted in the trip budget, it just
+ * doesn't create a debt between people. */
+function computeBalances(trip){
+  const names = trip.collaborators.map(c=>c.name);
+  const paid = {}, owed = {};
+  names.forEach(n=>{ paid[n]=0; owed[n]=0; });
+  let splitTotal = 0;
+  trip.budget.expenses.forEach(e=>{
+    if(!e.paidBy || !e.splitAmong || !e.splitAmong.length) return;
+    const participants = e.splitAmong.filter(n=>names.includes(n));
+    if(!participants.length) return;
+    splitTotal += e.amount;
+    if(paid[e.paidBy] !== undefined) paid[e.paidBy] += e.amount;
+    const share = e.amount / participants.length;
+    participants.forEach(n=>{ owed[n] += share; });
+  });
+  const rows = names.map(n=>({ name:n, paid:paid[n], share:owed[n], net: paid[n]-owed[n] }));
+  return { rows, splitTotal };
+}
+/** Reduces the balances to the fewest transfers that clear them: repeatedly settle the largest
+ * debtor against the largest creditor. Avoids telling four people to pay each other in a ring
+ * when two transfers would do. */
+function settlementPlan(rows){
+  const EPS = 0.01;
+  const debtors = rows.filter(r=>r.net < -EPS).map(r=>({name:r.name, amt:-r.net})).sort((a,b)=>b.amt-a.amt);
+  const creditors = rows.filter(r=>r.net > EPS).map(r=>({name:r.name, amt:r.net})).sort((a,b)=>b.amt-a.amt);
+  const transfers = [];
+  let i=0, j=0;
+  while(i<debtors.length && j<creditors.length){
+    const amount = Math.min(debtors[i].amt, creditors[j].amt);
+    if(amount > EPS) transfers.push({ from:debtors[i].name, to:creditors[j].name, amount });
+    debtors[i].amt -= amount;
+    creditors[j].amt -= amount;
+    if(debtors[i].amt <= EPS) i++;
+    if(creditors[j].amt <= EPS) j++;
+  }
+  return transfers;
+}
+function renderSplitPanel(trip){
+  const el = $('splitPanel');
+  if(!el) return;
+  const { rows, splitTotal } = computeBalances(trip);
+  if(!splitTotal){
+    el.innerHTML = `<div class="empty">No shared expenses yet. Add an expense and mark who paid and who it's split between — balances and who-owes-who appear here automatically.</div>`;
+    return;
+  }
+  const transfers = settlementPlan(rows);
+  el.innerHTML = `
+    <p class="small" style="margin:0 0 10px">${fmt$(splitTotal)} of shared spending across ${rows.length} ${rows.length===1?'person':'people'}.</p>
+    <div class="list">
+      ${rows.map(r=>{
+        const cls = r.net > 0.01 ? 'pos' : (r.net < -0.01 ? 'neg' : '');
+        const label = r.net > 0.01 ? `is owed ${fmt$(r.net)}` : (r.net < -0.01 ? `owes ${fmt$(-r.net)}` : 'settled up');
+        return `<div class="listRow"><div class="left"><div class="avatar sm">${initialsOf(r.name)}</div>
+          <div><div>${esc(r.name)}</div><div class="small">paid ${fmt$(r.paid)} · share ${fmt$(r.share)}</div></div></div>
+          <span class="balanceTag ${cls}">${label}</span></div>`;
+      }).join('')}
+    </div>
+    <div style="margin-top:14px">
+      <div class="small" style="font-weight:800;margin-bottom:8px">Simplest way to settle up</div>
+      ${transfers.length ? transfers.map(t=>`<div class="settleRow"><b>${esc(t.from)}</b> pays <b>${esc(t.to)}</b> <span class="settleAmt">${fmt$(t.amount)}</span></div>`).join('')
+        : `<div class="small">Everyone's square — nothing to settle.</div>`}
+    </div>`;
+}
+
+/* ---------------- Group polls ---------------- */
+function tripPolls(trip){ return trip.polls || (trip.polls = []); }
+function initPollModal(){
+  $('createPollBtn').onclick = ()=>{
+    const trip = getTrip(plannerState.tripId);
+    if(!trip) return;
+    const question = $('pollQuestion').value.trim();
+    const opts = ['pollOpt1','pollOpt2','pollOpt3','pollOpt4'].map(id=>$(id).value.trim()).filter(Boolean);
+    if(!question){ toast('Give the poll a question.'); return; }
+    if(opts.length < 2){ toast('A poll needs at least two options.'); return; }
+    tripPolls(trip).push({
+      id: uid('poll'), question,
+      options: opts.map(text=>({ id: uid('opt'), text, votes: [] })),
+      ts: Date.now(),
+    });
+    logActivity(trip, `started a poll: "${question}".`);
+    saveState();
+    closeModal('modal-poll');
+    toast('Poll created.');
+    renderCollabTab(trip);
+  };
+}
+function openPollModal(){
+  ['pollQuestion','pollOpt1','pollOpt2','pollOpt3','pollOpt4'].forEach(id=>{ $(id).value=''; });
+  openModal('modal-poll');
+}
+/** Votes are recorded per person by name. With no backend there's no separate login per
+ * collaborator, so the "voting as" selector lets a group settle a choice on one screen and
+ * still get an honest per-person tally, rather than a single anonymous counter. */
+let pollVoterName = null;
+function renderPollList(trip){
+  const el = $('pollList');
+  if(!el) return;
+  const polls = tripPolls(trip);
+  const names = trip.collaborators.map(c=>c.name);
+  if(!pollVoterName || !names.includes(pollVoterName)) pollVoterName = names[0];
+  if(!polls.length){
+    el.innerHTML = `<div class="empty">No polls yet. Use one to settle a real choice — which day for the day trip, which restaurant to book, whether to add the museum.</div>`;
+    return;
+  }
+  el.innerHTML = `
+    <div class="voterRow">
+      <label class="small" style="font-weight:700">Voting as</label>
+      <select id="pollVoterSelect">${names.map(n=>`<option ${n===pollVoterName?'selected':''}>${esc(n)}</option>`).join('')}</select>
+    </div>
+    ${polls.map(p=>{
+      const total = p.options.reduce((a,o)=>a+o.votes.length,0);
+      const maxVotes = Math.max(0, ...p.options.map(o=>o.votes.length));
+      return `<div class="pollCard">
+        <div class="pollHead">
+          <h4>${esc(p.question)}</h4>
+          <button class="btn sm danger" data-polldel="${p.id}"><i class="fa-solid fa-trash"></i></button>
+        </div>
+        <div class="small" style="margin-bottom:9px">${total} vote${total===1?'':'s'}${total?'':' yet'}</div>
+        ${p.options.map(o=>{
+          const mine = o.votes.includes(pollVoterName);
+          const pct = total ? Math.round(o.votes.length/total*100) : 0;
+          const leading = total>0 && o.votes.length===maxVotes;
+          return `<button class="pollOpt ${mine?'mine':''} ${leading?'leading':''}" data-vote="${p.id}::${o.id}">
+            <div class="pollOptTop"><span>${esc(o.text)}${leading?' <span class="leadTag">leading</span>':''}</span><span class="pollCount">${o.votes.length}</span></div>
+            <div class="pollBar"><div style="width:${pct}%"></div></div>
+            ${o.votes.length?`<div class="small pollVoters">${o.votes.map(v=>esc(v)).join(', ')}</div>`:''}
+          </button>`;
+        }).join('')}
+      </div>`;
+    }).join('')}`;
+
+  $('pollVoterSelect').onchange = e=>{ pollVoterName = e.target.value; renderPollList(trip); };
+  el.querySelectorAll('[data-vote]').forEach(b=>b.onclick=()=>{
+    const [pollId, optId] = b.dataset.vote.split('::');
+    const poll = tripPolls(trip).find(p=>p.id===pollId);
+    if(!poll) return;
+    const already = poll.options.find(o=>o.votes.includes(pollVoterName));
+    const target = poll.options.find(o=>o.id===optId);
+    if(already === target){
+      target.votes = target.votes.filter(v=>v!==pollVoterName); // clicking your own vote clears it
+    } else {
+      if(already) already.votes = already.votes.filter(v=>v!==pollVoterName); // one vote per person
+      target.votes.push(pollVoterName);
+    }
+    saveState();
+    renderPollList(trip);
+  });
+  el.querySelectorAll('[data-polldel]').forEach(b=>b.onclick=()=>{
+    const id = b.dataset.polldel;
+    const poll = tripPolls(trip).find(p=>p.id===id);
+    confirmDialog('Delete this poll?', poll?`"${poll.question}" and its votes will be removed.`:'', ()=>{
+      trip.polls = tripPolls(trip).filter(p=>p.id!==id);
+      saveState(); renderPollList(trip); toast('Poll deleted.');
+    });
+  });
+}
+
 /* ---------------- Collab tab ---------------- */
 function renderCollabTab(trip){
   $('collabList').innerHTML = trip.collaborators.map(c=>`<div class="listRow"><div class="left"><div class="avatar sm">${c.initials}</div><div><div>${esc(c.name)}</div><div class="small">${esc(c.email)}</div></div></div><span class="small">${esc(c.role)}</span></div>`).join('');
   $('inviteBtn').onclick = ()=>openShareModal(trip.id);
+  $('newPollBtn').onclick = openPollModal;
+  renderPollList(trip);
   $('activityList').innerHTML = trip.activity.length ? trip.activity.map(a=>`<div class="listRow" style="align-items:flex-start"><div class="left"><div class="avatar sm">${initialsOf(a.author)}</div><div><div><b>${esc(a.author)}</b> ${esc(a.text)}</div><div class="small">${timeAgo(a.ts)}</div></div></div></div>`).join('') : '<div class="empty">No activity yet.</div>';
 }
 
@@ -3292,6 +3468,7 @@ function init(){
   initOptimizeModal();
   initOrganizeAIModal();
   initBookingModal();
+  initPollModal();
   initEditBudgetModal();
   initCustomizeModal();
   initAI();
