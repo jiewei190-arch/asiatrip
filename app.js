@@ -1839,6 +1839,7 @@ function renderPlannerView(tripId, ptab){
   if(ptab==='budget') renderBudgetTab(trip);
   else if(ptab==='collab') renderCollabTab(trip);
   else if(ptab==='unscheduled') renderUnscheduledTab(trip);
+  else if(ptab==='packing') renderPackingTab(trip);
   else if(ptab==='itinerary') renderPlannerItinerary(trip);
   else renderDashboardTab(trip);
 }
@@ -1870,6 +1871,10 @@ function renderDashboardTab(trip){
   nextSteps.push({ icon:'💰', title: remaining>=0 ? 'Budget Remaining' : 'Over Budget',
     desc: remaining>=0 ? `${fmt$(remaining)} remaining of ${fmt$(trip.budget.total)}.` : `${fmt$(-remaining)} over your ${fmt$(trip.budget.total)} budget.`,
     cta:'View Budget', go:()=>navigate(`#/trip/${trip.id}/budget`) });
+  const pkItem = progress.items.find(i=>i.key==='packing');
+  if(pkItem && pkItem.status!=='done') nextSteps.push({ icon:'🎒', title: pkItem.status==='partial' ? 'Finish Packing' : 'Start Your Packing List',
+    desc: pkItem.status==='partial' ? pkItem.detail : 'An AI-suggested checklist for this trip is ready for you.',
+    cta:'Open Packing List', go:()=>navigate(`#/trip/${trip.id}/packing`) });
 
   const upcomingDay = trip.days[0];
 
@@ -2072,6 +2077,107 @@ function initOrganizeAIModal(){
   };
 }
 
+/* ---------------- AI-suggested packing list ---------------- */
+/** Rule-based (not a live model call) starter packing list, tailored to the trip's length and
+ * the destination's real tags (beach, adventure, culture, nightlife) plus its actual travel-info
+ * — never a generic one-size-fits-all list. Generated once per trip; after that it's the user's
+ * own editable checklist (checked items and custom additions are never overwritten). */
+function generatePackingList(trip, dest){
+  const days = trip.days.length || 1;
+  const tags = dest.tags || [];
+  const items = [];
+  let n = 0;
+  const add = (category, text) => items.push({ id:'pk'+(n++), category, text, checked:false });
+
+  add('Documents & Money', 'Passport (valid 6+ months from your travel dates)');
+  if(dest.travelInfo && dest.travelInfo.visa) add('Documents & Money', `Entry requirements: ${dest.travelInfo.visa}`);
+  add('Documents & Money', 'Travel insurance confirmation');
+  add('Documents & Money', 'Hotel & flight confirmations (saved offline, not just email)');
+  add('Documents & Money', 'A backup payment card + a little local cash');
+
+  add('Electronics', 'Phone charger + portable battery pack');
+  add('Electronics', 'Universal power adapter');
+  add('Electronics', 'Headphones');
+
+  add('Clothing', `Outfits for ${days} day${days===1?'':'s'}${days>5?' (plan on doing laundry, don’t pack for all '+days+')':''}`);
+  add('Clothing', 'Comfortable walking shoes');
+  if(tags.includes('beach')){ add('Clothing','Swimwear'); add('Clothing','Sandals / flip-flops'); add('Health & Toiletries','Reef-safe sunscreen'); }
+  if(tags.includes('adventure')){ add('Clothing','Sturdy hiking shoes'); add('Clothing','Light rain jacket'); add('Health & Toiletries','Reusable water bottle'); }
+  if(tags.includes('nightlife') || tags.includes('romantic')) add('Clothing','One dressier outfit for a night out');
+  if(tags.includes('culture')) add('Clothing','A modest layer for temples & religious sites');
+
+  add('Health & Toiletries', 'Toiletry kit + any prescription medication');
+  add('Health & Toiletries', 'Basic first-aid (pain reliever, band-aids)');
+
+  add('Before You Go', `Check the weather forecast for ${dest.name} closer to your trip`);
+  return items;
+}
+function packingProgress(trip){
+  const list = trip.packing || [];
+  const packed = list.filter(i=>i.checked).length;
+  return { packed, total: list.length };
+}
+function renderPackingTab(trip){
+  const dest = destForTrip(trip);
+  if(trip.packing == null){ trip.packing = generatePackingList(trip, dest); saveState(); }
+  const body = $('ptab-packing');
+  const { packed, total } = packingProgress(trip);
+  const pct = total ? Math.round(packed/total*100) : 0;
+  const categories = [];
+  trip.packing.forEach(i=>{ if(!categories.includes(i.category)) categories.push(i.category); });
+
+  body.innerHTML = `
+    <div class="panel" style="padding:18px">
+      <div class="panelHead">
+        <div><h3 style="margin:0">Packing List</h3><p class="small" style="margin:2px 0 0">AI-suggested for ${esc(dest.name)}, ${trip.days.length} day${trip.days.length===1?'':'s'} — edit freely, it's yours.</p></div>
+        <div class="progress" style="width:160px;flex-shrink:0"><div style="width:${pct}%"></div></div>
+      </div>
+      <p class="small" id="pkProgressLine" style="margin:0 0 14px">${packed}/${total} packed${total && packed===total?' — all set! 🎒':''}</p>
+      ${categories.map(cat=>`
+        <div style="margin-bottom:16px">
+          <div class="small" style="font-weight:800;text-transform:uppercase;letter-spacing:.03em;margin-bottom:8px">${esc(cat)}</div>
+          <div style="display:flex;flex-direction:column;gap:7px">
+            ${trip.packing.filter(i=>i.category===cat).map(i=>`
+              <div class="listRow">
+                <label class="left" style="cursor:pointer;flex:1">
+                  <input type="checkbox" data-pkcheck="${i.id}" ${i.checked?'checked':''}>
+                  <span style="${i.checked?'text-decoration:line-through;color:var(--muted)':''}">${esc(i.text)}</span>
+                </label>
+                <button class="btn sm danger" data-pkremove="${i.id}"><i class="fa-solid fa-trash"></i></button>
+              </div>`).join('')}
+          </div>
+        </div>`).join('')}
+      <div class="shareRow" style="margin-top:6px">
+        <input id="pkNewItem" placeholder="Add your own item…">
+        <select id="pkNewCategory">${categories.map(c=>`<option>${esc(c)}</option>`).join('')}<option>Other</option></select>
+        <button class="btn sm primary" id="pkAddBtn">Add</button>
+      </div>
+    </div>`;
+
+  body.querySelectorAll('[data-pkcheck]').forEach(cb=>cb.onchange=()=>{
+    const item = trip.packing.find(i=>i.id===cb.dataset.pkcheck);
+    item.checked = cb.checked;
+    saveState();
+    renderPackingTab(trip);
+    renderTripProgress(trip);
+  });
+  body.querySelectorAll('[data-pkremove]').forEach(b=>b.onclick=()=>{
+    trip.packing = trip.packing.filter(i=>i.id!==b.dataset.pkremove);
+    saveState();
+    renderPackingTab(trip);
+    renderTripProgress(trip);
+  });
+  $('pkAddBtn').onclick = ()=>{
+    const text = $('pkNewItem').value.trim();
+    if(!text) return;
+    const category = $('pkNewCategory').value;
+    trip.packing.push({ id:'pk'+Date.now().toString(36), category, text, checked:false });
+    saveState();
+    renderPackingTab(trip);
+    renderTripProgress(trip);
+  };
+}
+
 /* ---------------- Trip Planning Progress ---------------- */
 function computeTripProgress(trip){
   const dest = destForTrip(trip);
@@ -2099,6 +2205,9 @@ function computeTripProgress(trip){
     { key:'budget', label:'Budget Tracked', detail: expenses ? `${expenses} expense${expenses===1?'':'s'} logged` : 'No expenses logged yet', status: st(expenses>0 && budgetRatio>=0.5, expenses>0),
       go:()=>navigate(`#/trip/${trip.id}/budget`) },
   ];
+  const pk = packingProgress(trip);
+  items.push({ key:'packing', label:'Packing List', detail: pk.total ? `${pk.packed}/${pk.total} items packed` : 'Not started yet',
+    status: st(pk.total>0 && pk.packed===pk.total, pk.packed>0), go:()=>navigate(`#/trip/${trip.id}/packing`) });
   const doneCount = items.filter(i=>i.status==='done').length;
   const partialCount = items.filter(i=>i.status==='partial').length;
   const percent = Math.round(((doneCount + partialCount*0.5) / items.length) * 100);
