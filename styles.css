@@ -254,6 +254,14 @@ main{max-width:1280px;margin:0 auto;padding:0 24px 60px;min-height:60vh}
 .plannerHead h1{font:800 28px 'Plus Jakarta Sans';margin:4px 0}
 .plannerSub{color:var(--muted);font-size:13.5px}
 .plannerHead .actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.tripProgress{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin-top:16px}
+.progressHead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.progressGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
+.progressItem{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:11px;background:var(--surface2);text-align:left;border:1px solid transparent}
+.progressItem:hover{border-color:var(--line);background:var(--soft)}
+.pIcon{font-size:15px;flex-shrink:0}
+.pText{display:flex;flex-direction:column;gap:1px;min-width:0}
+.pLabel{font-weight:700;font-size:12.5px}
 .plannerTabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:18px 0}
 .ptab{padding:10px 14px;font-weight:700;color:var(--muted);border-bottom:3px solid transparent}
 .ptab.active{color:var(--green);border-bottom-color:var(--green)}
@@ -271,6 +279,11 @@ main{max-width:1280px;margin:0 auto;padding:0 24px 60px;min-height:60vh}
 .dayToolbar{display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .dayToolbar input[type=date]{border:1px solid var(--line);border-radius:9px;padding:6px 8px;font-weight:600;font-size:12.5px;background:var(--surface2)}
 
+.routeWarning{display:flex;align-items:center;gap:10px;margin:12px 18px 0;padding:10px 12px;border-radius:12px;background:rgba(230,162,60,.12);border:1px solid var(--orange)}
+.routeWarning .warnIcon{font-size:18px;flex-shrink:0}
+.routeWarning .warnBody{flex:1;min-width:0}
+.routeWarning .warnBody b{font-size:13px}
+.routeWarning .warnBody p{margin:2px 0 0}
 .timeline{padding:14px 18px;flex:1;overflow-y:auto;max-height:520px}
 .stop{border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px;background:var(--surface);cursor:grab;position:relative}
 .stop.dragging{opacity:.4}
