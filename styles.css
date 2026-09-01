@@ -321,6 +321,13 @@ main{max-width:1280px;margin:0 auto;padding:0 24px 60px;min-height:60vh}
 .routeWarning .warnBody{flex:1;min-width:0}
 .routeWarning .warnBody b{font-size:13px}
 .routeWarning .warnBody p{margin:2px 0 0}
+.conflictWarning{display:flex;align-items:center;gap:10px;margin:12px 18px 0;padding:10px 12px;border-radius:12px;background:var(--danger-soft);border:1px solid var(--danger)}
+.conflictWarning .warnIcon{font-size:18px;flex-shrink:0}
+.conflictWarning .warnBody{flex:1;min-width:0}
+.conflictWarning .warnBody b{font-size:13px;color:var(--danger)}
+.conflictWarning .warnBody p{margin:2px 0 0}
+.noteBox{margin:12px 18px 0}
+.notesTextarea{width:100%;min-height:80px;border:1px solid var(--line);border-radius:12px;padding:10px;outline:0;resize:vertical;font-family:inherit;background:var(--surface2);font-size:13px}
 .timeline{padding:14px 18px;flex:1;overflow-y:auto;max-height:520px}
 .stop{border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px;background:var(--surface);cursor:grab;position:relative}
 .stop.dragging{opacity:.4}
