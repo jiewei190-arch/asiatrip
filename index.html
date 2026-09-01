@@ -189,6 +189,7 @@
         <button class="ptab" data-ptab="itinerary">Itinerary &amp; Map</button>
         <button class="ptab" data-ptab="unscheduled">Unscheduled Places</button>
         <button class="ptab" data-ptab="packing">Packing</button>
+        <button class="ptab" data-ptab="bookings">Bookings</button>
         <button class="ptab" data-ptab="budget">Budget</button>
         <button class="ptab" data-ptab="collab">Collaborators</button>
       </div>
@@ -198,6 +199,8 @@
       <div class="ptabBody" id="ptab-unscheduled"></div>
 
       <div class="ptabBody" id="ptab-packing"></div>
+
+      <div class="ptabBody" id="ptab-bookings"></div>
 
       <div class="ptabBody" id="ptab-itinerary">
         <div class="dashboard">
@@ -438,6 +441,22 @@
       <div class="field"><label>Amount ($)</label><input type="number" id="expenseAmount" min="0"/></div>
     </div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" data-close="modal-expense">Cancel</button><button class="btn primary" id="saveExpenseBtn">Save expense</button></div>
+  </div>
+</div>
+
+<div class="modalBack" id="modal-booking">
+  <div class="modal">
+    <div class="modalHeader"><div><h2 id="bookingModalTitle">Add booking</h2></div><button class="xbtn" data-close="modal-booking">×</button></div>
+    <div class="modalGrid" style="margin-top:14px">
+      <div class="field"><label>Type</label><select id="bookingType"></select></div>
+      <div class="field grow2"><label>Name</label><input id="bookingTitle" placeholder="e.g. Park Hyatt Tokyo"/></div>
+      <div class="field grow2"><label>Confirmation number</label><input id="bookingConf" placeholder="e.g. ABC123XYZ"/></div>
+      <div class="field"><label>Date</label><input type="date" id="bookingDate"/></div>
+      <div class="field"><label>Time</label><input type="time" id="bookingTime"/></div>
+      <div class="field"><label>Cost ($)</label><input type="number" id="bookingCost" min="0"/></div>
+      <div class="field grow2"><label>Notes</label><input id="bookingNotes" placeholder="Terminal, room type, dietary notes…"/></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" data-close="modal-booking">Cancel</button><button class="btn primary" id="saveBookingBtn">Save booking</button></div>
   </div>
 </div>
 

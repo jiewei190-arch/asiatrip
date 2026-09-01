@@ -327,6 +327,16 @@ main{max-width:1280px;margin:0 auto;padding:0 24px 60px;min-height:60vh}
 .conflictWarning .warnBody b{font-size:13px;color:var(--danger)}
 .conflictWarning .warnBody p{margin:2px 0 0}
 .noteBox{margin:12px 18px 0}
+.inboxBar{border:1px dashed var(--line);border-radius:14px;padding:13px 15px;margin-bottom:16px;background:var(--surface2)}
+.inboxHead{font-weight:800;font-size:13.5px}
+.bookingList{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.bookingCard{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:var(--surface)}
+.bkIcon{font-size:22px;flex-shrink:0;line-height:1.2}
+.bkBody{flex:1;min-width:0}
+.bkBody h4{margin:0 0 3px;font-size:14.5px}
+.bkConf{margin-top:6px;font-size:12px;font-weight:700;color:var(--green)}
+.bkConf.missing{color:var(--muted);font-weight:600;font-style:italic}
+.bkActions{display:flex;gap:5px;flex-shrink:0}
 .notesTextarea{width:100%;min-height:80px;border:1px solid var(--line);border-radius:12px;padding:10px;outline:0;resize:vertical;font-family:inherit;background:var(--surface2);font-size:13px}
 .timeline{padding:14px 18px;flex:1;overflow-y:auto;max-height:520px}
 .stop{border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px;background:var(--surface);cursor:grab;position:relative}

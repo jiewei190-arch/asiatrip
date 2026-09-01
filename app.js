@@ -1870,6 +1870,7 @@ function renderPlannerView(tripId, ptab){
   else if(ptab==='collab') renderCollabTab(trip);
   else if(ptab==='unscheduled') renderUnscheduledTab(trip);
   else if(ptab==='packing') renderPackingTab(trip);
+  else if(ptab==='bookings') renderBookingsTab(trip);
   else if(ptab==='itinerary') renderPlannerItinerary(trip);
   else renderDashboardTab(trip);
 }
@@ -1901,6 +1902,11 @@ function renderDashboardTab(trip){
   nextSteps.push({ icon:'💰', title: remaining>=0 ? 'Budget Remaining' : 'Over Budget',
     desc: remaining>=0 ? `${fmt$(remaining)} remaining of ${fmt$(trip.budget.total)}.` : `${fmt$(-remaining)} over your ${fmt$(trip.budget.total)} budget.`,
     cta:'View Budget', go:()=>navigate(`#/trip/${trip.id}/budget`) });
+  const bkItem = progress.items.find(i=>i.key==='bookings');
+  if(bkItem && bkItem.status!=='done') nextSteps.push({ icon:'🎟️',
+    title: bkItem.status==='partial' ? 'Add Missing Confirmations' : 'Log Your Bookings',
+    desc: bkItem.status==='partial' ? bkItem.detail : 'Keep flights, hotels and tours (and their confirmation numbers) with the trip.',
+    cta:'Open Bookings', go:()=>navigate(`#/trip/${trip.id}/bookings`) });
   const pkItem = progress.items.find(i=>i.key==='packing');
   if(pkItem && pkItem.status!=='done') nextSteps.push({ icon:'🎒', title: pkItem.status==='partial' ? 'Finish Packing' : 'Start Your Packing List',
     desc: pkItem.status==='partial' ? pkItem.detail : 'An AI-suggested checklist for this trip is ready for you.',
@@ -1961,11 +1967,132 @@ function renderDashboardTab(trip){
 
 /* ---------------- Unscheduled Places bucket ---------------- */
 let unscheduledState = { search:'', cat:'all', sort:'rec' };
+/* ---------------- Trip Inbox ---------------- */
+function inboxTitleCase(s){
+  return String(s).split(' ').filter(Boolean)
+    .map(w=> w.length<=2 && /^(of|in|at|on|the|a|an|to|by)$/i.test(w) ? w.toLowerCase() : w.charAt(0).toUpperCase()+w.slice(1))
+    .join(' ');
+}
+/** Pulls a place name out of pasted text or a pasted link.
+ * A static site can't fetch an arbitrary page cross-origin, so this reads the link ITSELF
+ * rather than pretending to open it — which works, because travel URLs carry the place name in
+ * their slug (…/Attraction_Review-g298184-d320447-Reviews-Senso_ji_Temple-Tokyo.html). Strips
+ * the site's own scaffolding (ids, "Reviews", "Attraction", file extensions) and keeps the
+ * longest human-looking segment. Returns null when there's nothing recognizable. */
+function parsePastedPlace(raw){
+  const text = String(raw||'').trim();
+  if(!text) return null;
+  if(!/^https?:\/\//i.test(text)) return text.split('\n')[0].slice(0,80).trim() || null;
+  let u;
+  try{ u = new URL(text); }catch(e){ return null; }
+  const segs = u.pathname.split('/').filter(Boolean).map(s=>{ try{ return decodeURIComponent(s); }catch(e){ return s; } });
+  let best = '';
+  for(const seg of segs){
+    const cleaned = seg
+      .replace(/\.(html?|php|aspx)$/i,'')
+      .replace(/[-_+]/g,' ')
+      .replace(/\b[gd]\d+\b/gi,' ')
+      .replace(/\b\d{3,}\b/g,' ')
+      .replace(/\b(reviews?|attraction|attractions|things|to|do|hotel|hotels|restaurant|restaurants|tours?|activities|places?|maps?|search|www|com|en|us)\b/gi,' ')
+      .replace(/\s+/g,' ').trim();
+    const words = w => w.split(' ').filter(x=>x.length>1).length;
+    if(words(cleaned) > words(best)) best = cleaned;
+  }
+  return best ? inboxTitleCase(best) : null;
+}
+/** Punctuation-insensitive, so a slug-derived "Senso Ji Temple" still matches the real
+ * "Senso-ji Temple" — the hyphen only survives in one of the two. */
+function normalizePlaceName(s){
+  return String(s).toLowerCase().replace(/[^a-z0-9\s]/g,' ').replace(/\s+/g,' ').trim();
+}
+/** Matches an extracted name against the destination's real place pool first, so a pasted link
+ * to somewhere TripFlow already knows resolves to that real place (with its real rating,
+ * coordinates and photo) rather than creating a thin duplicate. */
+function matchPlaceByName(name, destId, destName){
+  const pool = PLACES.filter(p=>p.destId===destId);
+  let n = normalizePlaceName(name);
+  const dn = normalizePlaceName(destName||'');
+  // Travel URLs usually tack the city onto the slug ("Senso Ji Temple Tokyo"); drop it so it
+  // doesn't stop the place itself from matching.
+  if(dn && n.length > dn.length && n.endsWith(' '+dn)) n = n.slice(0, -(dn.length+1)).trim();
+  if(!n) return null;
+  const exact = pool.find(p=>normalizePlaceName(p.name)===n);
+  if(exact) return exact;
+  const sub = pool.find(p=>{ const pn = normalizePlaceName(p.name); return pn && (pn.includes(n) || n.includes(pn)); });
+  if(sub) return sub;
+  // Last resort: significant-word overlap, so small wording differences still land on the right
+  // place, while an unrelated name stays unmatched and becomes the user's own item instead.
+  const tokens = s => new Set(normalizePlaceName(s).split(' ').filter(w=>w.length>2));
+  const nTok = tokens(n);
+  if(!nTok.size) return null;
+  let best = null, bestScore = 0;
+  for(const p of pool){
+    const pTok = tokens(p.name);
+    if(!pTok.size) continue;
+    let hits = 0;
+    nTok.forEach(t=>{ if(pTok.has(t)) hits++; });
+    const score = hits / Math.min(nTok.size, pTok.size);
+    if(score > bestScore){ bestScore = score; best = p; }
+  }
+  return bestScore >= 0.6 ? best : null;
+}
+function addToTripInbox(trip, rawText){
+  const dest = destForTrip(trip);
+  const name = parsePastedPlace(rawText);
+  if(!name){ toast("Couldn't find a place name in that — try pasting the name itself."); return false; }
+  const collection = STATE.collections[0];
+  const matched = matchPlaceByName(name, dest.id, dest.name);
+  if(matched){
+    if(collection.placeIds.includes(matched.id)){ toast(`${matched.name} is already saved.`); return false; }
+    collection.placeIds.push(matched.id);
+    logActivity(trip, `added ${matched.name} from the trip inbox.`);
+    saveState();
+    toast(`Found "${matched.name}" in ${dest.name} — added to unscheduled.`);
+    return true;
+  }
+  // Not in the pool — keep the user's own item rather than inventing details for it. Location
+  // is the destination's centre and is labelled approximate, never presented as verified.
+  const place = {
+    id: `${dest.id}-inbox-${Date.now().toString(36)}`,
+    destId: dest.id, type:'attraction', name,
+    category:'From your inbox', rating:0, reviews:0, priceLevel:0, price:0,
+    area: dest.name, lat: dest.lat, lng: dest.lng,
+    desc: 'Saved from a link you pasted. Location is approximate until you set it.',
+    tags:['hidden'], duration:75, fromInbox:true,
+    image: img('inbox-'+name, 640, 480, name),
+  };
+  PLACES.push(place);
+  collection.placeIds.push(place.id);
+  logActivity(trip, `added "${name}" from the trip inbox.`);
+  saveState();
+  toast(`Added "${name}" to unscheduled places.`);
+  return true;
+}
+function wireTripInbox(trip){
+  const input = $('inboxInput'), btn = $('inboxAdd');
+  if(!input || !btn) return;
+  const submit = ()=>{
+    const text = input.value.trim();
+    if(!text) return;
+    if(addToTripInbox(trip, text)){ input.value=''; renderUnscheduledTab(trip); renderTripProgress(trip); }
+  };
+  btn.onclick = submit;
+  input.onkeydown = e=>{ if(e.key==='Enter') submit(); };
+}
+
 function renderUnscheduledTab(trip){
   const dest = destForTrip(trip);
   const body = $('ptab-unscheduled');
   const all = unscheduledPlacesForTrip(trip);
   body.innerHTML = `
+    <div class="inboxBar">
+      <div class="inboxHead">📥 Trip Inbox</div>
+      <p class="small" style="margin:2px 0 9px">Paste a link you found (or just type a place name) and it lands here, ready to schedule.</p>
+      <div class="shareRow">
+        <input id="inboxInput" placeholder="Paste a link, or type a place name…">
+        <button class="btn primary sm" id="inboxAdd">Add</button>
+      </div>
+    </div>
     <div class="panelHead" style="padding:0 0 14px;border:0">
       <h3>${all.length} Place${all.length===1?'':'s'} Waiting to Be Scheduled</h3>
       <button class="btn magic" id="uOrganizeAI" ${all.length?'':'disabled'}>✨ Organize with AI</button>
@@ -1987,6 +2114,7 @@ function renderUnscheduledTab(trip){
       <div class="small" style="margin-top:4px">Save places from ${esc(dest.name)}'s Things To Do, Restaurants, or Hotels tabs and they'll show up here until you add them to a day.</div>
       <button class="btn primary" style="margin-top:14px" data-explore="1">Explore ${esc(dest.name)}</button>
     </div>`}`;
+  wireTripInbox(trip);
   if(!all.length){ const b=body.querySelector('[data-explore]'); if(b) b.onclick=()=>navigate(`#/destination/${encodeURIComponent(dest.id)}/things`); return; }
 
   $('uSearch').value = unscheduledState.search; $('uCat').value = unscheduledState.cat; $('uSort').value = unscheduledState.sort;
@@ -2208,6 +2336,121 @@ function renderPackingTab(trip){
   };
 }
 
+/* ---------------- Reservations & Bookings Center ---------------- */
+const BOOKING_TYPES = [
+  ['flight','✈️','Flight'], ['hotel','🏨','Accommodation'], ['restaurant','🍽️','Restaurant'],
+  ['activity','🎟️','Activity / Tour'], ['transport','🚆','Transport'], ['other','📄','Other'],
+];
+function bookingTypeMeta(key){ return BOOKING_TYPES.find(t=>t[0]===key) || BOOKING_TYPES[BOOKING_TYPES.length-1]; }
+function tripBookings(trip){ return trip.bookings || (trip.bookings = []); }
+/** Sorted by when they actually happen, so the list reads as a timeline rather than
+ * insertion order. Undated bookings sort last — they're the ones still missing details. */
+function sortedBookings(trip){
+  return tripBookings(trip).slice().sort((a,b)=>{
+    if(!a.date && !b.date) return 0;
+    if(!a.date) return 1;
+    if(!b.date) return -1;
+    const d = a.date.localeCompare(b.date);
+    return d !== 0 ? d : (a.time||'').localeCompare(b.time||'');
+  });
+}
+let __bookingEditId = null;
+function openBookingModal(trip, bookingId){
+  __bookingEditId = bookingId || null;
+  const existing = bookingId ? tripBookings(trip).find(b=>b.id===bookingId) : null;
+  $('bookingModalTitle').textContent = existing ? 'Edit booking' : 'Add booking';
+  $('bookingType').innerHTML = BOOKING_TYPES.map(([k,e,label])=>`<option value="${k}">${e} ${esc(label)}</option>`).join('');
+  $('bookingType').value = existing ? existing.type : 'hotel';
+  $('bookingTitle').value = existing ? existing.title : '';
+  $('bookingConf').value = existing ? (existing.confirmation||'') : '';
+  $('bookingDate').value = existing ? (existing.date||'') : trip.start;
+  $('bookingTime').value = existing ? (existing.time||'') : '';
+  $('bookingCost').value = existing && existing.cost ? existing.cost : '';
+  $('bookingNotes').value = existing ? (existing.notes||'') : '';
+  openModal('modal-booking');
+}
+function initBookingModal(){
+  $('saveBookingBtn').onclick = ()=>{
+    const trip = getTrip(plannerState.tripId);
+    if(!trip) return;
+    const title = $('bookingTitle').value.trim();
+    if(!title){ toast('Give the booking a name first.'); return; }
+    const fields = {
+      type: $('bookingType').value,
+      title,
+      confirmation: $('bookingConf').value.trim(),
+      date: $('bookingDate').value,
+      time: $('bookingTime').value,
+      cost: Number($('bookingCost').value) || 0,
+      notes: $('bookingNotes').value.trim(),
+    };
+    const list = tripBookings(trip);
+    const existing = __bookingEditId ? list.find(b=>b.id===__bookingEditId) : null;
+    if(existing){
+      Object.assign(existing, fields);
+      logActivity(trip, `updated the ${bookingTypeMeta(fields.type)[2].toLowerCase()} booking "${title}".`);
+    } else {
+      list.push(Object.assign({ id: uid('bk') }, fields));
+      logActivity(trip, `added a ${bookingTypeMeta(fields.type)[2].toLowerCase()} booking: "${title}".`);
+    }
+    saveState();
+    closeModal('modal-booking');
+    toast(existing ? 'Booking updated.' : 'Booking saved.');
+    renderBookingsTab(trip);
+    renderTripProgress(trip);
+  };
+}
+function renderBookingsTab(trip){
+  const body = $('ptab-bookings');
+  const list = sortedBookings(trip);
+  const totalCost = list.reduce((sum,b)=>sum+(b.cost||0), 0);
+  const missingConf = list.filter(b=>!b.confirmation).length;
+
+  body.innerHTML = `
+    <div class="panel" style="padding:18px">
+      <div class="panelHead">
+        <div><h3 style="margin:0">Reservations &amp; Bookings</h3>
+          <p class="small" style="margin:2px 0 0">${list.length ? `${list.length} booking${list.length===1?'':'s'} · ${fmt$(totalCost)} total${missingConf?` · ${missingConf} missing a confirmation number`:''}` : 'Everything you\'ve actually booked, in one place.'}</p></div>
+        <button class="btn primary sm" id="addBookingBtn"><i class="fa-solid fa-plus"></i> Add booking</button>
+      </div>
+      ${list.length ? `<div class="bookingList">${list.map(b=>{
+        const [k,emoji,label] = bookingTypeMeta(b.type);
+        return `<div class="bookingCard">
+          <div class="bkIcon">${emoji}</div>
+          <div class="bkBody">
+            <h4>${esc(b.title)}</h4>
+            <div class="small">${esc(label)}${b.date?` · ${fmtDateFull(b.date)}`:''}${b.time?` · ${fmtTime12(b.time)}`:''}${b.cost?` · ${fmt$(b.cost)}`:''}</div>
+            ${b.confirmation
+              ? `<div class="bkConf">Confirmation <b>${esc(b.confirmation)}</b></div>`
+              : `<div class="bkConf missing">No confirmation number yet</div>`}
+            ${b.notes?`<p class="small" style="margin:6px 0 0">${esc(b.notes)}</p>`:''}
+          </div>
+          <div class="bkActions">
+            <button class="btn sm" data-bkedit="${b.id}">Edit</button>
+            <button class="btn sm danger" data-bkdel="${b.id}"><i class="fa-solid fa-trash"></i></button>
+          </div>
+        </div>`;
+      }).join('')}</div>`
+      : `<div class="empty" style="margin-top:14px">Nothing booked yet. As you book flights, hotels and tours, add them here so every confirmation number lives with the trip instead of buried in your inbox.<br><br><button class="btn primary" id="addBookingEmpty"><i class="fa-solid fa-plus"></i> Add your first booking</button></div>`}
+    </div>`;
+
+  const open = ()=>openBookingModal(trip, null);
+  if($('addBookingBtn')) $('addBookingBtn').onclick = open;
+  if($('addBookingEmpty')) $('addBookingEmpty').onclick = open;
+  body.querySelectorAll('[data-bkedit]').forEach(b=>b.onclick=()=>openBookingModal(trip, b.dataset.bkedit));
+  body.querySelectorAll('[data-bkdel]').forEach(b=>b.onclick=()=>{
+    const bk = tripBookings(trip).find(x=>x.id===b.dataset.bkdel);
+    confirmDialog('Delete this booking?', `"${bk?bk.title:''}" will be removed from this trip.`, ()=>{
+      trip.bookings = tripBookings(trip).filter(x=>x.id!==b.dataset.bkdel);
+      logActivity(trip, `removed the booking "${bk?bk.title:''}".`);
+      saveState();
+      renderBookingsTab(trip);
+      renderTripProgress(trip);
+      toast('Booking deleted.');
+    });
+  });
+}
+
 /* ---------------- Trip Planning Progress ---------------- */
 function computeTripProgress(trip){
   const dest = destForTrip(trip);
@@ -2238,6 +2481,12 @@ function computeTripProgress(trip){
   const pk = packingProgress(trip);
   items.push({ key:'packing', label:'Packing List', detail: pk.total ? `${pk.packed}/${pk.total} items packed` : 'Not started yet',
     status: st(pk.total>0 && pk.packed===pk.total, pk.packed>0), go:()=>navigate(`#/trip/${trip.id}/packing`) });
+  const bookings = tripBookings(trip);
+  const confirmed = bookings.filter(b=>b.confirmation).length;
+  items.push({ key:'bookings', label:'Bookings Confirmed',
+    detail: bookings.length ? `${confirmed}/${bookings.length} have a confirmation number` : 'Nothing booked yet',
+    status: st(bookings.length>0 && confirmed===bookings.length, bookings.length>0),
+    go:()=>navigate(`#/trip/${trip.id}/bookings`) });
   const doneCount = items.filter(i=>i.status==='done').length;
   const partialCount = items.filter(i=>i.status==='partial').length;
   const percent = Math.round(((doneCount + partialCount*0.5) / items.length) * 100);
@@ -3042,6 +3291,7 @@ function init(){
   initEditTripModal();
   initOptimizeModal();
   initOrganizeAIModal();
+  initBookingModal();
   initEditBudgetModal();
   initCustomizeModal();
   initAI();
