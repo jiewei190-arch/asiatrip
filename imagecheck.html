@@ -159,10 +159,16 @@ async function run(){
     } else {
       const obj = JSON.parse(raw);
       const keys = Object.keys(obj);
-      const bad = keys.filter(k => !obj[k]);
-      cc.set(bad.length === 0,
-        keys.length + ' entries, ' + bad.length + ' of them failed lookups',
-        bad.length ? 'Stuck-on-placeholder entries:\n' + bad.join('\n') : 'All cached entries hold a real photo URL.');
+      const ok = keys.filter(k => typeof obj[k] === 'string' && obj[k]);
+      // Legacy: a bare null written before misses carried a timestamp (always retries).
+      const legacy = keys.filter(k => !obj[k]);
+      // Current: a remembered miss, which expires on its own.
+      const missed = keys.filter(k => obj[k] && typeof obj[k] === 'object' && obj[k].miss);
+      cc.set(legacy.length === 0,
+        keys.length + ' entries — ' + ok.length + ' real photos, '
+          + missed.length + ' expiring misses, ' + legacy.length + ' legacy stuck entries',
+        (legacy.length ? 'Legacy stuck entries (these retry automatically):\n' + legacy.slice(0,12).join('\n') + '\n\n' : '')
+          + (missed.length ? 'Remembered misses (expire after 24h):\n' + missed.slice(0,12).join('\n') : ''));
     }
   }catch(err){ cc.set(false, 'Could not read localStorage', String(err)); }
 

@@ -99,6 +99,11 @@ function hydratePhotos(container){
     if(!isPlaceholder){ imgEl.dataset.photoResolved='1'; return; } // already a real photo, just needed the safety net above
     if(!queries.length) return;
     imgEl.dataset.photoResolved = '1';
+    // hydratePhotos runs synchronously right after each render, so swapping a known photo in
+    // here happens before the browser paints — the placeholder never actually appears on a
+    // page whose photos have been resolved once already.
+    const known = cachedWikiThumbnail(queries);
+    if(known){ imgEl.src = known; return; }
     fetchWikiThumbnailChain(queries).then(url=>{
       if(!url) return;
       imgEl.src = url;
