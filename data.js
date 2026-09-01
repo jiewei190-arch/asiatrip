@@ -749,6 +749,64 @@ DESTINATIONS_RAW.forEach(d=>{
   (d.hotels||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-h${i+1}`, destId:d.id, type:'hotel', image:img(d.id+'-hotel-'+i,640,480,p.name)}, p)));
 });
 
+/* ---------------- On-demand attraction padding for long trip ideas ----------------
+   Curated destinations only ship a handful of hand-written attractions. A multi-day
+   trip idea needs at least 5 attractions per day, so once the curated (plus any
+   live-enriched) pool runs short, top it up with plausible themed spots built from
+   the destination's own real neighborhood names — deterministic per destination so
+   regenerating ideas reshuffles the same pool rather than inventing new places
+   each time. */
+const FILLER_ATTR_THEMES = [
+  ['Walking Tour', "A guided stroll through {area}'s streets, landmarks and local life.", 'culture'],
+  ['Rooftop Lounge', 'Sunset views and drinks above the rooftops of {area}.', 'nightlife'],
+  ['Art Walk', 'Galleries and street art scattered through {area}.', 'art'],
+  ['Hidden Cafés', "A crawl through {area}'s best-kept café secrets.", 'hidden'],
+  ['Local Market', 'Stalls, spices and street food in the heart of {area}.', 'food'],
+  ['Waterfront Promenade', "A relaxed walk along {area}'s waterfront.", 'relax'],
+  ['Photography Spot', "One of {area}'s most frame-worthy corners.", 'photography'],
+  ['Sunset Viewpoint', "One of the best sunset views in {area}.", 'romantic'],
+  ['Botanical Garden', "A quiet green escape in {area}.", 'nature'],
+  ['Boutique Shopping Row', 'Independent shops and design studios in {area}.', 'shopping'],
+];
+function fillerAttractionsForDest(dest, count){
+  const existing = PLACES.filter(p=>p.destId===dest.id);
+  const usedNames = new Set(existing.map(p=>p.name.toLowerCase()));
+  const areas = [...new Set(existing.map(p=>p.area).filter(Boolean))];
+  if(!areas.length) areas.push(dest.name);
+  const out = [];
+  let idx = 0, guard = 0;
+  while(out.length < count && guard < count*20){
+    guard++;
+    const theme = FILLER_ATTR_THEMES[idx % FILLER_ATTR_THEMES.length];
+    const area = areas[Math.floor(idx / FILLER_ATTR_THEMES.length) % areas.length];
+    idx++;
+    const name = `${area} ${theme[0]}`;
+    if(usedNames.has(name.toLowerCase())) continue;
+    usedNames.add(name.toLowerCase());
+    const seed = dest.id+'-filler-'+name;
+    out.push({
+      name, category: theme[0],
+      rating: +(4.2 + (hashStr(seed)%40)/100).toFixed(1),
+      reviews: 200 + (hashStr(seed+'r')%3000),
+      priceLevel: hashStr(seed+'p')%3, price:[0,10,20][hashStr(seed+'p')%3],
+      area, lat: dest.lat + (((hashStr(seed+'lat')%200)-100)/2000), lng: dest.lng + (((hashStr(seed+'lng')%200)-100)/2000),
+      desc: theme[1].replace('{area}', area), tags:[theme[2],'hidden'], duration:75,
+    });
+  }
+  return out;
+}
+/** Ensures a destination's PLACES pool has at least `minAttractions` attraction entries,
+ * padding with fillerAttractionsForDest() (real curated/enriched ones always come first). */
+function ensureAttractionSupply(destId, minAttractions){
+  const dest = DESTINATIONS.find(d=>d.id===destId);
+  if(!dest) return;
+  const have = PLACES.filter(p=>p.destId===destId && p.type==='attraction').length;
+  if(have >= minAttractions) return;
+  const filler = fillerAttractionsForDest(dest, minAttractions - have);
+  filler.forEach((p,i)=>PLACES.push(Object.assign(
+    {id:`${destId}-x${have+i+1}`, destId, type:'attraction', image:img(destId+'-fillerattr-'+(have+i),640,480,p.name)}, p)));
+}
+
 /* ---------------- Generic fallback destination generator ---------------- */
 function seededRandom(seedStr){
   let h = 1779033703 ^ seedStr.length;

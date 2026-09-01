@@ -482,7 +482,7 @@ function viewPlaceOnMap(placeId){
   const p = placeById(placeId);
   if(!p) return;
   navigate(`#/destination/${encodeURIComponent(p.destId)}/map`);
-  setTimeout(()=>{ if(window.__destMap){ window.__destMap.flyTo([p.lat,p.lng],15); const m=window.__destMarkerById[p.id]; if(m) m.openPopup(); } }, 260);
+  setTimeout(()=>{ if(typeof focusDestMapPlace==='function') focusDestMapPlace(p); }, 260);
 }
 
 /* ---------------- place detail modal ---------------- */
@@ -1044,39 +1044,47 @@ function addPlaceToTripSilent(trip, dayIdx, place){
   day.stops.push(mkStopFromPlace(place, nextTime));
 }
 
-/* ---------------- Map tab (destination discovery map) ---------------- */
-window.__destMarkerById = {};
+/* ---------------- Map tab (destination discovery map, real embedded Google Maps) ---------------- */
+window.__destMapPlaceId = null;
 function renderDestMap(dest, body){
   body.innerHTML = `
     <div class="panel mapPanel" style="min-height:600px">
-      <div class="panelHead"><h3>Explore ${esc(dest.name)} on the map</h3><div class="rowgap"><button class="btn sm" id="destMapCenter"><i class="fa-solid fa-crosshairs"></i> Center</button></div></div>
+      <div class="panelHead"><h3>Explore ${esc(dest.name)} on the map</h3>
+        <div class="rowgap">
+          <a class="btn sm" id="destMapOpen" href="${gmapsExternalLink(dest.name+(dest.country?', '+dest.country:''))}" target="_blank" rel="noopener"><i class="fa-solid fa-up-right-from-square"></i> Open in Google Maps</a>
+          <button class="btn sm" id="destMapCenter"><i class="fa-solid fa-crosshairs"></i> Center</button>
+        </div>
+      </div>
       <div class="mapLegend" id="destMapLegend"></div>
-      <div class="map" id="destMap" style="min-height:520px"></div>
+      <div class="mapSplit">
+        <div class="map" id="destMap" style="min-height:420px">
+          ${navigator.onLine===false ? mapUnavailableHTML() : `<iframe id="destMapFrame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen src="${gmapsSearchEmbedUrl(dest.name+(dest.country?', '+dest.country:''),13)}"></iframe>`}
+        </div>
+        <div class="mapPlaceList" id="destMapList"></div>
+      </div>
     </div>`;
   const legends = [['attraction','Attractions','var(--cat-attraction)'],['restaurant','Restaurants','var(--cat-restaurant)'],['hotel','Hotels','var(--cat-hotel)']];
   $('destMapLegend').innerHTML = legends.map(([k,l,c])=>`<button class="legend ${destState.mapCats.has(k)?'active':''}" data-cat="${k}"><span class="legendDot" style="background:${c}"></span>${l}</button>`).join('');
-  if(typeof L === 'undefined'){ $('destMap').innerHTML = mapUnavailableHTML(); return; }
-  let map;
-  try{ map = L.map('destMap',{zoomControl:true}).setView([dest.lat,dest.lng],13); }
-  catch(e){ $('destMap').innerHTML = mapUnavailableHTML(); return; }
-  window.__destMap = map;
-  window.__destMapState = addMapTypeToggle(map, $('destMap'));
-  window.__destMarkerById = {};
+  window.__destMapDest = dest;
+  window.__destMapPlaceId = null;
   function draw(){
-    Object.values(window.__destMarkerById).forEach(m=>map.removeLayer(m));
-    window.__destMarkerById = {};
     const list = PLACES.filter(p=>p.destId===dest.id && destState.mapCats.has(p.type));
-    list.forEach(p=>{
-      const icon = L.divIcon({className:'custom-map-pin', html:`<span>${catEmoji(p.type)}</span>`, iconSize:[28,28], iconAnchor:[14,28]});
-      const marker = L.marker([p.lat,p.lng],{icon}).addTo(map);
-      marker.getElement && setTimeout(()=>{ const el = marker.getElement(); if(el) el.style.background = catColor(p.type); },0);
-      const popupEl = document.createElement('div');
-      popupEl.className='mapPopup';
-      popupEl.innerHTML = `<img src="${p.image}" data-photo-q="${esc(photoQuery(p.name, dest.name))}"><h4>${esc(p.name)}</h4><p>${p.rating?('★ '+p.rating+' · '):''}${esc(p.area)}</p><button class="btn primary sm" data-popadd="${p.id}">＋ Add to Trip</button>`;
-      marker.bindPopup(popupEl);
-      marker.on('popupopen', ()=>{ popupEl.querySelector('[data-popadd]').onclick=()=>openAddToTrip(p.id); hydratePhotos(popupEl); });
-      window.__destMarkerById[p.id] = marker;
-    });
+    $('destMapList').innerHTML = list.map(p=>`
+      <div class="mapPlaceRow ${p.id===window.__destMapPlaceId?'active':''}" data-mapplace="${p.id}">
+        <div class="stopThumb"><span class="num" style="background:${catColor(p.type)}">${catEmoji(p.type)}</span><img src="${p.image}" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
+        <div class="mapPlaceInfo">
+          <h4>${esc(p.name)}</h4>
+          <p>${p.rating?('★ '+p.rating+' · '):''}${esc(p.area||'')}</p>
+        </div>
+        <button class="btn sm primary" data-popadd="${p.id}">＋</button>
+      </div>`).join('') || `<div class="empty small">No places in this category.</div>`;
+    $('destMapList').querySelectorAll('[data-mapplace]').forEach(row=>row.addEventListener('click',(e)=>{
+      if(e.target.closest('[data-popadd]')) return;
+      const p = placeById(row.dataset.mapplace);
+      if(p) focusDestMapPlace(p);
+    }));
+    $('destMapList').querySelectorAll('[data-popadd]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openAddToTrip(b.dataset.popadd); });
+    hydratePhotos($('destMapList'));
   }
   draw();
   $('destMapLegend').querySelectorAll('[data-cat]').forEach(b=>b.onclick=()=>{
@@ -1085,8 +1093,21 @@ function renderDestMap(dest, body){
     b.classList.toggle('active');
     draw();
   });
-  $('destMapCenter').onclick = ()=>map.setView([dest.lat,dest.lng],13);
-  setTimeout(()=>map.invalidateSize(),150);
+  $('destMapCenter').onclick = ()=>{
+    window.__destMapPlaceId = null;
+    const frame = $('destMapFrame');
+    if(frame) frame.src = gmapsSearchEmbedUrl(dest.name+(dest.country?', '+dest.country:''),13);
+    draw();
+  };
+}
+function focusDestMapPlace(p){
+  const dest = window.__destMapDest || DESTINATIONS.find(d=>d.id===p.destId);
+  window.__destMapPlaceId = p.id;
+  const frame = $('destMapFrame');
+  if(frame) frame.src = gmapsSearchEmbedUrl(p.name+(dest?', '+dest.name:''),16);
+  const open = $('destMapOpen');
+  if(open) open.href = gmapsExternalLink(p.name+(dest?', '+dest.name:''));
+  $$('#destMapList .mapPlaceRow').forEach(row=>row.classList.toggle('active', row.dataset.mapplace===p.id));
 }
 
 /* ---------------- Trip Ideas tab ---------------- */
@@ -1118,18 +1139,27 @@ function shuffle(arr){
   for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
   return a;
 }
-function pickPlacesForIdea(destId, interests, budgetStyle, days){
-  let pool = PLACES.filter(p=>p.destId===destId && (p.type==='attraction'||p.type==='restaurant') && (p.tags||[]).some(t=>interests.includes(t)));
-  if(pool.length<4) pool = placesFor(destId,'attraction').concat(placesFor(destId,'restaurant').slice(0,3));
-  const priceOk = p=> budgetStyle==='budget' ? (p.priceLevel||0)<=2 : true;
-  let filtered = pool.filter(priceOk);
-  if(filtered.length<4) filtered = pool;
-  const desiredCount = Math.max(days*2, Math.min(14, Math.round(days*2.75)));
-  // bias toward higher-rated places, but shuffle within that quality band so repeated
-  // generations surface a genuinely different mix of places, not the same top-N every time
+const MIN_ATTRACTIONS_PER_DAY = 5;
+function pickFromPool(pool, wantCount, filters){
+  let filtered = pool.filter(p=>filters.every(f=>f(p)));
+  if(filtered.length < wantCount) filtered = pool; // relax filters rather than come up short
   const byRating = filtered.slice().sort((a,b)=>b.rating-a.rating);
-  const candidatePool = byRating.slice(0, Math.min(byRating.length, desiredCount + 6));
-  return shuffle(candidatePool).slice(0, Math.min(desiredCount, candidatePool.length));
+  const candidatePool = byRating.slice(0, Math.min(byRating.length, wantCount + 8));
+  return shuffle(candidatePool).slice(0, Math.min(wantCount, candidatePool.length));
+}
+function pickPlacesForIdea(destId, interests, budgetStyle, days){
+  const neededAttr = days*MIN_ATTRACTIONS_PER_DAY;
+  ensureAttractionSupply(destId, neededAttr); // top up with themed spots if the curated pool is too small
+  const priceOk = p=> budgetStyle==='budget' ? (p.priceLevel||0)<=2 : true;
+  const interestOk = p=> (p.tags||[]).some(t=>interests.includes(t));
+
+  const attrPool = placesFor(destId,'attraction');
+  const restPool = placesFor(destId,'restaurant');
+  const neededRest = Math.min(restPool.length, days*2);
+
+  const attractions = pickFromPool(attrPool, neededAttr, [interestOk, priceOk]);
+  const restaurants = pickFromPool(restPool, neededRest, [priceOk]);
+  return attractions.concat(restaurants);
 }
 function buildIdea(destId, archetype, overrides){
   const dest = DESTINATIONS.find(d=>d.id===destId);
@@ -1194,26 +1224,20 @@ function wireIdeaCards(container){
 function distributeIntoDays(places, nDays){
   const attractions = places.filter(p=>p.type==='attraction');
   const restaurants = places.filter(p=>p.type==='restaurant');
-  // Interleave attractions and restaurants into one ordered list (meals spaced out among
-  // sightseeing, roughly one per every couple of attractions) BEFORE dealing into days — dealing
-  // attractions and restaurants into days as two separate round-robins (each restarting at day 1)
-  // used to stack bonus items onto the early days, leaving later days sparse.
-  const combined = [];
-  let ai=0, ri=0;
-  const spacing = restaurants.length ? Math.max(1, Math.round(attractions.length / restaurants.length)) : Infinity;
-  let sinceRest = 0;
-  while(ai<attractions.length || ri<restaurants.length){
-    if(ri<restaurants.length && (sinceRest>=spacing || ai>=attractions.length)){ combined.push(restaurants[ri++]); sinceRest=0; }
-    else if(ai<attractions.length){ combined.push(attractions[ai++]); sinceRest++; }
-    else { combined.push(restaurants[ri++]); sinceRest=0; }
-  }
-  // A single round-robin across ALL days (not one per place type) guarantees every day gets
-  // within one stop of every other day — no more days with 3 stops next to a day with 1.
-  const buckets = Array.from({length:nDays},()=>[]);
-  combined.forEach((p,i)=> buckets[i % nDays].push(p));
-  return buckets.map(dayPlaces=>{
-    const attrs = dayPlaces.filter(p=>p.type==='attraction');
-    const rests = dayPlaces.filter(p=>p.type==='restaurant');
+  // Round-robin attractions and restaurants into day buckets SEPARATELY (not as one combined
+  // list) so every day is guaranteed its fair share of attractions specifically — mixing both
+  // into a single interleaved queue before dealing can let a day end up attraction-light just
+  // because more restaurants happened to land in its slice.
+  const attrBuckets = Array.from({length:nDays},()=>[]);
+  attractions.forEach((p,i)=> attrBuckets[i % nDays].push(p));
+  // Stagger where the restaurant round-robin starts so its leftover "extra" item doesn't land
+  // on the same day as the attractions' leftover — otherwise both remainders stack onto day 1,
+  // leaving day 1 overloaded and the last day thin (e.g. 3/2/1 instead of an even 2/2/2).
+  const restOffset = attractions.length % nDays;
+  const restBuckets = Array.from({length:nDays},()=>[]);
+  restaurants.forEach((p,i)=> restBuckets[(i+restOffset) % nDays].push(p));
+  return attrBuckets.map((attrs, d)=>{
+    const rests = restBuckets[d];
     const half = Math.ceil(attrs.length/2);
     const ordered = [...attrs.slice(0,half), ...rests, ...attrs.slice(half)];
     let t = '09:00';
@@ -1526,7 +1550,6 @@ function renderSavedView(collId){
    TRIP PLANNER
 ============================================================ */
 let plannerState = { tripId:null, day:0 };
-let __plannerMap=null, __plannerMarkers=[], __plannerRoute=null;
 
 function renderPlannerView(tripId, ptab){
   const trip = getTrip(tripId);
@@ -1549,7 +1572,7 @@ function renderPlannerView(tripId, ptab){
   $('aiRegenBtn').onclick = ()=>{ openAI(); $('aiContextLabel').textContent = `Working on: ${trip.title}`; };
   $('addDayBtn').onclick = ()=>{ addDayToTrip(trip); plannerState.day = trip.days.length-1; renderPlannerItinerary(trip); };
   $('addStopBtn2').onclick = ()=>openAddPlaceSearch(trip);
-  $('centerBtn2').onclick = ()=>{ if(__plannerMap) __plannerMap.setView([dest.lat,dest.lng],13); };
+  $('centerBtn2').onclick = ()=>renderPlannerMap(trip, trip.days[plannerState.day]);
   $('mapSearchToggle').onclick = ()=>$('mapSearchBar').classList.toggle('hidden');
   $('mapSearchGo').onclick = ()=>plannerMapSearch(trip);
   $('mapSearchInput').onkeydown = e=>{ if(e.key==='Enter') plannerMapSearch(trip); };
@@ -1561,10 +1584,19 @@ function renderPlannerView(tripId, ptab){
 function renderCollabStack(trip){ $('collabStack').innerHTML = trip.collaborators.map(c=>`<div class="avatar sm" title="${esc(c.name)}">${c.initials}</div>`).join(''); }
 function plannerMapSearch(trip){
   const q = $('mapSearchInput').value.trim().toLowerCase();
-  if(!q || !__plannerMap) return;
+  if(!q) return;
+  const dest = destForTrip(trip);
   const match = PLACES.find(p=>p.destId===trip.destId && p.name.toLowerCase().includes(q));
-  if(match){ __plannerMap.flyTo([match.lat,match.lng],15); toast(`Found "${match.name}" — use "Add place" to add it to this day.`); }
-  else toast('No matching place found in this destination.');
+  const frame = $('map2Frame');
+  if(match && frame){
+    frame.src = gmapsSearchEmbedUrl(match.name+', '+dest.name, 16);
+    toast(`Found "${match.name}" — use "Add place" to add it to this day.`);
+  } else if(frame){
+    frame.src = gmapsSearchEmbedUrl(q+', '+dest.name, 14);
+    toast(`Searching Google Maps for "${q}" — use "Add place" to add a stop.`);
+  } else {
+    toast('No matching place found in this destination.');
+  }
 }
 
 function renderPlannerItinerary(trip){
@@ -1737,86 +1769,52 @@ function openAddPlaceSearch(trip){
 function mapUnavailableHTML(){
   return `<div class="empty" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:0">
     <div style="font-size:26px;margin-bottom:8px">🗺️</div>
-    <div>Map couldn't load (offline or blocked resource).</div>
+    <div>Map couldn't load — you appear to be offline.</div>
     <div class="small" style="margin-top:4px">Everything else in TripFlow still works normally.</div>
   </div>`;
 }
 
-/* ---------------- Google-Maps-style basemap (keyless: CARTO + Esri) ---------------- */
-function isDarkMode(){
-  const attr = document.documentElement.getAttribute('data-theme');
-  if(attr==='dark') return true;
-  if(attr==='light') return false;
-  return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+/* ---------------- Real Google Maps, embedded (no API key required) ---------------- */
+// Google's keyless "output=embed" iframe is the same product as maps.google.com: real street
+// data, satellite imagery, street view and native pan/zoom/search — no tile CDN, no API key.
+function gmapsSearchEmbedUrl(query, zoom){
+  return `https://www.google.com/maps?q=${encodeURIComponent(query)}&z=${zoom||14}&output=embed`;
 }
-function createBaseTileLayer(mode){
-  if(mode==='satellite'){
-    return L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom:19, attribution:'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics'
-    });
-  }
-  const url = isDarkMode()
-    ? 'https://{s}.basemaps.cartocdn.com/dark_matter/{z}/{x}/{y}{r}.png'
-    : 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-  return L.tileLayer(url, { maxZoom:20, attribution:'&copy; OpenStreetMap contributors &copy; CARTO', subdomains:'abcd' });
+function gmapsCoordEmbedUrl(lat, lng, zoom){
+  return `https://www.google.com/maps?q=${lat},${lng}&z=${zoom||14}&output=embed`;
 }
-/** Adds a Google-Maps-style Map/Satellite switcher (bottom-left) to a Leaflet map. Returns a state object {map, mode, layer}. */
-function addMapTypeToggle(map, mountEl){
-  const state = { map, mode:'map', layer: createBaseTileLayer('map').addTo(map) };
-  const el = document.createElement('div');
-  el.className = 'mapTypeToggle';
-  el.innerHTML = `<button class="active" data-type="map">Map</button><button data-type="satellite">Satellite</button>`;
-  mountEl.appendChild(el);
-  el.querySelectorAll('button').forEach(b=>b.onclick=()=>{
-    const mode = b.dataset.type;
-    if(state.mode===mode) return;
-    state.mode = mode;
-    el.querySelectorAll('button').forEach(x=>x.classList.toggle('active', x===b));
-    map.removeLayer(state.layer);
-    state.layer = createBaseTileLayer(mode).addTo(map);
-    if(mode==='map') state.layer.bringToBack();
-  });
-  return state;
+function gmapsDirectionsEmbedUrl(stops){
+  const pts = stops.map(s=>`${s.lat},${s.lng}`);
+  const saddr = pts[0];
+  const daddr = pts.slice(1).join('+to:');
+  return `https://www.google.com/maps?saddr=${saddr}&daddr=${daddr}&output=embed`;
+}
+function gmapsExternalLink(query){
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 function renderPlannerMap(trip, day){
-  if(typeof L === 'undefined'){ $('map2').innerHTML = mapUnavailableHTML(); renderPlannerStatsMapFallback(); return; }
   try{ renderPlannerMapInner(trip, day); }
   catch(e){ $('map2').innerHTML = mapUnavailableHTML(); }
 }
-function renderPlannerStatsMapFallback(){ $('mapLegend2').innerHTML=''; }
+const GMAPS_MAX_WAYPOINTS = 10; // legacy keyless directions embed only plots up to ~10 stops
 function renderPlannerMapInner(trip, day){
   const dest = destForTrip(trip);
-  if(!__plannerMap){
-    __plannerMap = L.map('map2',{zoomControl:true}).setView([dest.lat,dest.lng],13);
-    window.__plannerMapState = addMapTypeToggle(__plannerMap, $('map2'));
+  const stops = day.stops;
+  let src, note = '';
+  if(stops.length===0){
+    src = gmapsCoordEmbedUrl(dest.lat, dest.lng, 13);
+  } else if(stops.length===1){
+    src = gmapsSearchEmbedUrl(stops[0].name+', '+dest.name, 15);
   } else {
-    __plannerMap.setView([dest.lat,dest.lng], __plannerMap.getZoom());
+    const routed = stops.length>GMAPS_MAX_WAYPOINTS ? stops.slice(0,GMAPS_MAX_WAYPOINTS) : stops;
+    src = gmapsDirectionsEmbedUrl(routed);
+    if(stops.length>GMAPS_MAX_WAYPOINTS) note = `Showing route for the first ${GMAPS_MAX_WAYPOINTS} of ${stops.length} stops.`;
   }
-  __plannerMarkers.forEach(m=>__plannerMap.removeLayer(m));
-  __plannerMarkers = [];
-  if(__plannerRoute){ __plannerMap.removeLayer(__plannerRoute); __plannerRoute=null; }
-  day.stops.forEach((s,i)=>{
-    const icon = L.divIcon({className:'custom-map-pin', html:`<span>${i+1}</span>`, iconSize:[28,28], iconAnchor:[14,28]});
-    const marker = L.marker([s.lat,s.lng],{icon}).addTo(__plannerMap);
-    setTimeout(()=>{ const elm=marker.getElement(); if(elm) elm.style.background=catColor(s.type); },0);
-    const popupEl = document.createElement('div');
-    popupEl.className='mapPopup';
-    popupEl.innerHTML = `<img src="${s.image}" data-photo-q="${esc(photoQuery(s.name, dest.name))}"><h4>${i+1}. ${esc(s.name)}</h4><p>${fmtTime12(s.time)} · ${esc(s.area||'')}${s.rating?` · ★ ${s.rating}`:''}</p>`;
-    marker.bindPopup(popupEl);
-    marker.on('popupopen', ()=>hydratePhotos(popupEl));
-    __plannerMarkers.push(marker);
-  });
-  if(day.stops.length>1){
-    __plannerRoute = L.polyline(day.stops.map(s=>[s.lat,s.lng]), {color:'#11795c', weight:4, opacity:.85, dashArray:'6,8'}).addTo(__plannerMap);
-    __plannerMap.fitBounds(__plannerRoute.getBounds().pad(0.25));
-  } else if(day.stops.length===1){
-    __plannerMap.setView([day.stops[0].lat, day.stops[0].lng], 14);
-  } else {
-    __plannerMap.setView([dest.lat,dest.lng],13);
-  }
-  setTimeout(()=>__plannerMap.invalidateSize(),150);
+  $('map2').innerHTML = navigator.onLine===false ? mapUnavailableHTML()
+    : `<iframe id="map2Frame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen src="${src}"></iframe>`;
+  window.__plannerMapDest = dest;
   const legends = [['attraction','Attractions','var(--cat-attraction)'],['restaurant','Restaurants','var(--cat-restaurant)'],['hotel','Hotels','var(--cat-hotel)']];
-  $('mapLegend2').innerHTML = legends.map(([k,l,c])=>`<span class="legend"><span class="legendDot" style="background:${c}"></span>${l}</span>`).join('');
+  $('mapLegend2').innerHTML = legends.map(([k,l,c])=>`<span class="legend"><span class="legendDot" style="background:${c}"></span>${l}</span>`).join('') + (note?`<span class="small" style="margin-left:auto">${esc(note)}</span>`:'');
 }
 function renderPlannerStats(trip, day){
   let dist=0; for(let i=0;i<day.stops.length-1;i++) dist += haversine(day.stops[i],day.stops[i+1]);
