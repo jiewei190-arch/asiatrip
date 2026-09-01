@@ -556,6 +556,12 @@ function populateCurrencyOptions(select){
 }
 function initSettingsModal(){
   $('themeToggle').onchange = (e)=>{ STATE.theme = e.target.checked?'dark':'light'; applyTheme(); saveState(); };
+  $('clearPhotoCacheBtn').onclick = ()=>{
+    clearPhotoCache();
+    closeModal('modal-settings');
+    refreshCurrentView();
+    toast('Photo cache cleared — reloading images.');
+  };
   $('saveSettingsBtn').onclick = ()=>{
     STATE.settings.name = $('settingsName').value.trim() || STATE.settings.name;
     const newCode = $('settingsCurrency').value;
