@@ -179,6 +179,7 @@
         <div class="actions">
           <div class="avatarStack" id="collabStack"></div>
           <button class="btn" id="shareTripBtn"><i class="fa-solid fa-share-nodes"></i> Share</button>
+          <button class="btn" id="exportTripBtn"><i class="fa-solid fa-file-arrow-down"></i> Export</button>
           <button class="btn" id="optimizeBtn"><i class="fa-solid fa-route"></i> Optimize My Trip</button>
           <button class="btn magic" id="aiRegenBtn">✨ Ask AI to adjust</button>
         </div>
@@ -480,6 +481,26 @@
   </div>
 </div>
 
+<div class="modalBack" id="modal-export">
+  <div class="modal">
+    <div class="modalHeader"><div><h2>Export this trip</h2><p class="small">Take the itinerary with you — printed, saved as a PDF, or as a plain-text copy.</p></div><button class="xbtn" data-close="modal-export">×</button></div>
+    <div class="exportOptions" id="exportOptions">
+      <button class="exportOpt" id="exportPrintBtn">
+        <div class="exportIcon">🖨️</div>
+        <div><h4>Print / Save as PDF</h4><p class="small">Opens your print dialog with a clean, day-by-day layout. Choose "Save as PDF" there to keep a copy offline.</p></div>
+      </button>
+      <button class="exportOpt" id="exportTextBtn">
+        <div class="exportIcon">📄</div>
+        <div><h4>Download as text</h4><p class="small">A plain .txt itinerary — easy to paste into a message, email or notes app.</p></div>
+      </button>
+      <button class="exportOpt" id="exportCopyBtn">
+        <div class="exportIcon">📋</div>
+        <div><h4>Copy to clipboard</h4><p class="small">The whole itinerary as text, ready to paste straight into a chat.</p></div>
+      </button>
+    </div>
+  </div>
+</div>
+
 <div class="modalBack" id="modal-poll">
   <div class="modal">
     <div class="modalHeader"><div><h2>New group poll</h2><p class="small">Everyone picks an option; the tally decides it.</p></div><button class="xbtn" data-close="modal-poll">×</button></div>
@@ -551,6 +572,8 @@
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" id="confirmCancel">Cancel</button><button class="btn danger solid" id="confirmOk">Delete</button></div>
   </div>
 </div>
+
+<div id="printArea" aria-hidden="true"></div>
 
 <script src="data.js?v=20260901-4"></script>
 <script src="app.js?v=20260901-4"></script>
