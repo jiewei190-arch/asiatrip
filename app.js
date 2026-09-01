@@ -84,6 +84,13 @@ function enrichDestinationInBackground(dest, onDone){
   if(!dest || !dest.id.startsWith('gen-') || dest.__enriched || dest.__enriching) return;
   enrichGenericDestination(dest).then(changed=>{ if(changed && onDone) onDone(); }).catch(()=>{});
 }
+/** Tops up ANY destination's (curated or generic) attraction pool with real nearby landmarks
+ * fetched live from Wikipedia — never fabricated filler — so long, multi-day trip ideas have
+ * enough real places to draw from without inventing places that don't exist. */
+function supplementDestinationInBackground(dest, onDone){
+  if(!dest) return;
+  ensureRealAttractionSupply(dest).then(changed=>{ if(changed && onDone) onDone(); }).catch(()=>{});
+}
 
 /* ---------------- persistence ---------------- */
 const LS_KEY = 'tripflow_state_v1';
@@ -786,6 +793,12 @@ function renderDestinationView(idOrName, tab){
         renderDestinationView(dest.id, destState.tab);
       }
     });
+  } else {
+    supplementDestinationInBackground(dest, ()=>{
+      if(location.hash.includes('/destination/'+encodeURIComponent(dest.id)) && destState.tab==='things'){
+        renderDestinationView(dest.id, destState.tab);
+      }
+    });
   }
   $('destSaveBtn').onclick = ()=>{
     const c = STATE.collections[0];
@@ -872,13 +885,15 @@ function initCurrencyConverter(dest){
     const fromMeta = CURRENCY_META[from] || CURRENCY_META.USD, toMeta = CURRENCY_META[to] || CURRENCY_META.USD;
     $('convResult').textContent = `${fromMeta.symbol}${amount.toLocaleString()} = ${toMeta.symbol}${converted.toLocaleString(undefined,{maximumFractionDigits: converted>=100?0:2})}`;
     const rate = rateTo / rateFrom;
-    $('convRateNote').textContent = `1 ${from} = ${rate.toLocaleString(undefined,{maximumFractionDigits:4})} ${to} · live rates, updated daily`;
+    const rateSource = EXCHANGE_RATES_ARE_LIVE ? 'live rates, updated daily' : 'approximate rates — reconnect for live rates';
+    $('convRateNote').textContent = `1 ${from} = ${rate.toLocaleString(undefined,{maximumFractionDigits:4})} ${to} · ${rateSource}`;
   }
   $('convAmount').oninput = update;
   $('convFrom').onchange = update;
   $('convTo').onchange = update;
   $('convSwap').onclick = ()=>{ const f=$('convFrom').value; $('convFrom').value=$('convTo').value; $('convTo').value=f; update(); };
   update();
+  if(!EXCHANGE_RATES_ARE_LIVE) loadExchangeRates().then(update); // retry once when the converter is actually opened
 }
 
 /* ---------------- Things To Do tab ---------------- */
@@ -1147,13 +1162,15 @@ function pickFromPool(pool, wantCount, filters){
   return shuffle(candidatePool).slice(0, Math.min(wantCount, candidatePool.length));
 }
 function pickPlacesForIdea(destId, interests, budgetStyle, days){
-  const neededAttr = days*MIN_ATTRACTIONS_PER_DAY;
-  ensureAttractionSupply(destId, neededAttr); // top up with themed spots if the curated pool is too small
+  // Real curated + live-enriched/supplemented places only — never fabricated filler. If the
+  // real pool is smaller than days*MIN_ATTRACTIONS_PER_DAY, the idea simply uses what's really
+  // there (a background fetch may still be topping up the pool; see supplementDestinationInBackground).
   const priceOk = p=> budgetStyle==='budget' ? (p.priceLevel||0)<=2 : true;
   const interestOk = p=> (p.tags||[]).some(t=>interests.includes(t));
 
   const attrPool = placesFor(destId,'attraction');
   const restPool = placesFor(destId,'restaurant');
+  const neededAttr = Math.min(days*MIN_ATTRACTIONS_PER_DAY, attrPool.length);
   const neededRest = Math.min(restPool.length, days*2);
 
   const attractions = pickFromPool(attrPool, neededAttr, [interestOk, priceOk]);
@@ -1355,7 +1372,9 @@ function renderIdeasView(destIdParam){
     $('ideasGrid').innerHTML = ideas.map(idea=>ideaCardHTML(idea)).join('');
     wireIdeaCards($('ideasGrid'));
     hydratePhotos($('ideasGrid'));
-    if(dest.id.startsWith('gen-')) enrichDestinationInBackground(dest, ()=>{ if(location.hash.includes('/ideas/'+encodeURIComponent(dest.id))){ const fresh = regenerateIdeas(dest.id); $('ideasGrid').innerHTML = fresh.map(idea=>ideaCardHTML(idea)).join(''); wireIdeaCards($('ideasGrid')); hydratePhotos($('ideasGrid')); } });
+    const refreshIdeas = ()=>{ if(location.hash.includes('/ideas/'+encodeURIComponent(dest.id))){ const fresh = regenerateIdeas(dest.id); $('ideasGrid').innerHTML = fresh.map(idea=>ideaCardHTML(idea)).join(''); wireIdeaCards($('ideasGrid')); hydratePhotos($('ideasGrid')); } };
+    if(dest.id.startsWith('gen-')) enrichDestinationInBackground(dest, refreshIdeas);
+    else supplementDestinationInBackground(dest, refreshIdeas);
   } else {
     $('ideasGrid').innerHTML = `<div class="empty" style="grid-column:1/-1">Search a destination above to generate ${TRIP_ARCHETYPES.length} themed trip ideas — food, culture, nightlife, shopping, relaxation, art, adventure, romance and hidden gems.</div>`;
   }
@@ -1555,7 +1574,9 @@ function renderPlannerView(tripId, ptab){
   if(!trip){ navigate('#/trips'); return; }
   if(plannerState.tripId !== tripId) plannerState = { tripId, day:0 };
   const dest = destForTrip(trip);
-  if(dest.id.startsWith('gen-')) enrichDestinationInBackground(dest, ()=>{ if(plannerState.tripId===trip.id) renderPlannerView(trip.id, location.hash.split('/')[3]||'itinerary'); });
+  const refreshPlanner = ()=>{ if(plannerState.tripId===trip.id) renderPlannerView(trip.id, location.hash.split('/')[3]||'itinerary'); };
+  if(dest.id.startsWith('gen-')) enrichDestinationInBackground(dest, refreshPlanner);
+  else supplementDestinationInBackground(dest, refreshPlanner);
 
   $('plannerEyebrow').textContent = `${dest.flag} ${dest.name} trip workspace`;
   $('plannerTitle').textContent = trip.title;
@@ -2194,7 +2215,7 @@ function init(){
   initAI();
   renderNotifications();
   route();
-  loadExchangeRates().then(ok=>{ if(ok && currentCurrencyCode()!=='USD') refreshCurrentView(); });
+  loadExchangeRates().then(()=>{ if(currentCurrencyCode()!=='USD') refreshCurrentView(); });
 }
 window.addEventListener('hashchange', route);
 document.addEventListener('DOMContentLoaded', init);
