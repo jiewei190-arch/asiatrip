@@ -7,7 +7,45 @@
 const $ = id => document.getElementById(id);
 const $$ = sel => Array.from(document.querySelectorAll(sel));
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('show'), 2600); }
+/** A toast can carry one action. Used for Undo, which needs longer on screen than a plain
+ * confirmation — a destructive action the user can't take back is the one thing worth
+ * interrupting for. */
+function toast(msg, action){
+  const t = $('toast');
+  t.innerHTML = '';
+  const span = document.createElement('span');
+  span.textContent = msg;
+  t.appendChild(span);
+  let life = 2600;
+  if(action && action.label && typeof action.onClick === 'function'){
+    const btn = document.createElement('button');
+    btn.className = 'toastAction';
+    btn.type = 'button';
+    btn.textContent = action.label;
+    btn.onclick = ()=>{ t.classList.remove('show'); action.onClick(); };
+    t.appendChild(btn);
+    t.classList.add('hasAction');
+    life = 7000; // long enough to actually notice and reach for it
+  } else {
+    t.classList.remove('hasAction');
+  }
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(()=>{ t.classList.remove('show'); t.classList.remove('hasAction'); }, life);
+}
+/** Deep copy for undo snapshots. Trip data is plain JSON — no functions, dates or DOM refs —
+ * so this is a faithful copy rather than a shallow one that would share mutated sub-objects. */
+function snapshot(value){ return JSON.parse(JSON.stringify(value)); }
+/** Announces a destructive action and offers to put it back. The restore runs against live
+ * state, then re-renders whatever view the user is on. */
+function toastUndo(message, restoreFn){
+  toast(message, { label:'Undo', onClick: ()=>{
+    restoreFn();
+    saveState();
+    refreshCurrentView();
+    toast('Restored.');
+  }});
+}
 let __uidN = 1;
 function uid(prefix){ return `${prefix}_${Date.now().toString(36)}_${(__uidN++).toString(36)}`; }
 /** All prices are stored in USD; fmt$ converts+formats to the user's chosen display currency (Settings). */
@@ -1697,11 +1735,13 @@ function wireTripCards(container){
   container.querySelectorAll('[data-share]').forEach(b=>b.onclick=()=>openShareModal(b.dataset.share));
   container.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{
     const t = getTrip(b.dataset.del);
-    confirmDialog('Delete this trip?', `"${t.title}" and its itinerary will be permanently deleted.`, ()=>{
+    confirmDialog('Delete this trip?', `"${t.title}" and its itinerary will be deleted. You'll get a moment to undo.`, ()=>{
+      const index = STATE.trips.findIndex(x=>x.id===t.id);
+      const removed = snapshot(t);
       STATE.trips = STATE.trips.filter(x=>x.id!==t.id);
       saveState();
-      toast('Trip deleted.');
       renderTripsView();
+      toastUndo(`Deleted "${removed.title}".`, ()=>{ STATE.trips.splice(Math.max(0,index), 0, removed); });
     });
   });
   hydratePhotos(container);
@@ -1884,6 +1924,27 @@ function renderSavedMap(collection, places, unmappable){
     b.classList.add('active');
   });
   hydratePhotos(list);
+}
+
+/* ---------------- first-run onboarding ---------------- */
+/** Shown once, and only to someone genuinely new — dismissing it (either button, or the close
+ * control) records that, so it never reappears and never blocks a returning user. */
+function initOnboarding(){
+  const dismiss = ()=>{
+    STATE.settings.onboarded = true;
+    saveState();
+    closeModal('modal-onboard');
+  };
+  $('onboardSkip').onclick = dismiss;
+  $('onboardStart').onclick = ()=>{
+    dismiss();
+    const input = $('heroDestination');
+    if(input){ navigate('#/'); setTimeout(()=>{ input.focus(); }, 120); }
+  };
+  $('modal-onboard').querySelectorAll('[data-close="modal-onboard"]').forEach(b=>b.onclick = dismiss);
+  // Opened synchronously during init rather than on a timer: a modal that appears half a second
+  // late can land just as the user is reaching for something else, stealing the click.
+  if(!STATE.settings.onboarded) openModal('modal-onboard');
 }
 
 /* ============================================================
@@ -2827,12 +2888,15 @@ function renderBookingsTab(trip){
   body.querySelectorAll('[data-bkdel]').forEach(b=>b.onclick=()=>{
     const bk = tripBookings(trip).find(x=>x.id===b.dataset.bkdel);
     confirmDialog('Delete this booking?', `"${bk?bk.title:''}" will be removed from this trip.`, ()=>{
-      trip.bookings = tripBookings(trip).filter(x=>x.id!==b.dataset.bkdel);
+      const list = tripBookings(trip);
+      const index = list.findIndex(x=>x.id===b.dataset.bkdel);
+      const removed = snapshot(bk);
+      trip.bookings = list.filter(x=>x.id!==b.dataset.bkdel);
       logActivity(trip, `removed the booking "${bk?bk.title:''}".`);
       saveState();
       renderBookingsTab(trip);
       renderTripProgress(trip);
-      toast('Booking deleted.');
+      toastUndo(`Deleted "${removed.title}".`, ()=>{ tripBookings(trip).splice(Math.max(0,index), 0, removed); });
     });
   });
 }
@@ -2925,6 +2989,14 @@ function renderPlannerItinerary(trip){
     e.stopPropagation();
     const idx = Number(b.dataset.rmday);
     confirmDialog('Remove this day?', `Day ${idx+1} and its stops will be removed from the trip.`, ()=>{
+      const removedDay = snapshot(trip.days[idx]);
+      const removedEnd = trip.end;
+      toastUndo(`Removed Day ${idx+1}.`, ()=>{
+        trip.days.splice(idx, 0, removedDay);
+        trip.days.forEach((d,i)=>d.date=addDays(trip.start,i));
+        trip.end = removedEnd;
+        plannerState.day = clamp(idx, 0, trip.days.length-1);
+      });
       trip.days.splice(idx,1);
       trip.days.forEach((d,i)=>d.date=addDays(trip.start,i));
       trip.end = trip.days[trip.days.length-1].date;
@@ -3186,12 +3258,12 @@ function wireStopEvents(trip, day){
   });
   el.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{
     const idx = day.stops.findIndex(x=>x.id===b.dataset.rm);
-    const removed = day.stops[idx];
+    const removed = snapshot(day.stops[idx]);
     day.stops.splice(idx,1);
     logActivity(trip, `removed ${removed.name} from Day ${plannerState.day+1}.`);
     saveState();
     renderPlannerItinerary(trip);
-    toast(`Removed ${removed.name}.`);
+    toastUndo(`Removed ${removed.name}.`, ()=>{ day.stops.splice(Math.max(0,idx), 0, removed); });
   });
   el.querySelectorAll('[data-transitmode]').forEach(sel=>sel.onchange=()=>{
     const s = day.stops.find(x=>x.id===sel.dataset.transitmode);
@@ -3552,8 +3624,12 @@ function renderPollList(trip){
     const id = b.dataset.polldel;
     const poll = tripPolls(trip).find(p=>p.id===id);
     confirmDialog('Delete this poll?', poll?`"${poll.question}" and its votes will be removed.`:'', ()=>{
-      trip.polls = tripPolls(trip).filter(p=>p.id!==id);
-      saveState(); renderPollList(trip); toast('Poll deleted.');
+      const list = tripPolls(trip);
+      const index = list.findIndex(p=>p.id===id);
+      const removed = snapshot(poll);
+      trip.polls = list.filter(p=>p.id!==id);
+      saveState(); renderPollList(trip);
+      toastUndo('Poll deleted.', ()=>{ tripPolls(trip).splice(Math.max(0,index), 0, removed); });
     });
   });
 }
@@ -3914,6 +3990,7 @@ function init(){
   initOrganizeAIModal();
   initBookingModal();
   initPollModal();
+  initOnboarding();
   initEditBudgetModal();
   initCustomizeModal();
   initAI();

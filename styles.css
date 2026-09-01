@@ -327,6 +327,17 @@ main{max-width:1280px;margin:0 auto;padding:0 24px 60px;min-height:60vh}
 .conflictWarning .warnBody b{font-size:13px;color:var(--danger)}
 .conflictWarning .warnBody p{margin:2px 0 0}
 .noteBox{margin:12px 18px 0}
+/* The toast is pointer-events:none so it never blocks the page underneath — but a toast
+   carrying an action has to be clickable, or Undo is a dead button. Re-enable it only for
+   the action variant, and only while it's actually on screen. */
+.toast.hasAction{display:flex;align-items:center;gap:14px;border-radius:14px;padding:12px 14px 12px 18px}
+.toast.hasAction.show{pointer-events:auto}
+.toastAction{color:var(--green2);font-weight:800;font-size:13px;text-decoration:underline;flex-shrink:0;padding:4px 6px;pointer-events:auto}
+.onboardSteps{display:flex;flex-direction:column;gap:14px;margin-top:16px}
+.onboardStep{display:flex;gap:13px;align-items:flex-start}
+.obNum{width:28px;height:28px;border-radius:50%;background:var(--mint);color:var(--green);display:grid;place-items:center;font-weight:800;font-size:13px;flex-shrink:0}
+.onboardStep h4{margin:0 0 3px;font-size:14.5px}
+.onboardStep p{margin:0}
 .dayWeather{margin:12px 18px 0}
 .weatherChip{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:99px;padding:7px 13px;font-size:12.5px;background:var(--surface2)}
 .wIcon{font-size:16px}
