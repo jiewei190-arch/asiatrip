@@ -231,8 +231,12 @@ main{max-width:1280px;margin:0 auto;padding:0 24px 60px;min-height:60vh}
 .ovCard .k{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:800;margin-bottom:5px}
 .ovCard .v{font-weight:700;font-size:14px;line-height:1.4}
 .ovCard .v.small{font-weight:600;line-height:1.5}
+.aiInsightCard{background:linear-gradient(135deg,var(--mint),var(--surface2));border:1px solid var(--green);border-radius:14px;padding:14px;margin-top:12px}
+.aiInsightCard .k{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--green);font-weight:800;margin-bottom:5px}
+.aiInsightCard p{margin:0;font-size:13px;line-height:1.5;font-weight:600}
 .knowBeforeGrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}
 @media(max-width:650px){ .knowBeforeGrid{grid-template-columns:1fr} }
+.neighborhoodGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:10px}
 
 .destTabs{display:flex;gap:6px;overflow-x:auto;border-bottom:1px solid var(--line);margin-bottom:22px;padding-bottom:2px}
 .dtab{padding:11px 15px;border-radius:11px 11px 0 0;font-weight:700;color:var(--muted);white-space:nowrap;border-bottom:3px solid transparent}
