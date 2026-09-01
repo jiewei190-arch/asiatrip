@@ -404,8 +404,42 @@ async function fetchNearbyWikiPOIs(lat, lng, limit){
         lat: p.coordinates[0].lat, lng: p.coordinates[0].lon,
         image: (p.thumbnail && p.thumbnail.source) ? capWikiThumb(p.thumbnail.source,720) : null,
         extract: p.extract || '',
-      }));
+      }))
+      .filter(p=>isVisitableAttraction(p.title, p.extract, p.image));
   }catch(e){ return []; }
+}
+/* GeoSearch returns EVERY Wikipedia article with coordinates near a point. Near Paris that
+ * includes Métro stations, arrondissements, office blocks — and even "Second French Empire",
+ * a form of government, which is not somewhere you can go. None of these belong in a travel
+ * itinerary, and most have no photograph either, which is why they surfaced as placeholders.
+ *
+ * Two filters, both grounded in the article's own content rather than a hand-maintained
+ * blocklist of names:
+ *   1. It must have a lead photograph. An article with no image is almost never a place people
+ *      visit, and it is exactly what renders as an empty grey card.
+ *   2. It must not describe itself as something you can't visit. Wikipedia's opening sentence
+ *      reliably states what a subject IS ("...is a rapid transit station on lines 1 and 11",
+ *      "...was the government of France"), so matching against that catches the whole class
+ *      rather than the specific examples we happened to notice. */
+const NON_ATTRACTION_EXTRACT_PATTERNS = [
+  /\b(is|was)\b[^.]{0,60}\b(railway|rail|metro|subway|underground|tram|bus|transit)\b[^.]{0,20}\b(station|stop|line|halt|terminus)\b/i,
+  /\b(is|was)\b[^.]{0,40}\b(district|ward|neighbourhood|neighborhood|quarter|commune|arrondissement|suburb|prefecture|province|municipality|borough)\s+(of|in)\b/i,
+  /\b(is|was)\s+the\s+(government|regime|ruling|administration|monarchy|dynasty|empire|republic|state)\b/i,
+  /\b(is|was)\b[^.]{0,60}\b(school|university|college|hospital|clinic|prison|embassy|consulate|headquarters|law firm|newspaper|political party|football club|research institute)\b/i,
+  /\b(is|was)\b[^.]{0,60}\b(war|battle|siege|treaty|revolution|uprising|massacre|election|referendum)\b/i,
+  /\b(is|was)\b[^.]{0,40}\b(road|street|avenue|boulevard|highway|motorway|junction|roundabout)\s+(in|of)\b/i,
+];
+// Only patterns specific enough not to catch a genuine landmark. "Empire" is deliberately
+// absent — the Empire State Building is exactly the sort of place that must survive.
+const NON_ATTRACTION_TITLE_PATTERNS = [
+  /\b(station|métro|metro line|railway line|tram stop)\b/i,
+  /\b\d+(st|nd|rd|th)\s+arrondissement\b/i,
+];
+function isVisitableAttraction(title, extract, image){
+  if(!image) return false;                                    // no photo -> not a visitor attraction
+  const t = String(title||''), x = String(extract||'');
+  if(NON_ATTRACTION_TITLE_PATTERNS.some(re=>re.test(t))) return false;
+  return !NON_ATTRACTION_EXTRACT_PATTERNS.some(re=>re.test(x));
 }
 function inferCategoryFromExtract(text){
   const t=(text||'').toLowerCase();
@@ -429,7 +463,7 @@ function inferTagsFromExtract(text){
 }
 
 /* ---- Progressive enrichment: upgrade a fallback destination with real, worldwide data in the background ---- */
-const ENRICH_CACHE_KEY = 'tripflow_enrich_cache_v1';
+const ENRICH_CACHE_KEY = 'tripflow_enrich_cache_v2';
 function enrichCache(){ return readJSONCache(ENRICH_CACHE_KEY); }
 function applyEnrichment(dest, payload){
   dest.lat = payload.lat; dest.lng = payload.lng;
@@ -1054,7 +1088,7 @@ DESTINATIONS_RAW.forEach(d=>{
    refetch, and always additive: curated data is never removed or replaced. If live data
    genuinely isn't available (offline, or a very obscure destination), a trip idea simply
    uses however many real places actually exist rather than padding with anything made up. */
-const REAL_SUPPLEMENT_CACHE_KEY = 'tripflow_real_supplement_cache_v1';
+const REAL_SUPPLEMENT_CACHE_KEY = 'tripflow_real_supplement_cache_v2';
 async function ensureRealAttractionSupply(dest){
   if(!dest || dest.__supplemented || dest.__supplementing) return false;
   dest.__supplementing = true;
