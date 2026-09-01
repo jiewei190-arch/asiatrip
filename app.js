@@ -555,6 +555,25 @@ function viewPlaceOnMap(placeId){
 }
 
 /* ---------------- place detail modal ---------------- */
+/** A short, rule-based (not a live model call) planning tip: best time of day for this
+ * specific place, plus the closest genuinely nearby highly-rated place to pair it with. */
+function generateAIInsight(place, dest){
+  const nameCat = (place.name+' '+(place.category||'')).toLowerCase();
+  let timeHint;
+  if(/sky|view|tower|rooftop|sunset|observation/.test(nameCat)) timeHint = 'around sunset for the best light and views';
+  else if(place.type==='restaurant'){
+    timeHint = /café|coffee|bakery|breakfast/i.test(place.cuisine||'') ? 'earlier in the day, when it\'s freshest' : 'in the evening for the full atmosphere';
+  } else if((place.tags||[]).includes('nightlife')) timeHint = 'after dark, once it comes alive';
+  else if((place.tags||[]).includes('relax')) timeHint = 'in the late afternoon, when crowds thin out';
+  else timeHint = 'earlier in the day to beat the crowds';
+  const nearby = PLACES.filter(o=>o.destId===place.destId && o.id!==place.id && o.type!=='hotel' && haversine(place,o) < 1.2)
+    .sort((a,b)=>b.rating-a.rating)[0];
+  let pairSentence = '';
+  if(nearby){
+    pairSentence = ` Consider scheduling it near ${nearby.name} (about ${haversine(place,nearby).toFixed(1)} km away) to minimize travel time.`;
+  }
+  return `${place.name} is best visited ${timeHint}.${pairSentence}`;
+}
 function openPlaceDetail(placeId){
   const p = placeById(placeId);
   if(!p) return;
@@ -595,6 +614,10 @@ function openPlaceDetail(placeId){
       </div>
       <div>
         <div class="destOverviewGrid" style="grid-template-columns:1fr;margin-top:0">${infoRows}</div>
+        ${p.type!=='hotel' ? `<div class="aiInsightCard">
+          <div class="k">✨ AI Insight</div>
+          <p>${esc(generateAIInsight(p, dest))}</p>
+        </div>` : ''}
         <div class="rowgap" style="margin-top:14px">
           <button class="btn primary block" id="pdAddBtn"><i class="fa-solid fa-plus"></i> Add to Trip</button>
           <button class="btn block" id="pdSaveBtn">${isSaved?'♥ Saved':'♡ Save to collection'}</button>
@@ -635,24 +658,52 @@ function openAddToTrip(placeId){
       return;
     }
     const select = $('atTripSelect');
+    let chosenDay = 0, chosenTimeOfDay = 'morning';
+    const TIME_OF_DAY_DEFAULTS = { morning:'09:00', afternoon:'13:00', evening:'18:00' };
     function renderDays(){
       const t = getTrip(select.value);
-      $('atDayRow').innerHTML = t.days.map((d,i)=>`<button class="pill" data-day="${i}">Day ${i+1} · ${fmtDateShort(d.date)}</button>`).join('') +
+      chosenDay = clamp(chosenDay, 0, t.days.length-1);
+      $('atDayRow').innerHTML = t.days.map((d,i)=>`<button class="pill ${i===chosenDay?'active':''}" data-day="${i}">Day ${i+1} · ${fmtDateShort(d.date)}</button>`).join('') +
         `<button class="pill" data-newday="1">＋ New day</button>`;
-      $('atDayRow').querySelectorAll('[data-day]').forEach(btn=>btn.onclick=()=>{
-        const t2 = getTrip(select.value);
-        const dayIdx = Number(btn.dataset.day);
-        addPlaceToTrip(t2, dayIdx, p);
-        closeModal('modal-addToTrip');
-        toast(`${p.name} added to Day ${dayIdx+1} of ${t2.title}.`);
-      });
+      $('atDayRow').querySelectorAll('[data-day]').forEach(btn=>btn.onclick=()=>{ chosenDay = Number(btn.dataset.day); renderDays(); });
       $('atDayRow').querySelector('[data-newday]').onclick = ()=>{
         const t2 = getTrip(select.value);
         addDayToTrip(t2);
+        chosenDay = t2.days.length-1;
         renderDays();
       };
+      renderTimeStep();
     }
-    select.onchange = renderDays;
+    function renderTimeStep(){
+      let step = $('atTimeStep');
+      if(!step){
+        $('addToTripBody').insertAdjacentHTML('beforeend', `
+          <div id="atTimeStep" style="margin-top:14px">
+            <div class="small" style="font-weight:700;margin-bottom:8px">Time of day</div>
+            <div class="pillRow" id="atTimeOfDay">
+              <button class="pill" data-tod="morning">🌅 Morning</button>
+              <button class="pill" data-tod="afternoon">☀️ Afternoon</button>
+              <button class="pill" data-tod="evening">🌆 Evening</button>
+            </div>
+            <div class="field" style="margin-top:10px;max-width:180px"><label>Optional exact start time</label><input type="time" id="atCustomTime"></div>
+            <button class="btn primary block" style="margin-top:14px" id="atConfirmBtn">＋ Add to Trip</button>
+          </div>`);
+        step = $('atTimeStep');
+      }
+      $('atTimeOfDay').querySelectorAll('[data-tod]').forEach(b=>{
+        b.classList.toggle('active', b.dataset.tod===chosenTimeOfDay);
+        b.onclick = ()=>{ chosenTimeOfDay = b.dataset.tod; $('atCustomTime').value=''; $('atTimeOfDay').querySelectorAll('[data-tod]').forEach(x=>x.classList.toggle('active', x===b)); };
+      });
+      $('atConfirmBtn').onclick = ()=>{
+        const t2 = getTrip(select.value);
+        const customTime = $('atCustomTime').value;
+        const time = customTime || TIME_OF_DAY_DEFAULTS[chosenTimeOfDay];
+        addPlaceToTrip(t2, chosenDay, p, time);
+        closeModal('modal-addToTrip');
+        toast(`${p.name} added to Day ${chosenDay+1} of ${t2.title} at ${fmtTime12(time)}.`);
+      };
+    }
+    select.onchange = ()=>{ chosenDay = 0; renderDays(); };
     renderDays();
   }
   renderBody();
@@ -948,6 +999,10 @@ function initCurrencyConverter(dest){
   $('convFrom').value = currentCurrencyCode();
   $('convTo').value = dest.currencyCode || 'USD';
   function update(){
+    // Guards against a deferred rate-load retry (see loadExchangeRates().then(update) below)
+    // resolving after the user has already navigated away from this destination's Overview
+    // tab, which would otherwise throw trying to write into removed DOM nodes.
+    if(!$('convAmount')) return;
     const amount = Number($('convAmount').value) || 0;
     const from = $('convFrom').value, to = $('convTo').value;
     const rateFrom = EXCHANGE_RATES[from], rateTo = EXCHANGE_RATES[to];
@@ -1077,11 +1132,60 @@ function renderDestRestaurants(dest, body){
 }
 
 /* ---------------- Hotels tab ---------------- */
+const AREA_TAG_LABELS = { food:'Food', culture:'Culture', history:'History', nature:'Nature', relax:'Relaxation', nightlife:'Nightlife', shopping:'Shopping', art:'Art', adventure:'Adventure', romantic:'Romantic', hidden:'Hidden gems', photography:'Photography' };
+/** Groups a destination's places by neighborhood/area and characterizes each one by what's
+ * actually concentrated there (from real tag data), for a "best areas to stay" overview. */
+function bestAreasToStay(dest){
+  const all = PLACES.filter(p=>p.destId===dest.id);
+  const areaNames = [...new Set(all.map(p=>p.area).filter(Boolean))];
+  return areaNames.map(area=>{
+    const inArea = all.filter(p=>p.area===area);
+    const hotels = inArea.filter(p=>p.type==='hotel');
+    if(!hotels.length) return null; // only surface areas a visitor could actually book a hotel in
+    const tagCounts = {};
+    inArea.forEach(p=>(p.tags||[]).forEach(t=>{ tagCounts[t]=(tagCounts[t]||0)+1; }));
+    const topTags = Object.entries(tagCounts).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([t])=>AREA_TAG_LABELS[t]||t);
+    const centroid = { lat: hotels.reduce((s,p)=>s+p.lat,0)/hotels.length, lng: hotels.reduce((s,p)=>s+p.lng,0)/hotels.length };
+    return { area, tags: topTags.length?topTags:['Central location'], hotelCount: hotels.length, centroid };
+  }).filter(Boolean);
+}
+/** Recommends the neighborhood closest, on average, to everywhere the user has actually
+ * shown interest in (saved places + itinerary stops for this destination) — real geometry
+ * on real data, not a fabricated suggestion. Returns null when there's nothing to base a
+ * recommendation on, or when no area is meaningfully better than the rest. */
+function recommendBestArea(dest, areas){
+  if(areas.length<2) return null;
+  const trip = STATE.trips.find(t=>t.destId===dest.id);
+  const itineraryPoints = trip ? trip.days.flatMap(d=>d.stops.map(s=>({lat:s.lat,lng:s.lng}))) : [];
+  const savedIds = new Set();
+  STATE.collections.forEach(c=>c.placeIds.forEach(id=>{ if(id.indexOf(dest.id+'-')===0) savedIds.add(id); }));
+  const savedPoints = [...savedIds].map(id=>placeById(id)).filter(Boolean).map(p=>({lat:p.lat,lng:p.lng}));
+  const points = [...itineraryPoints, ...savedPoints];
+  if(!points.length) return null;
+  const scored = areas.map(a=>({ ...a, avgDist: points.reduce((s,pt)=>s+haversine(a.centroid,pt),0)/points.length })).sort((x,y)=>x.avgDist-y.avgDist);
+  const best = scored[0], others = scored.slice(1);
+  const avgOthers = others.reduce((s,a)=>s+a.avgDist,0)/others.length;
+  const minutesSaved = Math.round((avgOthers-best.avgDist)*12); // ~12 min/km, consistent with the route-efficiency warning
+  return minutesSaved>0 ? { area:best.area, minutesSaved } : null;
+}
 function renderDestHotels(dest, body){
   const all = placesFor(dest.id,'hotel');
   const amenitiesAll = [...new Set(all.flatMap(p=>p.amenities||[]))];
   const f = destState.hotelFilters;
+  const areas = bestAreasToStay(dest);
+  const recommendation = recommendBestArea(dest, areas);
   body.innerHTML = `
+    ${areas.length>=2 ? `
+    <div class="card" style="margin-bottom:16px">
+      <h3>🏘️ Best areas to stay</h3>
+      <div class="neighborhoodGrid">
+        ${areas.map(a=>`<div class="ovCard"><div class="k">${esc(a.area)}</div><div class="v small">Best for: ${a.tags.map(esc).join(', ')}</div></div>`).join('')}
+      </div>
+      ${recommendation ? `<div class="aiInsightCard" style="margin-top:14px">
+        <div class="k">✨ TripFlow Recommendation</div>
+        <p>Based on your saved attractions and itinerary, <b>${esc(recommendation.area)}</b> is the best neighborhood for your stay — it could reduce your average daily travel time by approximately ${recommendation.minutesSaved} minutes.</p>
+      </div>` : ''}
+    </div>` : ''}
     <div class="filterBar">
       <div class="filterGroup"><label>Price / night</label><select id="hPrice"><option value="any">Any price</option><option value="0-100">Under $100</option><option value="100-250">$100–250</option><option value="250-500">$250–500</option><option value="500-99999">$500+</option></select></div>
       <div class="filterGroup"><label>Star rating</label><select id="hStars"><option value="any">Any stars</option><option value="5">5 star</option><option value="4">4 star</option><option value="3">3 star</option><option value="2">2 star &amp; under</option></select></div>
