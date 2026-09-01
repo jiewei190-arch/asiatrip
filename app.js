@@ -342,9 +342,17 @@ function addNotification(text, icon, tripId){ STATE.notifications.unshift({id:ui
 
 /* ---------------- modal / dialog helpers ---------------- */
 function openModal(id){ $(id).classList.add('show'); }
+/** Runs fn once the DOM is ready — immediately if it already is.
+ * app.js is loaded via a dynamically inserted <script>, and those do NOT hold back
+ * DOMContentLoaded: the event fires before this file executes, so a plain listener would be
+ * registered for something that already happened and the app would never boot. */
+function onDomReady(fn){
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', fn);
+  else fn();
+}
 function closeModal(id){ $(id).classList.remove('show'); }
 function closeAllModals(){ $$('.modalBack.show').forEach(m=>m.classList.remove('show')); }
-document.addEventListener('DOMContentLoaded', ()=>{
+onDomReady(()=>{
   document.addEventListener('click', e=>{ const b=e.target.closest('[data-close]'); if(b) closeModal(b.dataset.close); });
   $$('.modalBack').forEach(m=>m.addEventListener('click', e=>{ if(e.target===m) m.classList.remove('show'); }));
   document.addEventListener('keydown', e=>{ if(e.key==='Escape') closeAllModals(); });
@@ -554,7 +562,21 @@ function openSettings(){
 function populateCurrencyOptions(select){
   select.innerHTML = Object.entries(CURRENCY_META).map(([code,m])=>`<option value="${code}">${code} — ${esc(m.name)} (${m.symbol})</option>`).join('');
 }
+/** Which build is this browser actually running? Surfaced because a stale cached bundle looks
+ * identical to a current one — the page loads fine, it's just old — and that is exactly how
+ * eleven releases went unnoticed on a real device. */
+const BUILD_MARKER = 'itinerary-quality';
+function renderBuildVersion(){
+  const el = $('buildVersion');
+  if(!el) return;
+  const v = window.ASSET_VERSION || 'unknown';
+  const loadedAt = new Date(Number(v) * 3600000);
+  el.textContent = isNaN(loadedAt.getTime())
+    ? `${BUILD_MARKER} · ${v}`
+    : `${BUILD_MARKER} · assets from ${loadedAt.toLocaleDateString()} ${loadedAt.toLocaleTimeString([], {hour:'2-digit'})}`;
+}
 function initSettingsModal(){
+  renderBuildVersion();
   $('themeToggle').onchange = (e)=>{ STATE.theme = e.target.checked?'dark':'light'; applyTheme(); saveState(); };
   $('clearPhotoCacheBtn').onclick = ()=>{
     clearPhotoCache();
@@ -4361,4 +4383,4 @@ function init(){
   loadExchangeRates().then(()=>{ if(currentCurrencyCode()!=='USD') refreshCurrentView(); });
 }
 window.addEventListener('hashchange', route);
-document.addEventListener('DOMContentLoaded', init);
+onDomReady(init);

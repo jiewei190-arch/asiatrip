@@ -10,7 +10,25 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
-<link rel="stylesheet" href="styles.css?v=20260901-4">
+<script>
+/* Cache busting that maintains itself.
+ *
+ * A hand-written ?v= string only busts the cache if somebody remembers to change it. Across
+ * eleven releases nobody did, so returning visitors kept being served the copy of app.js their
+ * browser cached at the first deploy — every fix shipped after that never reached them, and
+ * there was no symptom to notice, because the page loaded perfectly. It was just old.
+ *
+ * The token now derives from the clock and rotates hourly, so assets stay cached for normal
+ * browsing but can never go stale for longer than that, and there is no release step left to
+ * forget. Exposed as ASSET_VERSION so the running build can be identified from the UI. */
+window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
+(function(){
+  var link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = 'styles.css?v=' + window.ASSET_VERSION;
+  document.head.appendChild(link);   // added during head parse, so it still blocks render (no FOUC)
+})();
+</script>
 </head>
 <body>
 
@@ -573,6 +591,9 @@
       <div><strong>Reload photos</strong><div class="small">Seeing grey placeholders instead of photos? Clears remembered lookups so every photo is fetched fresh.</div></div>
       <button class="btn" id="clearPhotoCacheBtn">Reload</button>
     </div>
+    <div class="settingsRow">
+      <div><strong>Version</strong><div class="small" id="buildVersion">—</div></div>
+    </div>
     <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px"><button class="btn" data-close="modal-settings">Close</button><button class="btn primary" id="saveSettingsBtn">Save</button></div>
   </div>
 </div>
@@ -598,7 +619,18 @@
 
 <div id="printArea" aria-hidden="true"></div>
 
-<script src="data.js?v=20260901-4"></script>
-<script src="app.js?v=20260901-4"></script>
+<script>
+/* Loaded with the same self-rotating token (see the note in <head>). Dynamically inserted
+ * scripts with async=false still execute in insertion order, so data.js is guaranteed to run
+ * before app.js — and being at the end of <body>, the DOM is already parsed when they do. */
+(function(){
+  ['data.js','app.js'].forEach(function(src){
+    var s = document.createElement('script');
+    s.src = src + '?v=' + window.ASSET_VERSION;
+    s.async = false;
+    document.body.appendChild(s);
+  });
+})();
+</script>
 </body>
 </html>
