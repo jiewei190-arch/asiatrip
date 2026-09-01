@@ -327,6 +327,24 @@ main{max-width:1280px;margin:0 auto;padding:0 24px 60px;min-height:60vh}
 .conflictWarning .warnBody b{font-size:13px;color:var(--danger)}
 .conflictWarning .warnBody p{margin:2px 0 0}
 .noteBox{margin:12px 18px 0}
+.savedViewToggle{display:flex;gap:8px;margin:0 0 14px}
+.savedMapLayout{display:grid;grid-template-columns:320px 1fr;gap:14px;min-height:520px}
+.savedMapList{max-height:560px;overflow-y:auto;display:flex;flex-direction:column;gap:6px}
+.savedMapPanel{border-radius:14px;overflow:hidden;border:1px solid var(--line);min-height:520px}
+.savedMapPanel iframe{width:100%;height:100%;min-height:520px;border:0;display:block}
+@media(max-width:900px){ .savedMapLayout{grid-template-columns:1fr} .savedMapPanel,.savedMapPanel iframe{min-height:340px} }
+.travelHead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.travelCountdown{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.countNum{font-size:44px;font-weight:800;color:var(--green);line-height:1}
+.travelSectionTitle{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:10px}
+.travelStop{display:flex;align-items:center;gap:11px;padding:10px;border-radius:12px;border:1px solid var(--line);margin-bottom:8px;background:var(--surface)}
+.travelStop.now{border-color:var(--green);background:var(--mint);box-shadow:0 0 0 1px var(--green)}
+.travelStop.done{opacity:.55}
+.travelTime{font-weight:800;font-size:13px;min-width:64px;flex-shrink:0}
+.travelInfo{flex:1;min-width:0}
+.travelInfo h4{margin:0 0 2px;font-size:14px}
+.travelNote{margin-top:4px;color:var(--muted)}
+.travelDayNote b{font-size:13px}
 .splitRow{display:flex;flex-wrap:wrap;gap:8px}
 .splitChip{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:99px;padding:6px 11px;font-size:12.5px;font-weight:600;cursor:pointer;background:var(--surface2)}
 .balanceTag{font-size:12px;font-weight:700;color:var(--muted);flex-shrink:0}
