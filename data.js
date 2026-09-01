@@ -6,6 +6,15 @@
 ============================================================ */
 
 function slugify(s){ return s.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,''); }
+const TITLE_CASE_MINOR_WORDS = new Set(['a','an','and','as','at','but','by','en','for','if','in','nor','of','on','or','the','to','v','via','vs']);
+function titleCaseDestName(s){
+  const words = s.trim().split(/\s+/);
+  return words.map((w,i)=>{
+    const lower = w.toLowerCase();
+    if(i>0 && i<words.length-1 && TITLE_CASE_MINOR_WORDS.has(lower)) return lower;
+    return lower.charAt(0).toUpperCase()+lower.slice(1);
+  }).join(' ');
+}
 
 /* Self-contained SVG placeholder "photos" — zero network requests, so they
    always render (no dependency on an external image CDN that can be
@@ -818,11 +827,26 @@ function seededRandom(seedStr){
     return (h >>> 0) / 4294967296;
   };
 }
+const GENERIC_DEST_NAME_CACHE_KEY = 'tripflow_generic_dest_names_v1';
+/** Generic destinations only live in memory — a page reload starts DESTINATIONS fresh from the
+ * curated list. Without this, resolving a URL like #/destination/gen-beijing after a reload (very
+ * common on mobile Safari, which reloads backgrounded tabs) would have nothing to recover the
+ * original typed name from, and would wrongly treat the raw id/slug itself as the destination name. */
+function rememberGenericDestName(id, name){
+  const cache = readJSONCache(GENERIC_DEST_NAME_CACHE_KEY);
+  cache[id] = name;
+  writeJSONCache(GENERIC_DEST_NAME_CACHE_KEY, cache);
+}
+function recallGenericDestName(id){
+  const cache = readJSONCache(GENERIC_DEST_NAME_CACHE_KEY);
+  return cache[id] || null;
+}
 function makeGenericDestination(name){
-  const id = 'gen-'+slugify(name);
-  const clean = name.split(',')[0].trim() || name.trim();
-  const existing = DESTINATIONS.find(d=>d.id===id);
+  const clean = titleCaseDestName(name.split(',')[0].trim() || name.trim());
+  const id = 'gen-'+slugify(clean); // derive the id from the cleaned name (not the raw ", Country" text) so recovering a
+  const existing = DESTINATIONS.find(d=>d.id===id);            // remembered name after a reload always reproduces the same id
   if(existing) return existing;
+  rememberGenericDestName(id, clean);
   const rnd = seededRandom(id);
   const base = { lat: 20 + (rnd()*40-20), lng: (rnd()*340-170) };
   const dest = {
@@ -841,13 +865,13 @@ function makeGenericDestination(name){
   const attrNames = ['Old Town Walking Tour','Central Museum','City Cathedral','Riverside Promenade','Panoramic Viewpoint','Historic Market Square'];
   const attrCats = ['Culture','Museum','History','Nature','Viewpoint','Market'];
   const attrTags = [['culture','history'],['culture','art'],['history','photography'],['nature','relax'],['photography'],['shopping','food']];
-  attrNames.forEach((n,i)=>PLACES.push({ id:`${id}-a${i+1}`, destId:id, type:'attraction', name:`${clean} ${n}`, category:attrCats[i], rating:+(4.3+rnd()*0.5).toFixed(1), reviews:800+Math.floor(rnd()*9000), priceLevel:i%3, price:[0,10,18,0,0,5][i], area:'City Center', lat:base.lat+(rnd()*0.06-0.03), lng:base.lng+(rnd()*0.06-0.03), desc:`A well-loved local favorite for visitors exploring ${clean}.`, tags:attrTags[i], duration:75, image:img(id+'-attr-'+i,640,480,`${clean} ${n}`) }));
+  attrNames.forEach((n,i)=>PLACES.push({ id:`${id}-a${i+1}`, destId:id, type:'attraction', name:`${clean} ${n}`, category:attrCats[i], rating:+(4.3+rnd()*0.5).toFixed(1), reviews:800+Math.floor(rnd()*9000), priceLevel:i%3, price:[0,10,18,0,0,5][i], area:clean, lat:base.lat+(rnd()*0.06-0.03), lng:base.lng+(rnd()*0.06-0.03), desc:`A well-loved local favorite for visitors exploring ${clean}.`, tags:attrTags[i], duration:75, image:img(id+'-attr-'+i,640,480,`${clean} ${n}`) }));
   const restNames = ['The Local Table','Market Street Kitchen','Grandma\'s Corner Café','The Harborview Grill','Spice & Sea','The Old Bakery'];
   const cuisines = ['Local Cuisine','Fusion','Café','Seafood','International','Bakery & Café'];
-  restNames.forEach((n,i)=>PLACES.push({ id:`${id}-r${i+1}`, destId:id, type:'restaurant', name:n, cuisine:cuisines[i], rating:+(4.2+rnd()*0.6).toFixed(1), reviews:300+Math.floor(rnd()*4000), priceLevel:1+(i%3), price:[10,18,8,28,15,7][i], area:'City Center', lat:base.lat+(rnd()*0.05-0.025), lng:base.lng+(rnd()*0.05-0.025), desc:`A favorite spot locals and visitors both recommend in ${clean}.`, tags:['food'], dietary: i%2? ['vegetarian']:[], hours:'11:00 AM – 10:00 PM', image:img(id+'-food-'+i,640,480,n) }));
+  restNames.forEach((n,i)=>PLACES.push({ id:`${id}-r${i+1}`, destId:id, type:'restaurant', name:n, cuisine:cuisines[i], rating:+(4.2+rnd()*0.6).toFixed(1), reviews:300+Math.floor(rnd()*4000), priceLevel:1+(i%3), price:[10,18,8,28,15,7][i], area:clean, lat:base.lat+(rnd()*0.05-0.025), lng:base.lng+(rnd()*0.05-0.025), desc:`A favorite spot locals and visitors both recommend in ${clean}.`, tags:['food'], dietary: i%2? ['vegetarian']:[], hours:'11:00 AM – 10:00 PM', image:img(id+'-food-'+i,640,480,n) }));
   const hotelNames = [`Grand ${clean} Hotel`,`${clean} Boutique Inn`,`${clean} Central Suites`,`${clean} Budget Stay`];
   const stars=[5,4,3,2];
-  hotelNames.forEach((n,i)=>PLACES.push({ id:`${id}-h${i+1}`, destId:id, type:'hotel', name:n, stars:stars[i], guestRating:+(7.9+rnd()*1.4).toFixed(1), price:[280,150,95,40][i], area:'City Center', lat:base.lat+(rnd()*0.04-0.02), lng:base.lng+(rnd()*0.04-0.02), desc:`Comfortable, well-located stay for exploring ${clean}.`, amenities:['Free WiFi','Breakfast'].concat(i<2?['Pool','Bar']:[]), image:img(id+'-hotel-'+i,640,480,n) }));
+  hotelNames.forEach((n,i)=>PLACES.push({ id:`${id}-h${i+1}`, destId:id, type:'hotel', name:n, stars:stars[i], guestRating:+(7.9+rnd()*1.4).toFixed(1), price:[280,150,95,40][i], area:clean, lat:base.lat+(rnd()*0.04-0.02), lng:base.lng+(rnd()*0.04-0.02), desc:`Comfortable, well-located stay for exploring ${clean}.`, amenities:['Free WiFi','Breakfast'].concat(i<2?['Pool','Bar']:[]), image:img(id+'-hotel-'+i,640,480,n) }));
   return dest;
 }
 
@@ -860,6 +884,25 @@ function findDestination(query){
   d = DESTINATIONS.find(x=> x.name.toLowerCase().includes(q) || q.includes(x.name.toLowerCase()) || x.country.toLowerCase().includes(q));
   if(d) return d;
   return makeGenericDestination(query);
+}
+
+/** Resolve a destination strictly by its stable id (from a URL hash, a saved trip, etc.) —
+ * never by treating the id/slug itself as a human search query. A generic destination only
+ * lives in memory, so after a reload (very common on mobile Safari backgrounding a tab) it
+ * won't be in DESTINATIONS yet; recover its real typed name from the persisted cache before
+ * recreating it, rather than falling through to findDestination(id) which would corrupt the
+ * name into the raw id string (e.g. "gen-beijing") and send that literal text to geocoding. */
+function resolveDestFromId(id){
+  if(!id) return null;
+  let d = DESTINATIONS.find(x=>x.id===id);
+  if(d) return d;
+  if(id.indexOf('gen-')===0){
+    const remembered = recallGenericDestName(id);
+    if(remembered) return makeGenericDestination(remembered);
+    // last resort: de-slugify so we at least show a readable name instead of the raw id
+    return makeGenericDestination(id.slice(4).replace(/-/g,' '));
+  }
+  return findDestination(id);
 }
 
 function placesFor(destId, type){ return PLACES.filter(p=>p.destId===destId && (!type || p.type===type)); }

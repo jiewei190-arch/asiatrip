@@ -205,7 +205,7 @@ function getTrip(id){ return STATE.trips.find(t=>t.id===id); }
     resolved id/name are. Re-resolve (and re-enrich) on demand so a trip saved to
     localStorage still opens correctly after a reload. */
 function destForTrip(trip){
-  return DESTINATIONS.find(d=>d.id===trip.destId) || findDestination(trip.destName || trip.destId);
+  return resolveDestFromId(trip.destId) || findDestination(trip.destName || trip.destId);
 }
 function tripsForDest(destId){ return STATE.trips.filter(t=>t.destId===destId); }
 function getOrCreateDraftTrip(destId){
@@ -764,8 +764,7 @@ const DEST_TABS = [
 ];
 
 function renderDestinationView(idOrName, tab){
-  let dest = DESTINATIONS.find(d=>d.id===idOrName);
-  if(!dest) dest = findDestination(idOrName);
+  let dest = resolveDestFromId(idOrName) || findDestination(idOrName);
   if(destState.id !== dest.id){ destState = { id:dest.id, tab:tab, thingsFilters:{cat:'all',price:'any',rating:'any',sort:'rec'}, restFilters:{cuisine:'all',price:'any',rating:'any',open:false,dietary:new Set(),sort:'rec'}, hotelFilters:{price:'any',stars:'any',guest:'any',amenity:'all',sort:'rec'}, mapCats:new Set(['attraction','restaurant','hotel']) }; }
   destState.tab = tab || destState.tab || 'overview';
 
@@ -1349,7 +1348,7 @@ function renderIdeasView(destIdParam){
     navigate(`#/ideas/${encodeURIComponent(d.id)}`);
   };
   if(destIdParam){
-    const dest = DESTINATIONS.find(d=>d.id===destIdParam) || findDestination(destIdParam);
+    const dest = resolveDestFromId(destIdParam) || findDestination(destIdParam);
     $('ideasDestInput').value = `${dest.name}, ${dest.country}`.replace(/, $/, '');
     // navigating here represents an explicit "generate" action — always give a fresh, varied batch
     const ideas = regenerateIdeas(dest.id);
