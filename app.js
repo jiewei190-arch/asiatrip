@@ -1401,12 +1401,15 @@ function tripCardHTML(t){
   const planned = tripPlannedTotal(t);
   const pct = clamp(Math.round(planned/(t.budget.total||1)*100),0,140);
   const over = planned>t.budget.total;
+  const progress = computeTripProgress(t);
   return `<div class="tripCard2" data-trip="${t.id}">
     <div class="tripCoverWrap"><img src="${t.cover||dest.hero}" alt="" data-photo-q="${esc(dest.name+' skyline')}"><span class="badge2">${dest.flag} ${esc(dest.name)}</span></div>
     <div class="tripCardBody">
       <h3>${esc(t.title)}</h3>
       <div class="tripMetaRow"><span>📅 ${fmtDateShort(t.start)} – ${fmtDateShort(t.end)}</span><span>${t.days.length} days</span></div>
       <div class="small">${tripStopCount(t)} activities · ${t.travelers} travelers</div>
+      <div class="small" style="display:flex;align-items:center;gap:6px;margin-top:6px"><span>${progress.ready?'🎉 Ready to travel':`Planning ${progress.percent}% complete`}</span></div>
+      <div class="progress" style="margin-top:3px"><div style="width:${progress.percent}%"></div></div>
       <div class="tripBudgetBar">
         <div class="small" style="display:flex;justify-content:space-between;margin-bottom:4px"><span>${fmt$(planned)} planned</span><span>${over?'⚠ over budget':fmt$(t.budget.total)+' budget'}</span></div>
         <div class="progress ${over?'over':''}"><div style="width:${Math.min(pct,100)}%"></div></div>
@@ -1585,6 +1588,7 @@ function renderPlannerView(tripId, ptab){
   $('plannerTitle').textContent = trip.title;
   $('plannerSub').textContent = `${fmtDateFull(trip.start)} – ${fmtDateFull(trip.end)} · ${trip.days.length} days · ${trip.travelers} travelers`;
   renderCollabStack(trip);
+  renderTripProgress(trip);
 
   $$('.ptab').forEach(b=>{ b.classList.toggle('active', b.dataset.ptab===(ptab||'itinerary')); b.onclick=()=>navigate(`#/trip/${trip.id}/${b.dataset.ptab}`); });
   $$('.ptabBody').forEach(b=>b.classList.remove('active'));
@@ -1605,6 +1609,62 @@ function renderPlannerView(tripId, ptab){
   else renderPlannerItinerary(trip);
 }
 function renderCollabStack(trip){ $('collabStack').innerHTML = trip.collaborators.map(c=>`<div class="avatar sm" title="${esc(c.name)}">${c.initials}</div>`).join(''); }
+
+/* ---------------- Trip Planning Progress ---------------- */
+function computeTripProgress(trip){
+  const dest = destForTrip(trip);
+  const savedForDest = new Set();
+  STATE.collections.forEach(c=>c.placeIds.forEach(id=>{ if(id.indexOf(dest.id+'-')===0) savedForDest.add(id); }));
+  const savedCount = savedForDest.size;
+  const savedHotel = [...savedForDest].some(id=>{ const p=placeById(id); return p && p.type==='hotel'; });
+  const daysWithStops = trip.days.filter(d=>d.stops.length>0).length;
+  const totalDays = trip.days.length;
+  const expenses = trip.budget.expenses.length;
+  const plannedSpend = tripPlannedTotal(trip);
+  const budgetRatio = trip.budget.total ? plannedSpend/trip.budget.total : 0;
+  const st = (done, partial)=> done ? 'done' : (partial ? 'partial' : 'todo');
+
+  const items = [
+    { key:'dest', label:'Destination Selected', detail:`${dest.flag} ${dest.name}`, status:'done',
+      go:()=>navigate(`#/destination/${encodeURIComponent(dest.id)}`) },
+    { key:'dates', label:'Dates Selected', detail:`${fmtDateShort(trip.start)} – ${fmtDateShort(trip.end)} · ${totalDays} day${totalDays===1?'':'s'}`, status:'done',
+      go:()=>navigate(`#/trip/${trip.id}/itinerary`) },
+    { key:'saved', label:'Places Saved', detail:`${savedCount} place${savedCount===1?'':'s'} saved`, status: st(savedCount>=5, savedCount>0),
+      go:()=>navigate(`#/destination/${encodeURIComponent(dest.id)}/things`) },
+    { key:'hotel', label:'Hotel Considered', detail: savedHotel ? 'A hotel is saved for this trip' : 'No hotel saved yet', status: st(savedHotel, false),
+      go:()=>navigate(`#/destination/${encodeURIComponent(dest.id)}/hotels`) },
+    { key:'itin', label:'Itinerary Planned', detail: totalDays ? `${daysWithStops}/${totalDays} days planned` : 'No days yet', status: st(totalDays>0 && daysWithStops===totalDays, daysWithStops>0),
+      go:()=>navigate(`#/trip/${trip.id}/itinerary`) },
+    { key:'budget', label:'Budget Tracked', detail: expenses ? `${expenses} expense${expenses===1?'':'s'} logged` : 'No expenses logged yet', status: st(expenses>0 && budgetRatio>=0.5, expenses>0),
+      go:()=>navigate(`#/trip/${trip.id}/budget`) },
+  ];
+  const doneCount = items.filter(i=>i.status==='done').length;
+  const partialCount = items.filter(i=>i.status==='partial').length;
+  const percent = Math.round(((doneCount + partialCount*0.5) / items.length) * 100);
+  const ready = items.every(i=>i.status==='done');
+  return { items, percent, ready };
+}
+function renderTripProgress(trip){
+  const el = $('tripProgress');
+  if(!el) return;
+  const { items, percent, ready } = computeTripProgress(trip);
+  const icon = s => s==='done' ? '✅' : (s==='partial' ? '🟡' : '🔴');
+  el.innerHTML = `
+    <div class="progressHead">
+      <div><b>Trip Planning Progress</b> <span class="small">${percent}%${ready?' · Ready to travel! 🎉':''}</span></div>
+      <div class="progress" style="width:180px;flex-shrink:0"><div style="width:${percent}%"></div></div>
+    </div>
+    <div class="progressGrid">
+      ${items.map(i=>`<button class="progressItem" data-pkey="${esc(i.key)}" type="button">
+        <span class="pIcon">${icon(i.status)}</span>
+        <span class="pText"><span class="pLabel">${esc(i.label)}</span><span class="small">${esc(i.detail)}</span></span>
+      </button>`).join('')}
+    </div>`;
+  items.forEach(i=>{
+    const btn = el.querySelector(`[data-pkey="${i.key}"]`);
+    if(btn) btn.onclick = i.go;
+  });
+}
 function plannerMapSearch(trip){
   const q = $('mapSearchInput').value.trim().toLowerCase();
   if(!q) return;
@@ -1643,11 +1703,39 @@ function renderPlannerItinerary(trip){
   $('dayToolbar').innerHTML = `<label class="small" style="font-weight:700">Date</label><input type="date" id="dayDateInput" value="${day.date}"><span class="small">${day.stops.length} stop${day.stops.length===1?'':'s'} · drag cards to reorder</span>`;
   $('dayDateInput').onchange = (e)=>{ day.date = e.target.value; saveState(); toast('Day date updated.'); };
 
+  renderRouteWarning(trip, day);
   renderTimeline(trip, day);
   renderPlannerMap(trip, day);
   renderPlannerStats(trip, day);
 }
 
+/** Proactively detects a zigzagging/inefficient day (e.g. Shibuya → Asakusa → Shibuya) by
+ * comparing the current stop order's total distance against the nearest-neighbor optimized
+ * order — the same math already used by the on-demand Optimize modal. */
+function detectInefficiencyRoute(day){
+  if(day.stops.length<4) return null;
+  const current = totalDistance(day.stops);
+  const optDist = totalDistance(nearestNeighborOrder(day.stops));
+  const saved = current - optDist;
+  if(saved < 1 || saved < current*0.15) return null; // not meaningfully inefficient
+  return { current, optDist, saved };
+}
+function renderRouteWarning(trip, day){
+  const el = $('routeWarning');
+  if(!el) return;
+  const result = detectInefficiencyRoute(day);
+  if(!result){ el.classList.add('hidden'); el.innerHTML=''; return; }
+  el.classList.remove('hidden');
+  const minSaved = Math.round(result.saved * 12); // ~12 min/km at an easy walking+transit pace
+  el.innerHTML = `
+    <div class="warnIcon">⚠️</div>
+    <div class="warnBody">
+      <b>This day's route may be inefficient</b>
+      <p class="small">Your stops are ordered in a way that adds about ${result.saved.toFixed(1)} km (~${minSaved} min) of extra travel. Reordering them could save that time.</p>
+    </div>
+    <button class="btn primary sm" id="routeWarnOptimize">Optimize My Route</button>`;
+  $('routeWarnOptimize').onclick = ()=>openOptimizeModal(trip, plannerState.day);
+}
 function stopHTML(s, i, total, destName){
   const showTransit = i < total-1;
   return `
@@ -1973,19 +2061,43 @@ function initAI(){
 }
 function openAI(){ $('ai').classList.remove('hidden'); $('aiLauncher').style.display='none'; renderAISuggestions(); $('aiText').focus(); }
 function closeAI(){ $('ai').classList.add('hidden'); $('aiLauncher').style.display='flex'; }
+/** The AI assistant's quick-action chips change based on where the user currently is in the
+ * app (destination page, itinerary, budget, or map view) so the suggestions are always
+ * relevant to what's on screen, not a fixed generic list. */
 function renderAISuggestions(){
+  const parts = (location.hash||'#/').replace(/^#\/?/,'').split('/').filter(Boolean);
   const trip = getTrip(plannerState.tripId);
-  const list = trip ? [
-    'Rearrange my itinerary to reduce travel time',
-    'Make Day 2 more relaxed',
-    `Add more nightlife to Day ${Math.min(2,trip.days.length)}`,
-    'Find cheaper alternatives',
-  ] : [
-    'What should I do in Tokyo for 3 days?',
-    'Build me a cheap itinerary',
-    'Find romantic restaurants in Paris',
-    'What can I do on a rainy day in Bangkok?',
-  ];
+  let list;
+  if(parts[0]==='destination'){
+    const dest = resolveDestFromId(decodeURIComponent(parts[1]||'')) || findDestination(decodeURIComponent(parts[1]||''));
+    const tab = parts[2]||'overview';
+    if(tab==='map'){
+      list = [`Find nearby attractions in ${dest.name}`, `Find restaurants near me in ${dest.name}`, `Optimize my locations in ${dest.name}`, `Plan my entire trip to ${dest.name}`];
+    } else {
+      list = [`Plan my entire trip to ${dest.name}`, `Best places for food in ${dest.name}`, `Find hidden gems in ${dest.name}`, `Instagrammable locations in ${dest.name}`];
+    }
+  } else if(trip && parts[0]==='trip'){
+    const tab = parts[2]||'itinerary';
+    if(tab==='budget'){
+      list = ['Rebalance my budget', 'Find cheaper alternatives', 'Reduce my spending', 'Make this trip cheaper'];
+    } else if(tab==='collab'){
+      list = ['Add more nightlife to Day 1', 'Find romantic restaurants nearby', 'Find hidden gems for the group', 'Rearrange my itinerary to reduce travel time'];
+    } else {
+      list = [
+        'Rearrange my itinerary to reduce travel time',
+        'Make Day 1 more relaxed',
+        `Add more nightlife to Day ${Math.min(2,trip.days.length)}`,
+        'Find hidden gems',
+      ];
+    }
+  } else {
+    list = [
+      'What should I do in Tokyo for 3 days?',
+      'Build me a cheap itinerary',
+      'Find romantic restaurants in Paris',
+      'What can I do on a rainy day in Bangkok?',
+    ];
+  }
   $('aiSuggestions').innerHTML = list.map(s=>`<button class="suggestion">${esc(s)}</button>`).join('');
   $('aiSuggestions').querySelectorAll('.suggestion').forEach(b=>b.onclick=()=>{ $('aiText').value=b.textContent; sendAI(); });
 }
@@ -2056,7 +2168,13 @@ async function sendAI(){
 }
 
 function guessDestFromText(t){
-  return DESTINATIONS.find(d=>!d.id.startsWith('gen-') && t.includes(d.name.toLowerCase()));
+  // Matches any destination already known this session (curated or previously-searched
+  // generic ones) — not just curated — since AI suggestion chips on a destination page embed
+  // that exact destination's name. Prefers the longest/most-specific match to avoid a short
+  // name accidentally matching inside an unrelated longer phrase.
+  const matches = DESTINATIONS.filter(d=>d.name.length>2 && t.includes(d.name.toLowerCase()));
+  matches.sort((a,b)=>b.name.length-a.name.length);
+  return matches[0];
 }
 function adjustDayCount(trip, n){
   n = clamp(n,1,14);
@@ -2112,7 +2230,7 @@ function handleIntent(text, trip){
   const dayM = t.match(/for (\d+)\s*days?/);
   const daysFromText = dayM ? parseInt(dayM[1],10) : null;
   const withoutDays = dayM ? t.slice(0,dayM.index).trim()+' '+t.slice(dayM.index+dayM[0].length).trim() : t;
-  let m = withoutDays.match(/(?:what should i do|what to do|what can i do|things to do)\s+in ([a-z\s,]+?)[.?!]?$/);
+  let m = withoutDays.match(/(?:what should i do|what to do|what can i do|things to do|plan (?:my |an? )?(?:entire )?trip)\s+(?:in|to|for) ([a-z\s,]+?)[.?!]?$/);
   if(m && m[1].trim().length>1){
     const name = m[1].trim();
     const days = daysFromText;
@@ -2131,7 +2249,7 @@ function handleIntent(text, trip){
     }
   }
 
-  if(/\bcheap\b|budget[- ]friendly|build me a cheap/.test(t)){
+  if(/\bcheap(er)?\b|budget[- ]friendly|build me a cheap|reduce (my )?spending|rebalance( my)? budget|(make|save).*(trip|itinerary).*(cheap|money)/.test(t)){
     if(trip){
       trip.budget.style='budget';
       trip.budget.total = Math.round(dest.avgDailyBudget.budget*trip.days.length*trip.travelers);
@@ -2162,6 +2280,32 @@ function handleIntent(text, trip){
     const outdoorCats = ['Beach','Viewpoint','Hiking','Nature','Wine','Adventure'];
     const indoor = placesFor(d.id,'attraction').filter(p=>!outdoorCats.includes(p.category)).sort((a,b)=>b.rating-a.rating).slice(0,4);
     return {handled:true, reply:`Good indoor options in ${d.name} for a rainy day:\n` + indoor.map(p=>`• ${p.name} (${p.category})`).join('\n')};
+  }
+
+  if(/hidden gems?|off[- ]the[- ]beaten|lesser[- ]known|local favorites?/.test(t)){
+    const d = dest || guessDestFromText(t) || DESTINATIONS[0];
+    const picks = placesFor(d.id,'attraction').filter(p=>(p.tags||[]).includes('hidden')).sort((a,b)=>b.rating-a.rating).slice(0,4);
+    const list = picks.length ? picks : placesFor(d.id,'attraction').sort((a,b)=>b.rating-a.rating).slice(0,4);
+    return {handled:true, reply:`Hidden gems in ${d.name}:\n` + list.map(p=>`• ${p.name} — ${p.desc}`).join('\n') + `\n\nTry "add ${list[0].name} to day 1" and I'll drop it into your itinerary.`};
+  }
+
+  if(/instagrammable|photogenic|photo spots?|photography spots?/.test(t)){
+    const d = dest || guessDestFromText(t) || DESTINATIONS[0];
+    const picks = placesFor(d.id,'attraction').filter(p=>(p.tags||[]).includes('photography')).sort((a,b)=>b.rating-a.rating).slice(0,4);
+    const list = picks.length ? picks : placesFor(d.id,'attraction').sort((a,b)=>b.rating-a.rating).slice(0,4);
+    return {handled:true, reply:`Most photogenic spots in ${d.name}:\n` + list.map(p=>`• ${p.name} — ${p.desc}`).join('\n') + `\n\nTry "add ${list[0].name} to day 1" and I'll drop it into your itinerary.`};
+  }
+
+  if(/find (nearby )?attractions?/.test(t)){
+    const d = dest || guessDestFromText(t) || DESTINATIONS[0];
+    const list = placesFor(d.id,'attraction').sort((a,b)=>b.rating-a.rating).slice(0,5);
+    return {handled:true, reply:`Top attractions in ${d.name}:\n` + list.map(p=>`• ${p.name} (★${p.rating}) — ${p.desc}`).join('\n')};
+  }
+
+  if(/find restaurants? (near me|nearby)/.test(t)){
+    const d = dest || guessDestFromText(t) || DESTINATIONS[0];
+    const list = placesFor(d.id,'restaurant').sort((a,b)=>b.rating-a.rating).slice(0,5);
+    return {handled:true, reply:`Top restaurants in ${d.name}:\n` + list.map(p=>`• ${p.name} (${p.cuisine}, ★${p.rating})`).join('\n')};
   }
 
   if(/(optimize|reduce travel time|rearrange)/.test(t) && /(itinerary|trip|route|day)/.test(t) && trip){
