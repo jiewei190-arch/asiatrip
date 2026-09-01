@@ -20,11 +20,6 @@ function titleCaseDestName(s){
    always render (no dependency on an external image CDN that can be
    blocked, rate-limited, or offline). Deterministic per seed so the same
    place always gets the same look across reloads. */
-const IMG_PALETTE = [
-  ['#0d654c','#51c59f'], ['#c2410c','#fb923c'], ['#4338ca','#818cf8'], ['#b45309','#fbbf24'],
-  ['#0f766e','#5eead4'], ['#9d174d','#f472b6'], ['#1d4ed8','#60a5fa'], ['#6d28d9','#c4b5fd'],
-  ['#166534','#86efac'], ['#a21caf','#e879f9'], ['#0e7490','#67e8f9'], ['#b91c1c','#fca5a5'],
-];
 function hashStr(s){ let h=0; s=String(s); for(let i=0;i<s.length;i++){ h=(h*31+s.charCodeAt(i))|0; } return Math.abs(h); }
 function escapeXML(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 /** Base64-encodes a UTF-8 SVG string for a data URI. Percent-encoded (`;utf8,`) data URIs are
@@ -35,27 +30,27 @@ function svgToDataUri(svg){
   const b64 = (typeof btoa === 'function') ? btoa(bytes) : Buffer.from(svg, 'utf8').toString('base64');
   return 'data:image/svg+xml;base64,' + b64;
 }
+/** Deliberately neutral, and deliberately NOT decorative. This stands in only for the moment
+ * before a real photo resolves, or for the rare place that genuinely has no photograph
+ * available anywhere. A bright colored gradient reads as content — as though this IS what the
+ * destination looks like — which is worse than showing nothing, because it dresses up an
+ * absence as a design. A muted frame reads honestly as "photo pending / none found". */
 function img(seed,w,h,label){
   w=w||640; h=h||480;
-  const hash = hashStr(seed);
-  const [c1,c2] = IMG_PALETTE[hash % IMG_PALETTE.length];
-  const angle = (hash % 4) * 45;
   const maxChars = Math.max(10, Math.floor(w/18));
   let text = String(label||'').trim();
   if(text.length > maxChars) text = text.slice(0, maxChars-1) + '…';
-  const fontSize = Math.round(w/17);
-  // Plain vector pin (no emoji glyph) so it renders identically everywhere, with no font/emoji dependency.
-  const cx = w/2, cy = h*0.38, r = w*0.052;
+  const fontSize = Math.round(w/24);
+  const cx = w/2, cy = h*0.42, s = Math.max(10, w*0.058);
+  const stroke = Math.max(2, s*0.13);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-<defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%" gradientTransform="rotate(${angle} 0.5 0.5)">
-<stop offset="0%" stop-color="${c1}"/><stop offset="100%" stop-color="${c2}"/>
-</linearGradient></defs>
-<rect width="${w}" height="${h}" fill="url(#g)"/>
-<circle cx="${Math.round(w*0.84)}" cy="${Math.round(h*0.2)}" r="${Math.round(w*0.16)}" fill="#ffffff" opacity="0.08"/>
-<circle cx="${Math.round(w*0.12)}" cy="${Math.round(h*0.88)}" r="${Math.round(w*0.24)}" fill="#000000" opacity="0.08"/>
-<path d="M ${cx} ${cy - r*1.6} C ${cx + r} ${cy - r*1.6} ${cx + r} ${cy - r*0.2} ${cx} ${cy + r*1.7} C ${cx - r} ${cy - r*0.2} ${cx - r} ${cy - r*1.6} ${cx} ${cy - r*1.6} Z" fill="#ffffff" opacity="0.92"/>
-<circle cx="${cx}" cy="${cy - r*0.85}" r="${r*0.42}" fill="${c1}"/>
-<text x="50%" y="60%" font-family="Arial,Helvetica,sans-serif" font-size="${fontSize}" font-weight="700" fill="#ffffff" text-anchor="middle" dominant-baseline="middle">${escapeXML(text)}</text>
+<rect width="${w}" height="${h}" fill="#e8ecea"/>
+<g fill="none" stroke="#a4b0ab" stroke-width="${stroke}" stroke-linejoin="round" stroke-linecap="round">
+<rect x="${cx-s*1.5}" y="${cy-s*1.05}" width="${s*3}" height="${s*2.1}" rx="${s*0.26}"/>
+<path d="M ${cx-s*1.5} ${cy+s*0.5} L ${cx-s*0.5} ${cy-s*0.3} L ${cx+s*0.3} ${cy+s*0.35} L ${cx+s*0.8} ${cy-s*0.1} L ${cx+s*1.5} ${cy+s*0.55}"/>
+</g>
+<circle cx="${cx+s*0.7}" cy="${cy-s*0.55}" r="${s*0.19}" fill="#a4b0ab"/>
+<text x="50%" y="${Math.round(h*0.75)}" font-family="Arial,Helvetica,sans-serif" font-size="${fontSize}" font-weight="600" fill="#8b9a94" text-anchor="middle" dominant-baseline="middle">${escapeXML(text)}</text>
 </svg>`;
   return svgToDataUri(svg);
 }
@@ -150,6 +145,18 @@ async function fetchWikiThumbnail(query){
  * 2) destination name qualified with its country (disambiguates a common/short place name),
  * 3) the country alone. Only once every real tier fails does the caller fall back to the
  * generated placeholder — never straight to it on the first miss. */
+/** Synchronous "do we already know this photo?" lookup. Lets a render swap the real photo in
+ * before the browser paints, so revisiting a page shows photography immediately instead of
+ * flashing the placeholder again while an already-answered lookup round-trips. */
+function cachedWikiThumbnail(queries){
+  const cache = photoCache();
+  for(const q of queries){
+    if(!q) continue;
+    const hit = cache[String(q).trim().toLowerCase()];
+    if(typeof hit === 'string' && hit) return hit;
+  }
+  return null;
+}
 async function fetchWikiThumbnailChain(queries){
   for(const q of queries){
     if(!q) continue;
