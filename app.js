@@ -64,18 +64,27 @@ function photoQuery(name, destName){ return destName ? `${name} ${destName}` : n
 function hydratePhotos(container){
   if(!container) return;
   container.querySelectorAll('img[data-photo-q]').forEach(imgEl=>{
-    if(imgEl.dataset.photoResolved) return;
-    const src = imgEl.getAttribute('src')||'';
-    if(src.indexOf('data:image/svg')!==0){ imgEl.dataset.photoResolved='1'; return; } // already a real photo
     const q = imgEl.dataset.photoQ;
+    const src = imgEl.getAttribute('src')||'';
+    const isPlaceholder = src.indexOf('data:image/svg')===0;
+    // Every image gets an onerror safety net, not just ones we're about to upgrade below.
+    // Places supplemented/enriched from live Wikipedia data (ensureRealAttractionSupply,
+    // enrichGenericDestination) already start with a resolved real photo URL baked in — never
+    // a placeholder — so without this they had NO fallback at all: a dead link, an expired
+    // thumbnail path, or a hotlink block left the browser's native broken-image icon on screen
+    // permanently. Placeholders keep reverting to themselves (unchanged); real URLs fall back
+    // to a freshly generated placeholder since they never had one to begin with.
+    if(!imgEl.dataset.photoFallbackWired){
+      imgEl.dataset.photoFallbackWired = '1';
+      const fallback = isPlaceholder ? src : img('fallback-'+(q||src), 640,480, imgEl.alt||q||'');
+      imgEl.onerror = () => { imgEl.onerror = null; imgEl.src = fallback; };
+    }
+    if(imgEl.dataset.photoResolved) return;
+    if(!isPlaceholder){ imgEl.dataset.photoResolved='1'; return; } // already a real photo, just needed the safety net above
     if(!q) return;
     imgEl.dataset.photoResolved = '1';
-    const placeholder = imgEl.src;
     fetchWikiThumbnail(q).then(url=>{
       if(!url) return;
-      // If the real photo URL fails to actually load (dead link, hiccup, hotlink block), fall
-      // straight back to the placeholder instead of leaving a broken-image icon on screen.
-      imgEl.onerror = () => { imgEl.onerror = null; imgEl.src = placeholder; };
       imgEl.src = url;
     }).catch(()=>{});
   });
