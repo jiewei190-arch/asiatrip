@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TripFlow — Image System Diagnostic</title>
+<title>TripFlow — Image Pipeline Diagnostic</title>
 <style>
   :root{ color-scheme: light; }
   *{box-sizing:border-box}
@@ -19,23 +19,31 @@
   .pending{color:#8a968f}
   .detail{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;line-height:1.45;
           background:#f4f6f5;border-radius:8px;padding:9px;margin-top:8px;
-          word-break:break-all;white-space:pre-wrap;max-height:190px;overflow:auto}
+          word-break:break-all;white-space:pre-wrap;max-height:200px;overflow:auto}
   img.probe{max-width:100%;border-radius:8px;margin-top:8px;display:block;background:#e8ecea}
   .big{font-size:17px;font-weight:800;padding:12px;border-radius:10px;margin-bottom:16px;text-align:center}
   .big.pass{background:#dff3ec}
   .big.fail{background:#fbe7e7}
+  .big.pending{background:#eef1f0}
   button{font:inherit;font-weight:700;background:#11795c;color:#fff;border:0;
          border-radius:10px;padding:11px 16px;width:100%;margin-bottom:16px}
 </style>
 </head>
 <body>
 
-<h1>TripFlow image diagnostic</h1>
-<p class="sub">Runs the exact photo lookups the app uses, on this device and network. Screenshot the whole page and send it back.</p>
+<h1>TripFlow image pipeline diagnostic</h1>
+<p class="sub">Loads the app's real networking code and drives it exactly as the app does. Screenshot the whole page and send it back.</p>
 
-<div class="big pending" id="verdict">Running tests…</div>
-<button id="rerun">Re-run tests</button>
+<div class="big pending" id="verdict">Running…</div>
+<button id="rerun">Re-run</button>
 <div id="out"></div>
+
+<!-- The REAL data layer: fetchWikiThumbnail, the cache, the concurrency queue, the chain.
+     Loaded with a rotating token so this page can never test a stale copy of it. -->
+<script>
+  window.ASSET_VERSION = String(Math.floor(Date.now()/3600000));
+  document.write('<scr'+'ipt src="data.js?v=' + window.ASSET_VERSION + '"><\/scr'+'ipt>');
+</script>
 
 <script>
 'use strict';
@@ -49,151 +57,112 @@ function card(name){
   out.appendChild(el);
   return {
     set(ok, text, detail){
-      el.querySelector('.status').className = 'status ' + (ok ? 'pass' : 'fail');
-      el.querySelector('.status').textContent = (ok ? '✅ ' : '❌ ') + text;
-      if(detail){
-        const d = document.createElement('div');
-        d.className = 'detail';
-        d.textContent = detail;
-        el.appendChild(d);
-      }
+      const s = el.querySelector('.status');
+      s.className = 'status ' + (ok ? 'pass' : 'fail');
+      s.textContent = (ok ? '✅ ' : '❌ ') + text;
+      if(detail){ const d = document.createElement('div'); d.className='detail'; d.textContent = detail; el.appendChild(d); }
     },
-    addImage(url){
-      const im = document.createElement('img');
-      im.className = 'probe';
-      im.src = url;
-      el.appendChild(im);
-    }
+    addImage(url){ const im=document.createElement('img'); im.className='probe'; im.src=url; el.appendChild(im); }
   };
 }
-
-// Loads a URL as a real <img> — this path does NOT require CORS, so it isolates
-// "image host unreachable" from "API blocked by CORS/content blocker".
-function probeImage(url, timeoutMs){
+function probeImage(url, ms){
   return new Promise(resolve=>{
-    const im = new Image();
-    let done = false;
-    const finish = (ok, why)=>{ if(done) return; done = true; resolve({ok, why, w: im.naturalWidth, h: im.naturalHeight}); };
-    im.onload = ()=> finish(im.naturalWidth > 0, im.naturalWidth > 0 ? 'loaded' : 'loaded but zero width');
-    im.onerror = ()=> finish(false, 'onerror (blocked, 404, or unreachable)');
-    setTimeout(()=> finish(false, 'timed out after '+(timeoutMs/1000)+'s'), timeoutMs);
+    const im = new Image(); let done = false;
+    const finish = (ok, why)=>{ if(done) return; done = true; resolve({ok, why, w: im.naturalWidth}); };
+    im.onload = ()=> finish(im.naturalWidth>0, im.naturalWidth>0 ? 'loaded' : 'zero width');
+    im.onerror = ()=> finish(false, 'onerror (blocked, 404 or unreachable)');
+    setTimeout(()=>finish(false, 'timed out after '+(ms/1000)+'s'), ms);
     im.src = url;
   });
-}
-
-const API = q => 'https://en.wikipedia.org/w/api.php?action=query&generator=search'
-  + '&gsrsearch=' + encodeURIComponent(q)
-  + '&gsrlimit=1&prop=pageimages&piprop=thumbnail&pithumbsize=720&format=json&origin=*';
-
-async function apiLookup(q, c){
-  let res;
-  try{
-    res = await fetch(API(q), {headers:{'Accept':'application/json'}});
-  }catch(err){
-    c.set(false, 'fetch threw — API unreachable from this browser',
-      'This usually means a content blocker, "Prevent Cross-Site Tracking",\n'
-      + 'iCloud Private Relay, a VPN, or a network firewall is blocking the\n'
-      + 'request to en.wikipedia.org.\n\nError: ' + err.name + ': ' + err.message);
-    return null;
-  }
-  if(!res.ok){
-    c.set(false, 'API returned HTTP ' + res.status, 'URL:\n' + API(q));
-    return null;
-  }
-  let data;
-  try{ data = await res.json(); }
-  catch(err){ c.set(false, 'API response was not valid JSON', String(err)); return null; }
-
-  const pages = (data.query && data.query.pages) || {};
-  const page = Object.values(pages)[0];
-  if(!page){
-    c.set(false, 'API worked, but the search matched no article',
-      'Raw response:\n' + JSON.stringify(data).slice(0, 600));
-    return null;
-  }
-  if(!page.thumbnail || !page.thumbnail.source){
-    c.set(false, 'Article "' + page.title + '" found, but it has NO page image',
-      'Raw response:\n' + JSON.stringify(data).slice(0, 600));
-    return null;
-  }
-  c.set(true, 'API OK — "' + page.title + '" → ' + page.thumbnail.width + 'px wide',
-    page.thumbnail.source);
-  return page.thumbnail;
-}
-
-async function testDestination(name){
-  const c = card('Destination lookup: ' + name);
-  const thumb = await apiLookup(name, c);
-  if(!thumb) return { api:false, img:false, upscale:null };
-
-  const ic = card('Image load: ' + name + ' (URL the API returned)');
-  const r = await probeImage(thumb.source, 12000);
-  ic.set(r.ok, r.ok ? ('Image rendered, ' + r.w + '×' + r.h) : ('Image FAILED — ' + r.why), thumb.source);
-  if(r.ok) ic.addImage(thumb.source);
-
-  // The old bug: force the URL to 720px even when the original is narrower.
-  let upscale = null;
-  if(thumb.width < 720){
-    const forced = thumb.source.replace(/\/(\d+)px-/, '/720px-');
-    const uc = card('Upscaled-URL check: ' + name + ' (the bug that was just fixed)');
-    const ur = await probeImage(forced, 12000);
-    upscale = ur.ok;
-    uc.set(ur.ok,
-      ur.ok ? 'Forced 720px URL still loaded' : 'Forced 720px URL is DEAD — ' + ur.why,
-      'Original is only ' + thumb.width + 'px wide.\nForced URL:\n' + forced);
-  }
-  return { api:true, img:r.ok, upscale };
 }
 
 async function run(){
   out.innerHTML = '';
   verdict.className = 'big pending';
-  verdict.textContent = 'Running tests…';
+  verdict.textContent = 'Running…';
 
-  // Show any poisoned cache entries still sitting in this browser.
-  const cc = card('Saved photo cache in this browser');
-  try{
-    const raw = localStorage.getItem('tripflow_photo_cache_v1');
-    if(!raw){
-      cc.set(true, 'Empty — nothing cached yet');
-    } else {
-      const obj = JSON.parse(raw);
-      const keys = Object.keys(obj);
-      const ok = keys.filter(k => typeof obj[k] === 'string' && obj[k]);
-      // Legacy: a bare null written before misses carried a timestamp (always retries).
-      const legacy = keys.filter(k => !obj[k]);
-      // Current: a remembered miss, which expires on its own.
-      const missed = keys.filter(k => obj[k] && typeof obj[k] === 'object' && obj[k].miss);
-      cc.set(legacy.length === 0,
-        keys.length + ' entries — ' + ok.length + ' real photos, '
-          + missed.length + ' expiring misses, ' + legacy.length + ' legacy stuck entries',
-        (legacy.length ? 'Legacy stuck entries (these retry automatically):\n' + legacy.slice(0,12).join('\n') + '\n\n' : '')
-          + (missed.length ? 'Remembered misses (expire after 24h):\n' + missed.slice(0,12).join('\n') : ''));
-    }
-  }catch(err){ cc.set(false, 'Could not read localStorage', String(err)); }
-
-  const results = [];
-  for(const d of ['Tokyo','Paris','Amalfi Coast','Chefchaouen']){
-    results.push(await testDestination(d));
+  // 0. Is the real data layer even present?
+  const load = card('App data layer loaded');
+  const haveLayer = typeof fetchWikiThumbnail === 'function' && typeof fetchWikiThumbnailChain === 'function';
+  load.set(haveLayer,
+    haveLayer ? 'data.js loaded — testing the REAL pipeline' : 'data.js did NOT load — cannot test the real pipeline',
+    'ASSET_VERSION: ' + window.ASSET_VERSION
+      + '\nfetchWikiThumbnail: ' + typeof fetchWikiThumbnail
+      + '\nfetchWikiThumbnailChain: ' + typeof fetchWikiThumbnailChain
+      + '\nwithPhotoSlot (concurrency queue): ' + (typeof withPhotoSlot)
+      + '\ncapWikiThumb: ' + (typeof capWikiThumb));
+  if(!haveLayer){
+    verdict.className = 'big fail';
+    verdict.textContent = "The app's data layer failed to load — that alone would stop every photo.";
+    return;
   }
 
-  const env = card('This browser');
-  env.set(true, 'Environment details',
-    'userAgent: ' + navigator.userAgent
-    + '\nonLine: ' + navigator.onLine
-    + '\npage origin: ' + location.origin);
+  // 1. What is actually sitting in this browser's cache right now?
+  const cc = card('Photo cache in this browser');
+  try{
+    const raw = localStorage.getItem('tripflow_photo_cache_v1');
+    const obj = raw ? JSON.parse(raw) : {};
+    const keys = Object.keys(obj);
+    const real = keys.filter(k=>typeof obj[k]==='string' && obj[k]);
+    const misses = keys.filter(k=>obj[k] && typeof obj[k]==='object' && obj[k].miss);
+    const legacy = keys.filter(k=>!obj[k]);
+    cc.set(true, keys.length + ' entries — ' + real.length + ' photos, ' + misses.length + ' misses, ' + legacy.length + ' legacy',
+      real.length ? 'Example stored photo:\n' + obj[real[0]] : 'No successful photo lookups are stored.');
+  }catch(err){ cc.set(false, 'Could not read the cache', String(err)); }
 
-  const apiOk = results.some(r => r.api);
-  const imgOk = results.some(r => r.img);
-  if(!apiOk){
-    verdict.className = 'big fail';
-    verdict.textContent = 'The Wikipedia API is blocked on this device/network. That is why photos never load.';
-  } else if(!imgOk){
-    verdict.className = 'big fail';
-    verdict.textContent = 'The API works, but the image files themselves will not load.';
-  } else {
+  // 2. Drive the REAL lookup for things the app actually asks for.
+  const queries = [
+    "Katz's Delicatessen New York City",
+    'Eiffel Tower Paris',
+    'Tokyo',
+    'Senso-ji Temple Tokyo',
+  ];
+  let anyUrl = false, anyRender = false;
+  for(const q of queries){
+    const c = card('Real pipeline: fetchWikiThumbnail("' + q + '")');
+    let url = null, err = null;
+    const t0 = Date.now();
+    try{ url = await fetchWikiThumbnail(q); }
+    catch(e){ err = e; }
+    const ms = Date.now() - t0;
+    if(err){ c.set(false, 'threw after ' + ms + 'ms', String(err && err.message || err)); continue; }
+    if(!url){ c.set(false, 'returned no URL after ' + ms + 'ms', 'The app would show a placeholder here.\nEither the lookup failed, or a remembered miss suppressed the retry.'); continue; }
+    anyUrl = true;
+    const r = await probeImage(url, 12000);
+    if(r.ok) anyRender = true;
+    c.set(r.ok, r.ok ? ('URL returned in ' + ms + 'ms and the image RENDERED (' + r.w + 'px)') : ('URL returned but the image FAILED to render — ' + r.why), url);
+    if(r.ok) c.addImage(url);
+  }
+
+  // 3. The multi-tier chain, as the app uses it.
+  const ch = card('Real pipeline: fetchWikiThumbnailChain (fallback tiers)');
+  try{
+    const chained = await fetchWikiThumbnailChain(['Definitely Not A Real Place XYZQ', 'Paris']);
+    ch.set(!!chained, chained ? 'Fell through to the second tier and returned a URL' : 'Chain returned nothing for either tier', chained || '(null)');
+    if(chained) ch.addImage(chained);
+  }catch(e){ ch.set(false, 'chain threw', String(e && e.message || e)); }
+
+  // 4. Does the concurrency queue drain, or is it deadlocking?
+  const cq = card('Concurrency queue drains under load');
+  try{
+    const t0 = Date.now();
+    const many = await Promise.all(Array.from({length:12}, (_,i)=>fetchWikiThumbnail('queue probe ' + i)));
+    cq.set(true, '12 queued lookups all settled in ' + (Date.now()-t0) + 'ms',
+      'Resolved: ' + many.length + ' (a hang here would mean the queue never releases its slots)');
+  }catch(e){ cq.set(false, 'queue test threw', String(e && e.message || e)); }
+
+  const env = card('This browser');
+  env.set(true, 'Environment', 'userAgent: ' + navigator.userAgent + '\nonLine: ' + navigator.onLine + '\norigin: ' + location.origin);
+
+  if(anyRender){
     verdict.className = 'big pass';
-    verdict.textContent = 'Photo lookups work on this device. Real photos loaded successfully.';
+    verdict.textContent = 'The real pipeline works here — photos were fetched AND rendered.';
+  } else if(anyUrl){
+    verdict.className = 'big fail';
+    verdict.textContent = 'Lookups return URLs, but the images will not render on this device.';
+  } else {
+    verdict.className = 'big fail';
+    verdict.textContent = 'The pipeline returned no photo URLs at all on this device.';
   }
 }
 
