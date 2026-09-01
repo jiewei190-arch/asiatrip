@@ -252,6 +252,100 @@ function convertUSD(amountUSD, toCurrency){
   return typeof rate === 'number' ? amountUSD * rate : amountUSD;
 }
 
+/* ---- Time zone intelligence — computed offline from each destination's real travelInfo ---- */
+/** Pulls the numeric UTC offset out of strings like "JST (UTC+9)" or "IST (UTC+5:30)".
+ * Returns null when a destination has no usable timezone string, so callers can hide the
+ * feature rather than display a wrong time. */
+function parseUtcOffset(tz){
+  const m = String(tz||'').match(/UTC([+-])(\d{1,2})(?::(\d{2}))?/i);
+  if(!m) return null;
+  const sign = m[1] === '-' ? -1 : 1;
+  return sign * (parseInt(m[2],10) + (m[3] ? parseInt(m[3],10)/60 : 0));
+}
+/** Current wall-clock time at the destination, plus how far ahead/behind the traveler's own
+ * device is. Uses the device's real UTC offset, so it's correct wherever the user actually is. */
+function destinationClock(dest){
+  const offset = dest && dest.travelInfo ? parseUtcOffset(dest.travelInfo.timezone) : null;
+  if(offset === null) return null;
+  const now = new Date();
+  const localOffsetHours = -now.getTimezoneOffset() / 60;
+  const destDate = new Date(now.getTime() + (offset - localOffsetHours) * 3600 * 1000);
+  const diff = +(offset - localOffsetHours).toFixed(2);
+  const hh = String(destDate.getHours()).padStart(2,'0');
+  const mm = String(destDate.getMinutes()).padStart(2,'0');
+  const hours12 = destDate.getHours() % 12 === 0 ? 12 : destDate.getHours() % 12;
+  return {
+    offset, diff,
+    time24: `${hh}:${mm}`,
+    time12: `${hours12}:${mm} ${destDate.getHours() >= 12 ? 'PM' : 'AM'}`,
+    isNextDay: destDate.toDateString() !== now.toDateString(),
+    label: dest.travelInfo.timezone,
+    hour: destDate.getHours(),
+  };
+}
+
+/* ---- Weather via Open-Meteo (no key, CORS-enabled) ---- */
+const WEATHER_CACHE_KEY = 'tripflow_weather_cache_v1';
+const WEATHER_TTL_MS = 3 * 3600 * 1000;
+// Open-Meteo only forecasts about 16 days out; past that there is genuinely nothing to show,
+// and saying so beats inventing a guess.
+const FORECAST_HORIZON_DAYS = 16;
+const WMO_CODES = {
+  0:['Clear','☀️'], 1:['Mainly clear','🌤'], 2:['Partly cloudy','⛅'], 3:['Overcast','☁️'],
+  45:['Fog','🌫'], 48:['Rime fog','🌫'],
+  51:['Light drizzle','🌦'], 53:['Drizzle','🌦'], 55:['Heavy drizzle','🌦'],
+  61:['Light rain','🌧'], 63:['Rain','🌧'], 65:['Heavy rain','🌧'],
+  66:['Freezing rain','🌧'], 67:['Freezing rain','🌧'],
+  71:['Light snow','🌨'], 73:['Snow','🌨'], 75:['Heavy snow','🌨'], 77:['Snow grains','🌨'],
+  80:['Rain showers','🌦'], 81:['Rain showers','🌦'], 82:['Heavy showers','⛈'],
+  85:['Snow showers','🌨'], 86:['Snow showers','🌨'],
+  95:['Thunderstorm','⛈'], 96:['Thunderstorm','⛈'], 99:['Thunderstorm','⛈'],
+};
+function weatherMeta(code){ return WMO_CODES[code] || ['—','🌡']; }
+function daysFromToday(dateStr){
+  const today = new Date(toDateInput(new Date())+'T00:00:00');
+  const target = new Date(dateStr+'T00:00:00');
+  return Math.round((target - today)/86400000);
+}
+/** Fetches a daily forecast for a destination's date range. Follows the same caching discipline
+ * as every other live lookup here: successes cached with a short TTL, failures never persisted,
+ * and a miss degrades to "no forecast" rather than blocking anything. */
+async function fetchForecast(lat, lng, startDate, endDate){
+  if(typeof lat !== 'number' || typeof lng !== 'number') return null;
+  const from = daysFromToday(startDate);
+  const to = daysFromToday(endDate);
+  if(to < 0 || from > FORECAST_HORIZON_DAYS) return null; // entirely in the past or too far out
+  const clampedStart = from < 0 ? toDateInput(new Date()) : startDate;
+  const clampedEnd = to > FORECAST_HORIZON_DAYS ? addDays(toDateInput(new Date()), FORECAST_HORIZON_DAYS) : endDate;
+  const key = `${lat.toFixed(2)},${lng.toFixed(2)},${clampedStart},${clampedEnd}`;
+  const cache = readJSONCache(WEATHER_CACHE_KEY);
+  const hit = cache[key];
+  if(hit && hit.ts && (Date.now()-hit.ts) < WEATHER_TTL_MS && hit.days) return hit.days;
+  try{
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}`
+      + `&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max`
+      + `&timezone=auto&start_date=${clampedStart}&end_date=${clampedEnd}`;
+    const res = await fetchWithTimeout(url, 8000, {headers:{'Accept':'application/json'}});
+    if(res && res.ok){
+      const data = await res.json();
+      const d = data && data.daily;
+      if(d && Array.isArray(d.time) && d.time.length){
+        const days = d.time.map((date,i)=>({
+          date,
+          code: d.weather_code ? d.weather_code[i] : null,
+          max: d.temperature_2m_max ? d.temperature_2m_max[i] : null,
+          min: d.temperature_2m_min ? d.temperature_2m_min[i] : null,
+          rain: d.precipitation_probability_max ? d.precipitation_probability_max[i] : null,
+        }));
+        cache[key] = { ts: Date.now(), days };
+        writeJSONCache(WEATHER_CACHE_KEY, cache);
+        return days;
+      }
+    }
+  }catch(e){ /* offline or blocked — the UI simply shows no forecast */ }
+  return null;
+}
+
 /* ---- Real nearby landmarks via Wikipedia GeoSearch (no key) — worldwide points of interest, each with a real name, description and photo, in a single request ---- */
 async function fetchNearbyWikiPOIs(lat, lng, limit){
   try{

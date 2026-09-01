@@ -327,6 +327,13 @@ main{max-width:1280px;margin:0 auto;padding:0 24px 60px;min-height:60vh}
 .conflictWarning .warnBody b{font-size:13px;color:var(--danger)}
 .conflictWarning .warnBody p{margin:2px 0 0}
 .noteBox{margin:12px 18px 0}
+.dayWeather{margin:12px 18px 0}
+.weatherChip{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:99px;padding:7px 13px;font-size:12.5px;background:var(--surface2)}
+.wIcon{font-size:16px}
+.weatherAdvice{margin-top:10px;padding:11px 13px;border-radius:12px;background:rgba(230,162,60,.12);border:1px solid var(--orange);font-size:13px}
+.altRow{display:flex;flex-wrap:wrap;gap:6px}
+.clockCard{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.clockTime{font-size:32px;font-weight:800;color:var(--green);line-height:1;flex-shrink:0}
 .exportOptions{display:flex;flex-direction:column;gap:10px;margin-top:16px}
 .exportOpt{display:flex;gap:13px;align-items:flex-start;text-align:left;border:1px solid var(--line);border-radius:14px;padding:14px;background:var(--surface2)}
 .exportOpt:hover{border-color:var(--green);background:var(--soft)}
