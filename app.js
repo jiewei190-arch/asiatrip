@@ -995,7 +995,9 @@ function renderDestOverview(dest, body){
       <div class="ovCard"><div class="k">📅 Best time to visit</div><div class="v">${esc(dest.bestTime)}</div></div>
       <div class="ovCard"><div class="k">💱 Currency</div><div class="v">${esc(dest.currency)}</div></div>
       <div class="ovCard"><div class="k">🗣 Language</div><div class="v">${esc(dest.language)}</div></div>
-      ${info.timezone ? `<div class="ovCard"><div class="k">🕐 Time zone</div><div class="v">${esc(info.timezone)}</div></div>` : ''}
+      ${(()=>{ const c = destinationClock(dest); return c
+        ? `<div class="ovCard"><div class="k">🕐 Local time right now</div><div class="v">${c.time12}</div><div class="v small">${esc(c.label)}${c.diff===0?' · same as you':` · ${Math.abs(c.diff)}h ${c.diff>0?'ahead':'behind'}`}</div></div>`
+        : (info.timezone ? `<div class="ovCard"><div class="k">🕐 Time zone</div><div class="v">${esc(info.timezone)}</div></div>` : ''); })()}
       ${info.recommendedDays ? `<div class="ovCard"><div class="k">🗓 Recommended duration</div><div class="v">${esc(info.recommendedDays)}</div></div>` : ''}
     </div>
     <div class="card" style="margin-top:8px">
@@ -2160,16 +2162,30 @@ function renderTravelView(){
 
   const { done, now, upcoming } = splitDayByNow(day, nowMinutes);
   const spend = day.stops.reduce((a,s)=>a+(s.cost||0),0);
+  const clock = destinationClock(dest);
+  // Total time actually spent moving between today's stops, from the per-stop transit estimates.
+  const transitMins = day.stops.slice(0,-1).reduce((a,s)=>a+((s.transitToNext&&s.transitToNext.mins)||0), 0);
+  const modes = {};
+  day.stops.slice(0,-1).forEach(s=>{ const m=(s.transitToNext&&s.transitToNext.mode)||'Walk'; modes[m]=(modes[m]||0)+1; });
+  const modeSummary = Object.entries(modes).sort((a,b)=>b[1]-a[1]).map(([m,n])=>`${m} ×${n}`).join(' · ');
 
   body.innerHTML = `
     <div class="card travelHead">
       <div>
         <div class="small" style="font-weight:800">${dest.flag} ${esc(dest.name)} · Day ${dayIdx+1} of ${trip.days.length}</div>
         <h3 style="margin:2px 0 0">${esc(trip.title)}</h3>
-        <p class="small" style="margin:2px 0 0">${fmtDateFull(today)} · ${day.stops.length} stop${day.stops.length===1?'':'s'} · ${fmt$(spend)} planned today</p>
+        <p class="small" style="margin:2px 0 0">${fmtDateFull(today)} · ${day.stops.length} stop${day.stops.length===1?'':'s'} · ${fmt$(spend)} planned today${transitMins?` · ~${transitMins} min moving${modeSummary?` (${esc(modeSummary)})`:''}`:''}</p>
       </div>
       <button class="btn" data-opentrip="${trip.id}">Full itinerary</button>
     </div>
+    ${clock ? `<div class="card clockCard" style="margin-top:14px">
+      <div class="clockTime">${clock.time12}</div>
+      <div>
+        <b>Local time in ${esc(dest.name)}</b>
+        <p class="small" style="margin:2px 0 0">${esc(clock.label)}${clock.diff===0?' · same as your device' : ` · ${Math.abs(clock.diff)}h ${clock.diff>0?'ahead of':'behind'} your device${clock.isNextDay?' (different calendar day)':''}`}</p>
+        ${dest.travelInfo && dest.travelInfo.localTransport ? `<p class="small" style="margin:6px 0 0">🚇 ${esc(dest.travelInfo.localTransport)}</p>` : ''}
+      </div>
+    </div>` : ''}
     ${day.note ? `<div class="card travelDayNote" style="margin-top:14px"><b>📝 Note for today</b><p class="small" style="margin:4px 0 0">${esc(day.note)}</p></div>` : ''}
     ${now.length ? `<div class="card" style="margin-top:14px">
       <div class="travelSectionTitle">Happening now</div>
@@ -2923,6 +2939,7 @@ function renderPlannerItinerary(trip){
   $('dayDateInput').onchange = (e)=>{ day.date = e.target.value; saveState(); toast('Day date updated.'); };
   $('dayNoteToggle').onclick = ()=>$('dayNoteBox').classList.toggle('hidden');
 
+  renderWeatherForDay(trip, day);
   renderDayNote(trip, day);
   renderConflictWarning(trip, day);
   renderRouteWarning(trip, day);
@@ -2959,6 +2976,64 @@ function renderRouteWarning(trip, day){
   $('routeWarnOptimize').onclick = ()=>openOptimizeModal(trip, plannerState.day);
 }
 function timeToMin(t){ const [h,m] = (t||'09:00').split(':').map(Number); return h*60+m; }
+/* ---------------- weather-aware planning ---------------- */
+const OUTDOOR_TAGS = ['nature','adventure','photography','relax'];
+const OUTDOOR_CATS = ['Nature','Viewpoint','Park','Beach','Garden'];
+function isOutdoorStop(s){
+  const p = placeById(s.placeId) || s;
+  const tags = p.tags || [];
+  return OUTDOOR_CATS.includes(s.category) || OUTDOOR_CATS.includes(p.category)
+      || tags.some(t=>OUTDOOR_TAGS.includes(t));
+}
+/** Indoor stand-ins drawn from the destination's REAL place pool — museums, galleries, markets,
+ * covered food halls — excluding anything already on that day. Returns [] when the pool has
+ * nothing suitable, so the advice never points at places that don't exist. */
+function indoorAlternatives(dest, day, limit){
+  const onDay = new Set(day.stops.map(s=>s.placeId));
+  return PLACES.filter(p=>p.destId===dest.id && !onDay.has(p.id) && p.type!=='hotel')
+    .filter(p=>/museum|gallery|market|hall|aquarium|theatre|theater|centre|center/i.test(`${p.category||''} ${p.name}`)
+             || (p.tags||[]).some(t=>['art','shopping','food','culture'].includes(t)))
+    .filter(p=>!isOutdoorStop(p))
+    .sort((a,b)=>(b.rating||0)-(a.rating||0))
+    .slice(0, limit||3);
+}
+function renderWeatherForDay(trip, day){
+  const el = $('dayWeather');
+  if(!el) return;
+  const dest = destForTrip(trip);
+  el.classList.add('hidden');
+  el.innerHTML = '';
+  fetchForecast(dest.lat, dest.lng, day.date, day.date).then(days=>{
+    if(!days || !days.length) return;                       // no forecast: show nothing at all
+    if(!$('dayWeather')) return;                            // navigated away mid-flight
+    const cur = getTrip(plannerState.tripId);
+    if(!cur || cur.id !== trip.id) return;
+    if(!cur.days[plannerState.day] || cur.days[plannerState.day].date !== day.date) return;
+    const w = days.find(d=>d.date === day.date) || days[0];
+    const [label, emoji] = weatherMeta(w.code);
+    const outdoor = day.stops.filter(isOutdoorStop);
+    const wet = typeof w.rain === 'number' && w.rain >= 60;
+    el.classList.remove('hidden');
+    el.innerHTML = `
+      <div class="weatherChip">
+        <span class="wIcon">${emoji}</span>
+        <span><b>${esc(label)}</b>${w.max!=null?` · ${Math.round(w.max)}°/${Math.round(w.min)}°C`:''}${w.rain!=null?` · ${w.rain}% rain`:''}</span>
+      </div>
+      ${wet && outdoor.length >= 2 ? (()=>{
+        const alts = indoorAlternatives(dest, day, 3);
+        return `<div class="weatherAdvice">
+          <b>⚠️ ${w.rain}% chance of rain, and ${outdoor.length} of today's stops are outdoors.</b>
+          ${alts.length ? `<p class="small" style="margin:5px 0 7px">Indoor options in ${esc(dest.name)} you could swap in:</p>
+            <div class="altRow">${alts.map(p=>`<button class="btn sm" data-altadd="${p.id}">+ ${esc(p.name)}</button>`).join('')}</div>`
+          : `<p class="small" style="margin:5px 0 0">Worth packing a rain layer — there aren't obvious indoor swaps in this destination's places yet.</p>`}
+        </div>`;
+      })() : ''}`;
+    el.querySelectorAll('[data-altadd]').forEach(b=>b.onclick=()=>{
+      const p = placeById(b.dataset.altadd);
+      if(p) addPlaceToTrip(cur, plannerState.day, p);
+    });
+  }).catch(()=>{});
+}
 /** Detects two stops on the same day whose occupied time windows (duration + transit to the
  * next stop) actually overlap — e.g. a stop scheduled to run until 11:30 with the next stop
  * starting at 11:00 — regardless of how they got that way (manual time edit, the time-of-day
