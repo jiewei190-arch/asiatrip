@@ -18,6 +18,8 @@ is what serves the *worldwide* destinations a visitor types in, not the built-in
 | `test-assistant-stress.js` | Feeds it empty, malformed, hostile and absurd input; fails on any throw, empty reply or page error. |
 | `test-destination-ambiguity.js` | Shows the suggestions for ambiguous names and flags any two a user could not tell apart. |
 | `test-destination-consistency.js` | Asserts that a destination's name, country, flag, coordinates and canonical id all come from the same resolved place. Includes the two strings that produced the bug. |
+| `test-entity-imagery.js` | Runs the shipped entity resolver against named landmarks; reports which rung answered. |
+| `test-wikidata-images.js` | Exercises the Wikidata P18 → Commons thumbnail rung in isolation. |
 | `audit-image-accuracy.js` | Reports, per destination, WHICH rung produced its photo and from which article — so a wrong-place image is visible instead of counting as a success. |
 | `test-destination-page.js` | Opens a typed-in destination's page with recorded payloads and reports what every image resolves to. |
 | `test-global-imagery.js` | Runs the shipped geo + photo chain against the live network and reports real worldwide image coverage. |

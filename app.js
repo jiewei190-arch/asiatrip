@@ -202,6 +202,21 @@ function hydratePhotos(container){
     // right PLACE (by coordinates) before their photo is used, and a real place with no
     // photograph of its own borrows one from a landmark beside it. Places keep the simpler
     // name-based chain — they are looked up within a destination already known to be right.
+    // A NAMED entity (an attraction, restaurant or hotel) resolves through the central
+    // resolver, which tries the entity's own OSM image tags before anything generic. It runs
+    // after this paint, never blocking it — Overpass takes tens of seconds.
+    const placeId = imgEl.dataset.photoPlace;
+    if(placeId && typeof applyResolvedImage === 'function'){
+      const p = placeById(placeId);
+      const pd = p && DESTINATIONS.find(d => d.id === p.destId);
+      if(p && p.lat != null){
+        applyResolvedImage(imgEl, {
+          placeId: 'place:' + p.id, name: p.name, kind: p.type,
+          country: pd && pd.country, countryCode: pd && pd.countryCode,
+          lat: p.lat, lng: p.lng,
+        });
+      }
+    }
     const destId = imgEl.dataset.photoDest;
     const resolver = destId
       ? resolveDestinationPhoto(DESTINATIONS.find(d => d.id === destId))
@@ -739,7 +754,7 @@ function placeCardHTML(p, opts){
   return `
   <div class="placeCard" data-place="${p.id}">
     <div class="placeImgWrap">
-      <img src="${p.image}" alt="${esc(p.name)}" loading="lazy" data-photo-q="${esc(photoQuery(p.name, dest&&dest.name))}">
+      <img src="${p.image}" alt="${esc(p.name)}" loading="lazy" data-photo-place="${esc(p.id)}" data-photo-q="${esc(photoQuery(p.name, dest&&dest.name))}">
       <span class="placeCatBadge">${esc(catLabel)}</span>
       <button class="placeSaveBtn" data-save="${p.id}" title="Save">${isSaved?'♥':'♡'}</button>
     </div>
@@ -841,7 +856,7 @@ function openPlaceDetail(placeId){
       </div>
       <button class="xbtn" data-close="modal-placeDetail">×</button>
     </div>
-    <div class="pdHero"><img src="${p.image}" alt="" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
+    <div class="pdHero"><img src="${p.image}" alt="" data-photo-place="${esc(p.id)}" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
     <div class="pdGrid">
       <div>
         <p>${esc(displayDesc(p, dest))}</p>
