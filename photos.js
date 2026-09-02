@@ -15,9 +15,10 @@
    Regenerate with tools/import-images.py. Attribution for every file: CREDITS.md
 ============================================================ */
 window.LOCAL_PHOTOS = {
-  "category/bakery":1,"category/cathedral":1,"category/fine-dining":1,"category/hostel":1,
-  "category/hotel-luxury":1,"category/hotel-room":1,"category/market":1,"category/museum":1,
-  "category/old-town":1,"category/promenade":1,"category/restaurant":1,"category/viewpoint":1,
+  "category/bakery":1,"category/cathedral":1,"category/fine-dining":1,"category/guesthouse":1,
+  "category/hostel":1,"category/hotel-lobby":1,"category/hotel-luxury":1,"category/hotel-room":1,
+  "category/market":1,"category/museum":1,"category/old-town":1,"category/promenade":1,
+  "category/resort":1,"category/restaurant":1,"category/viewpoint":1,
   "cuisine/balinese-cuisine":1,"cuisine/bistro":1,"cuisine/cacio-e-pepe":1,
   "cuisine/chinese-cuisine":1,"cuisine/cocktail":1,"cuisine/coffeehouse":1,"cuisine/dakos":1,
   "cuisine/delicatessen":1,"cuisine/dessert":1,"cuisine/eggs-benedict":1,"cuisine/falafel":1,

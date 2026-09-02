@@ -16,6 +16,7 @@ is what serves the *worldwide* destinations a visitor types in, not the built-in
 | `audit-duplicates.js` | Walks every destination's tabs and reports any image rendered more than once, comparing by file content rather than by name. |
 | `test-assistant.js` | Drives the real assistant in the page over ~35 realistic phrasings and prints each answer. |
 | `test-assistant-stress.js` | Feeds it empty, malformed, hostile and absurd input; fails on any throw, empty reply or page error. |
+| `test-destination-page.js` | Opens a typed-in destination's page with recorded payloads and reports what every image resolves to. |
 | `test-global-imagery.js` | Runs the shipped geo + photo chain against the live network and reports real worldwide image coverage. |
 | `test-geo-search.js` | Replays real recorded Photon/Wikipedia payloads (`geo-fixtures.json`) through the shipped `geo.js` and checks each test destination resolves with correct country, type and coordinates. |
 

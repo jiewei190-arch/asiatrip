@@ -704,6 +704,13 @@ const NON_ATTRACTION_EXTRACT_PATTERNS = [
 const NON_ATTRACTION_TITLE_PATTERNS = [
   /\b(station|métro|metro line|railway line|tram stop)\b/i,
   /\b\d+(st|nd|rd|th)\s+arrondissement\b/i,
+  // Events, not places. GeoSearch returns any article with coordinates, which near Tiananmen
+  // meant "1989 Tiananmen Square protests and massacre" was offered as somewhere to visit.
+  // An atrocity is not a stop on a holiday itinerary; the square itself still is, and still
+  // appears, because that is a separate article about a place.
+  /\b(massacre|protests?|riots?|uprising|revolution|bombing|attacks?|shootings?|siege|battle|invasion|coup|genocide|earthquake|tsunami|disaster|famine|epidemic|pandemic|outbreak|assassination|murder|scandal|referendum|treaty|olympics|championship|world cup)\b/i,
+  // A leading year is almost always an event ("2008 Summer Olympics"), never a place.
+  /^\s*\d{3,4}\s/,
 ];
 function isVisitableAttraction(title, extract, image){
   if(!image) return false;                                    // no photo -> not a visitor attraction
@@ -736,7 +743,8 @@ function inferTagsFromExtract(text){
 const ENRICH_CACHE_KEY = 'tripflow_enrich_cache_v2';
 function enrichCache(){ return readJSONCache(ENRICH_CACHE_KEY); }
 function applyEnrichment(dest, payload){
-  dest.lat = payload.lat; dest.lng = payload.lng;
+  if(payload.lat != null) dest.lat = payload.lat;
+  if(payload.lng != null) dest.lng = payload.lng;
   if(payload.country){ dest.country = payload.country; dest.currencyCode = currencyCodeForCountry(payload.country); }
   if(payload.attractions && payload.attractions.length){
     for(let i=PLACES.length-1;i>=0;i--){ if(PLACES[i].destId===dest.id && PLACES[i].type==='attraction') PLACES.splice(i,1); }
@@ -753,7 +761,12 @@ async function enrichGenericDestination(dest){
   try{
     const cache = enrichCache();
     if(cache[dest.id] && cache[dest.id].attractions && cache[dest.id].attractions.length){ applyEnrichment(dest, cache[dest.id]); return true; }
-    const geo = await geocodeCity(dest.name + (dest.country ? ', '+dest.country : ''));
+    // A destination picked from search already carries real coordinates from geo.js, so
+    // geocoding it again is a redundant Nominatim round-trip on the critical path — and
+    // Nominatim is the slowest and least reliable call in the app. Skipping it is why the
+    // real local attractions now appear promptly instead of after a long spell of
+    // placeholders; only a destination that arrived without coordinates still needs it.
+    const geo = dest.__geo ? null : await geocodeCity(dest.name + (dest.country ? ', '+dest.country : ''));
     const lat = geo ? geo.lat : dest.lat, lng = geo ? geo.lng : dest.lng;
     const pois = await fetchNearbyWikiPOIs(lat, lng, 40);
     if(!geo && !pois.length){ dest.__enriched = true; return false; }
@@ -1540,16 +1553,27 @@ function makeGenericDestination(name, geo){
     hero: img(id+'-hero',1600,900,'')
   };
   DESTINATIONS.push(dest);
+  // Every generated card gets a DIFFERENT stock photograph. Six restaurants previously shared
+  // three images and four hotels shared two, so a typed-in destination looked like a page of
+  // repeats — the same claim-once rule the curated destinations use.
+  const usedGeneric = new Set();
+  const claimGeneric = src => (src && !usedGeneric.has(src)) ? (usedGeneric.add(src), src) : null;
+  const GENERIC_FOOD = ['category/restaurant','category/fine-dining','category/bakery',
+                        'cuisine/street-food','cuisine/seafood','cuisine/coffeehouse',
+                        'cuisine/trattoria','cuisine/delicatessen'];
+  const GENERIC_STAY = ['category/hotel-luxury','category/hotel-room','category/hostel',
+                        'category/hotel-lobby','category/guesthouse','category/resort'];
+  const nextGeneric = list => { for(const k of list){ const c = claimGeneric(bundledPhoto(k)); if(c) return c; } return null; };
   const attrNames = ['Old Town Walking Tour','Central Museum','City Cathedral','Riverside Promenade','Panoramic Viewpoint','Historic Market Square'];
   const attrCats = ['Culture','Museum','History','Nature','Viewpoint','Market'];
   const attrTags = [['culture','history'],['culture','art'],['history','photography'],['nature','relax'],['photography'],['shopping','food']];
-  attrNames.forEach((n,i)=>PLACES.push({ id:`${id}-a${i+1}`, destId:id, type:'attraction', name:`${clean} ${n}`, category:attrCats[i], rating:+(4.3+rnd()*0.5).toFixed(1), reviews:800+Math.floor(rnd()*9000), priceLevel:i%3, price:[0,10,18,0,0,5][i], area:clean, lat:base.lat+(rnd()*0.06-0.03), lng:base.lng+(rnd()*0.06-0.03), desc:`A well-loved local favorite for visitors exploring ${clean}.`, tags:attrTags[i], duration:75, image:categoryPhoto('attraction', attrCats[i]) || img(id+'-attr-'+i,640,480,`${clean} ${n}`) }));
+  attrNames.forEach((n,i)=>PLACES.push({ id:`${id}-a${i+1}`, destId:id, type:'attraction', name:`${clean} ${n}`, category:attrCats[i], rating:+(4.3+rnd()*0.5).toFixed(1), reviews:800+Math.floor(rnd()*9000), priceLevel:i%3, price:[0,10,18,0,0,5][i], area:clean, lat:base.lat+(rnd()*0.06-0.03), lng:base.lng+(rnd()*0.06-0.03), desc:`A well-loved local favorite for visitors exploring ${clean}.`, tags:attrTags[i], duration:75, image:claimGeneric(categoryPhoto('attraction', attrCats[i])) || img(id+'-attr-'+i,640,480,`${clean} ${n}`) }));
   const restNames = ['The Local Table','Market Street Kitchen','Grandma\'s Corner Café','The Harborview Grill','Spice & Sea','The Old Bakery'];
   const cuisines = ['Local Cuisine','Fusion','Café','Seafood','International','Bakery & Café'];
-  restNames.forEach((n,i)=>PLACES.push({ id:`${id}-r${i+1}`, destId:id, type:'restaurant', name:n, cuisine:cuisines[i], rating:+(4.2+rnd()*0.6).toFixed(1), reviews:300+Math.floor(rnd()*4000), priceLevel:1+(i%3), price:[10,18,8,28,15,7][i], area:clean, lat:base.lat+(rnd()*0.05-0.025), lng:base.lng+(rnd()*0.05-0.025), desc:`A favorite spot locals and visitors both recommend in ${clean}.`, tags:['food'], dietary: i%2? ['vegetarian']:[], hours:'11:00 AM – 10:00 PM', image:bundledCuisinePhoto(cuisines[i]) || categoryPhoto('restaurant', cuisines[i]) || img(id+'-food-'+i,640,480,n) }));
+  restNames.forEach((n,i)=>PLACES.push({ id:`${id}-r${i+1}`, destId:id, type:'restaurant', name:n, cuisine:cuisines[i], rating:+(4.2+rnd()*0.6).toFixed(1), reviews:300+Math.floor(rnd()*4000), priceLevel:1+(i%3), price:[10,18,8,28,15,7][i], area:clean, lat:base.lat+(rnd()*0.05-0.025), lng:base.lng+(rnd()*0.05-0.025), desc:`A favorite spot locals and visitors both recommend in ${clean}.`, tags:['food'], dietary: i%2? ['vegetarian']:[], hours:'11:00 AM – 10:00 PM', image:claimGeneric(bundledCuisinePhoto(cuisines[i])) || claimGeneric(categoryPhoto('restaurant', cuisines[i])) || nextGeneric(GENERIC_FOOD) || img(id+'-food-'+i,640,480,n) }));
   const hotelNames = [`Grand ${clean} Hotel`,`${clean} Boutique Inn`,`${clean} Central Suites`,`${clean} Budget Stay`];
   const stars=[5,4,3,2];
-  hotelNames.forEach((n,i)=>PLACES.push({ id:`${id}-h${i+1}`, destId:id, type:'hotel', name:n, stars:stars[i], guestRating:+(7.9+rnd()*1.4).toFixed(1), price:[280,150,95,40][i], area:clean, lat:base.lat+(rnd()*0.04-0.02), lng:base.lng+(rnd()*0.04-0.02), desc:`Comfortable, well-located stay for exploring ${clean}.`, amenities:['Free WiFi','Breakfast'].concat(i<2?['Pool','Bar']:[]), image:hotelCategoryPhoto(stars[i]) || img(id+'-hotel-'+i,640,480,n) }));
+  hotelNames.forEach((n,i)=>PLACES.push({ id:`${id}-h${i+1}`, destId:id, type:'hotel', name:n, stars:stars[i], guestRating:+(7.9+rnd()*1.4).toFixed(1), price:[280,150,95,40][i], area:clean, lat:base.lat+(rnd()*0.04-0.02), lng:base.lng+(rnd()*0.04-0.02), desc:`Comfortable, well-located stay for exploring ${clean}.`, amenities:['Free WiFi','Breakfast'].concat(i<2?['Pool','Bar']:[]), image:claimGeneric(hotelCategoryPhoto(stars[i])) || nextGeneric(GENERIC_STAY) || img(id+'-hotel-'+i,640,480,n) }));
   return dest;
 }
 

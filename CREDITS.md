@@ -9,20 +9,23 @@ Where the *Depicts* column says "area stand-in", no photograph of that specific
 business or landmark was available, so the photo shows the neighbourhood it sits in.
 Those images are never presented as being of the property itself.
 
-264 images. Regenerate with `tools/import-images.py`.
+267 images. Regenerate with `tools/import-images.py`.
 
 | File | Depicts | Source article | Author | Licence |
 |---|---|---|---|---|
 | `images/category/bakery.jpg` | Bakery | [Bakery](https://en.wikipedia.org/wiki/Bakery) | Unknown | see file page |
 | `images/category/cathedral.jpg` | Cathedral | [Cathedral](https://en.wikipedia.org/wiki/Cathedral) | Unknown | see file page |
 | `images/category/fine-dining.jpg` | Fine dining | [Fine dining](https://en.wikipedia.org/wiki/Fine_dining) | Unknown | see file page |
+| `images/category/guesthouse.jpg` | Guest house | [Guest house](https://en.wikipedia.org/wiki/Guest_house) | Unknown | see file page |
 | `images/category/hostel.jpg` | Hostel | [Hostel](https://en.wikipedia.org/wiki/Hostel) | Unknown | see file page |
+| `images/category/hotel-lobby.jpg` | Lobby | [Lobby (room)](https://en.wikipedia.org/wiki/Lobby_(room)) | Unknown | see file page |
 | `images/category/hotel-luxury.jpg` | Suite (hotel) | [Suite (hotel)](https://en.wikipedia.org/wiki/Suite_(hotel)) | Derek Jensen ( Tysto ) | [Public domain](https://commons.wikimedia.org/wiki/File:Hotel-suite-living-room.jpg) |
 | `images/category/hotel-room.jpg` | Boutique hotel | [Boutique hotel](https://en.wikipedia.org/wiki/Boutique_hotel) | User:MrsMCLomax | [Public domain](https://commons.wikimedia.org/wiki/File:MadisonHotelFront.jpg) |
 | `images/category/market.jpg` | Marketplace | [Marketplace](https://en.wikipedia.org/wiki/Marketplace) | Unknown | see file page |
 | `images/category/museum.jpg` | Museum | [Museum](https://en.wikipedia.org/wiki/Museum) | Unknown | see file page |
 | `images/category/old-town.jpg` | Old town | [Old town](https://en.wikipedia.org/wiki/Old_town) | Unknown | see file page |
 | `images/category/promenade.jpg` | Boardwalk | [Boardwalk](https://en.wikipedia.org/wiki/Boardwalk) | Unknown | see file page |
+| `images/category/resort.jpg` | Resort | [Resort](https://en.wikipedia.org/wiki/Resort) | Unknown | see file page |
 | `images/category/restaurant.jpg` | Restaurant | [Restaurant](https://en.wikipedia.org/wiki/Restaurant) | Unknown | see file page |
 | `images/category/viewpoint.jpg` | Observation deck | [Observation deck](https://en.wikipedia.org/wiki/Observation_deck) | Unknown | see file page |
 | `images/cuisine/balinese-cuisine.jpg` | Balinese cuisine | [Balinese cuisine](https://en.wikipedia.org/wiki/Balinese_cuisine) | Unknown | see file page |
