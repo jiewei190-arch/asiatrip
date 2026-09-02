@@ -16,6 +16,7 @@ is what serves the *worldwide* destinations a visitor types in, not the built-in
 | `audit-duplicates.js` | Walks every destination's tabs and reports any image rendered more than once, comparing by file content rather than by name. |
 | `test-assistant.js` | Drives the real assistant in the page over ~35 realistic phrasings and prints each answer. |
 | `test-assistant-stress.js` | Feeds it empty, malformed, hostile and absurd input; fails on any throw, empty reply or page error. |
+| `test-destination-ambiguity.js` | Shows the suggestions for ambiguous names and flags any two a user could not tell apart. |
 | `test-destination-consistency.js` | Asserts that a destination's name, country, flag, coordinates and canonical id all come from the same resolved place. Includes the two strings that produced the bug. |
 | `audit-image-accuracy.js` | Reports, per destination, WHICH rung produced its photo and from which article — so a wrong-place image is visible instead of counting as a success. |
 | `test-destination-page.js` | Opens a typed-in destination's page with recorded payloads and reports what every image resolves to. |
@@ -131,6 +132,12 @@ nearby — Patagonia is the one case in 51, since its lead image is a map and it
 empty steppe.
 
 ## One destination, one identity
+
+Ambiguous names must be distinguishable in the list, not merely present. "Victoria" returned
+two rows both reading *Victoria — Texas, United States*, because OSM carries the county and
+the city as separate places; to a traveller they are one destination. Suggestions sharing a
+name, country and region now collapse to the most travel-relevant type, which freed the slot
+that surfaced Victoria, Malta.
 
 A page once displayed the caption **Malaysia** above the name **Seoul Korea**. The cause was
 not the renderer: `geocodeCity()` ran an unfiltered Nominatim free-text search and took result

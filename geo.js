@@ -209,6 +209,22 @@ function geoStrongMatch(name, q){
   return new RegExp(`(^|\\s)${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`).test(n);
 }
 
+/** Collapses suggestions a user could not tell apart.
+ *  "Victoria" returned two rows both reading "Victoria — Texas, United States": OSM carries
+ *  the county and the city as separate places, and to a traveller they are one destination.
+ *  Identical name + country + region keeps only the most travel-relevant type, so every row
+ *  in the list is distinguishable from every other by what it actually shows. */
+function geoDedupe(results){
+  const best = new Map();
+  for(const r of results){
+    const key = [r.name, r.countryCode, r.region].join('|').toLowerCase();
+    const prev = best.get(key);
+    if(!prev || (r.typeRank || 0) > (prev.typeRank || 0)) best.set(key, r);
+  }
+  // Map preserves insertion order, and the input is already ranked, so ordering survives.
+  return results.filter(r => best.get([r.name, r.countryCode, r.region].join('|').toLowerCase()) === r);
+}
+
 /* ---------------- Public search ----------------
    `signal` cancels a request whose answer is already stale because the user kept typing. */
 async function geoSearch(query, options){
@@ -263,7 +279,7 @@ async function geoSearch(query, options){
     }
   }
 
-  const ranked = geoRank(results, q).slice(0, opts.limit || 8);
+  const ranked = geoDedupe(geoRank(results, q)).slice(0, opts.limit || 8);
   if(ranked.length) geoCacheSet(key, ranked);
   return ranked;
 }
