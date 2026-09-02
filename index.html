@@ -639,10 +639,11 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
 
 <script>
 /* Loaded with the same self-rotating token (see the note in <head>). Dynamically inserted
- * scripts with async=false still execute in insertion order, so data.js is guaranteed to run
- * before app.js — and being at the end of <body>, the DOM is already parsed when they do. */
+ * scripts with async=false still execute in insertion order, so photos.js (the bundled-image
+ * index) runs before data.js, which runs before app.js — and being at the end of <body>, the
+ * DOM is already parsed when they do. */
 (function(){
-  ['data.js','app.js'].forEach(function(src){
+  ['photos.js','data.js','app.js'].forEach(function(src){
     var s = document.createElement('script');
     s.src = src + '?v=' + window.ASSET_VERSION;
     s.async = false;
