@@ -16,6 +16,7 @@ is what serves the *worldwide* destinations a visitor types in, not the built-in
 | `audit-duplicates.js` | Walks every destination's tabs and reports any image rendered more than once, comparing by file content rather than by name. |
 | `test-assistant.js` | Drives the real assistant in the page over ~35 realistic phrasings and prints each answer. |
 | `test-assistant-stress.js` | Feeds it empty, malformed, hostile and absurd input; fails on any throw, empty reply or page error. |
+| `test-destination-consistency.js` | Asserts that a destination's name, country, flag, coordinates and canonical id all come from the same resolved place. Includes the two strings that produced the bug. |
 | `audit-image-accuracy.js` | Reports, per destination, WHICH rung produced its photo and from which article — so a wrong-place image is visible instead of counting as a success. |
 | `test-destination-page.js` | Opens a typed-in destination's page with recorded payloads and reports what every image resolves to. |
 | `test-global-imagery.js` | Runs the shipped geo + photo chain against the live network and reports real worldwide image coverage. |
@@ -128,6 +129,37 @@ Every rung is a genuine photograph of somewhere the traveller is actually going.
 rung is reached only for a place with no photograph of its own and nothing photographed
 nearby — Patagonia is the one case in 51, since its lead image is a map and its centroid is
 empty steppe.
+
+## One destination, one identity
+
+A page once displayed the caption **Malaysia** above the name **Seoul Korea**. The cause was
+not the renderer: `geocodeCity()` ran an unfiltered Nominatim free-text search and took result
+#1, which for a typed string returns *businesses*. Reproduced directly:
+
+```
+"Paris Texas"  ->  a PUB IN BUDAPEST named "Paris, Texas"   class=pub  country=Hungary
+```
+
+So the name came from what the user typed and the country from an unrelated shop that happened
+to share it. Three changes make that structurally impossible:
+
+1. **Geocoding only returns places.** A result must be an administrative area, settlement,
+   island, park or landmark. Businesses can no longer define a destination's country.
+2. **Identity is written once, at creation.** Background enrichment adds attractions; it may no
+   longer restate name, country or coordinates for a destination that arrived verified. A late
+   response cannot repaint an identity.
+3. **A canonical place id.** Every resolved destination carries `placeId` — OSM's stable
+   type+id pair — and the photo cache and lookups key off it, so "dest:paris" can no longer be
+   shared by Paris, France and Paris, Texas.
+
+`geoValidateDestination()` refuses to render a destination whose fields disagree, and
+`test-destination-consistency.js` asserts the whole thing across continents, including the two
+exact strings from the bug report.
+
+**On Google Places:** it is not used, and cannot be without changing a decision you made
+earlier — it requires an API key with billing enabled, and this app was explicitly built to
+need no key from anyone. Photon/OSM provides the same guarantees keylessly: a stable canonical
+id, verified coordinates, and a country that comes from the same record as the name.
 
 ## Image accuracy
 

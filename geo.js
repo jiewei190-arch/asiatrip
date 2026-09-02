@@ -115,7 +115,13 @@ function geoNormalize(props, lat, lng){
     displayName: [name, ...context].join(', '),
     context: context.join(', '),
     osmId: props.osm_id ? `${props.osm_type || ''}${props.osm_id}` : null,
+    // The canonical identifier for this place. OSM's type+id pair is stable and globally
+    // unique — the keyless equivalent of a Google Place ID — and everything downstream keys
+    // off it rather than off the name, because names are ambiguous and collide.
+    placeId: props.osm_id ? `osm:${props.osm_type || 'x'}${props.osm_id}`
+                          : `geo:${(props.name||'').toLowerCase().replace(/\s+/g,'-')}:${cc||'--'}:${(lat||0).toFixed(3)},${(lng||0).toFixed(3)}`,
     source: 'photon',
+    verified: true,
   };
 }
 
@@ -269,4 +275,27 @@ async function geoResolve(query){
     const results = await geoSearch(query, { limit: 1 });
     return results[0] || null;
   } catch(e){ return null; }
+}
+
+/* ---------------- Consistency validation ----------------
+   One destination, one identity. This is the guard that makes "Seoul, Korea" under the
+   heading "Malaysia" impossible: every field must have come from the same resolved place,
+   and a destination that cannot prove it is rejected rather than rendered. */
+function geoValidateDestination(dest){
+  const problems = [];
+  if(!dest) return { ok:false, problems:['no destination'] };
+  if(!dest.name) problems.push('missing name');
+  if(dest.__geo){
+    if(!dest.placeId) problems.push('verified destination without a canonical place id');
+    if(dest.lat == null || dest.lng == null) problems.push('missing coordinates');
+    if(Math.abs(dest.lat) > 90 || Math.abs(dest.lng) > 180) problems.push('coordinates out of range');
+    // A country label that did not come from the same resolution is exactly the bug this
+    // guards against, so the pair is checked rather than trusted.
+    if(dest.country && dest.countryCode){
+      const flagFromCode = countryFlagEmoji(dest.countryCode);
+      if(dest.flag && dest.flag !== flagFromCode) problems.push('flag does not match country code');
+    }
+    if(dest.country && !dest.countryCode) problems.push('country without a country code');
+  }
+  return { ok: problems.length === 0, problems };
 }

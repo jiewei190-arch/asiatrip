@@ -245,7 +245,8 @@ async function lookupWikiThumbnail(key, query){
       answered = true;
       const pages = (data.query && data.query.pages) || {};
       const page = Object.values(pages)[0];
-      if(page && page.thumbnail && page.thumbnail.source){
+      if(page && page.thumbnail && page.thumbnail.source
+         && isTravelAppropriate(page.title) && isTravelAppropriate(page.thumbnail.source)){
         result = capWikiThumb(page.thumbnail.source, 720);
       }
     }
@@ -419,6 +420,35 @@ async function fetchNearbyPhoto(lat, lng){
  *  the wrong Springfield) and absurd for Patagonia, whose Wikipedia article sits 606km from
  *  the geocoder's centroid — both points being legitimately inside a region of a million
  *  square kilometres. So the tolerance scales with the kind of place. */
+/** Subjects that must never represent a place on a holiday-planning site, however
+ *  geographically correct they are. A photograph of a soldier is not what South Korea is for
+ *  a traveller, and reducing a country to its conflicts is both useless and disrespectful.
+ *  Word boundaries matter here: "Kawarau Gorge" and "Yaowarat Road" contain the letters of
+ *  "war" and are perfectly good travel imagery.
+ *
+ *  This filters DEFAULT imagery only. A user who deliberately searches a war memorial or a
+ *  historic fortress still finds it — those are named attractions they asked for. */
+const INAPPROPRIATE_SUBJECT = new RegExp([
+  '\\bsoldiers?\\b','\\bmilitary\\b','\\barmy\\b','\\bnavy\\b','\\bair force\\b','\\btroops?\\b',
+  '\\bweapons?\\b','\\bgun\\b','\\brifles?\\b','\\btanks?\\b','\\bmissiles?\\b','\\bwarfare\\b',
+  '\\bwar\\b','\\bbattles?\\b','\\bconflict\\b','\\binvasion\\b','\\boccupation\\b','\\bmartyrs?\\b',
+  '\\bprotests?\\b','\\briots?\\b','\\bdemonstrations?\\b','\\buprising\\b','\\brevolution\\b','\\bcoup\\b',
+  '\\bmassacres?\\b','\\bgenocide\\b','\\batrocity\\b','\\bexecutions?\\b','\\bconcentration camp\\b',
+  '\\bdisasters?\\b','\\bearthquakes?\\b','\\btsunami\\b','\\bfamine\\b','\\bepidemic\\b','\\bpandemic\\b',
+  '\\bfloods?\\b','\\bwreck(age)?\\b','\\bcrash(es)?\\b','\\bbombings?\\b','\\bshootings?\\b','\\bterror',
+  '\\bslums?\\b','\\bpoverty\\b','\\brefugees?\\b','\\bprisons?\\b','\\bpenitentiary\\b',
+  '\\bcemeter(y|ies)\\b','\\bgraves?\\b','\\bgraveyard\\b','\\bmorgue\\b','\\bfuneral\\b',
+  '\\bpolice\\b','\\bpolitician\\b','\\bpresident\\b','\\bdictator\\b','\\bparade\\b','\\bDMZ\\b',
+].join('|'), 'i');
+
+/** True when a title or filename is safe to use as default travel imagery. */
+function isTravelAppropriate(text){
+  let v = String(text || '');
+  try { v = decodeURIComponent(v); } catch(e){}
+  v = v.replace(/^\d+px-/, '').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_\-.]+/g, ' ');
+  return !INAPPROPRIATE_SUBJECT.test(v);
+}
+
 /** Infrastructure that is genuinely IN a destination but is not what anyone travels to see.
  *  The bundled-image importer has rejected these for hero images since it was written; without
  *  the same rule at runtime, Santorini resolved to a photograph of its airport terminal. */
@@ -455,7 +485,7 @@ const __destPhotoTier = {};   // which rung answered, for auditing
 /** Which rung of the chain produced a destination's photo: 'article' (the place itself),
  *  'landmark' (something inside it), or null (name card). Exposed so the accuracy audit can
  *  tell a photo OF the destination from a photo merely NEAR it. */
-function destPhotoTierFor(destId){ return __destPhotoTier['dest:' + String(destId||'').toLowerCase()] || null; }
+function destPhotoTierFor(destKey){ return __destPhotoTier['dest:' + String(destKey||'').toLowerCase()] || null; }
 /** A landmark photo, but only from within `maxKm` of the point. fetchNearbyPhoto searches a
  *  fixed 10km circle (the API's cap); this filters that result set down to what is actually
  *  inside the destination, and returns nothing rather than something from further out. */
@@ -472,6 +502,7 @@ async function fetchNearbyPhotoWithin(lat, lng, maxKm, placeName, placeType, req
     .filter(p => (p.coordinates || [])[0])
     .filter(p => !NON_ATTRACTION_TITLE_PATTERNS.some(re => re.test(p.title || '')))
     .filter(p => !NON_HERO_TITLE.test(p.title || ''))
+    .filter(p => isTravelAppropriate(p.title) && isTravelAppropriate((p.thumbnail||{}).source))
     // Judge the FILE as well as the article: the article "Sedgwick, Victoria" is a place, but
     // its photograph is Sedgwick_hall.jpg — a village hall offered as the state of Victoria.
     .filter(p => {
@@ -514,7 +545,9 @@ function destNearbyRadiusKm(type){ const v = DEST_NEARBY_KM[type]; return v === 
 async function resolveDestinationPhoto(dest){
   if(!dest) return null;
   const cache = photoCache();
-  const key = 'dest:' + (dest.id || dest.name || '').toLowerCase();
+  // Keyed by the canonical place id where there is one: "dest:paris" would otherwise be
+  // shared by Paris, France and Paris, Texas.
+  const key = 'dest:' + (dest.placeId || dest.id || dest.name || '').toLowerCase();
   const hit = cache[key];
   if(typeof hit === 'string' && hit) return hit;
   if(hit && typeof hit === 'object' && hit.miss && (Date.now() - hit.miss) < PHOTO_MISS_TTL_MS) return null;
@@ -539,6 +572,9 @@ async function resolveDestinationPhoto(dest){
         // Coordinates alone are not enough: the article must also name the destination, and
         // must not be its airport or bus station.
         if(NON_HERO_TITLE.test(c.title || '')) continue;
+        // Correct location is not enough: it must also be imagery that represents the place
+        // as somewhere to travel to.
+        if(!isTravelAppropriate(c.title) || !isTravelAppropriate(c.thumb)) continue;
         if(!titleNamesPlace(c.title, dest.name)) continue;
         if(!anchorLat){ anchorLat = c.lat; anchorLng = c.lng; }   // a vetted point inside the place
         if(!c.thumb) continue;                                    // right place, no usable photo
@@ -585,17 +621,33 @@ async function resolveDestinationPhoto(dest){
 const GEOCODE_CACHE_KEY = 'tripflow_geocode_cache_v1';
 let __geocodeCache = null;
 function geocodeCache(){ if(!__geocodeCache) __geocodeCache = readJSONCache(GEOCODE_CACHE_KEY); return __geocodeCache; }
+/** Place kinds Nominatim may return when resolving a destination. Its free-text search
+ *  otherwise happily returns businesses: "Paris Texas" resolves to a PUB IN BUDAPEST named
+ *  "Paris, Texas" (country: Hungary), and "Seoul Korea" to a Korean restaurant in Malaysia.
+ *  That is how a destination ended up captioned "Malaysia" under the name "Seoul Korea" —
+ *  the name came from what was typed, the country from an unrelated shop. */
+const GEOCODE_PLACE_TYPES = new Set(['administrative','city','town','village','hamlet',
+  'suburb','borough','municipality','county','state','province','region','country','island',
+  'archipelago','islet','peninsula','locality','national_park','nature_reserve','protected_area',
+  'attraction','monument','castle','ruins','archaeological_site','peak','volcano','bay','beach',
+  'fjord','lake','glacier','neighbourhood','quarter','city_district','district']);
+
 async function geocodeCity(query){
   const cache = geocodeCache();
   const key = query.trim().toLowerCase();
   if(cache[key]) return cache[key];
   let result = null;
   try{
-    const res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=1&q=${encodeURIComponent(query)}`, 8000, {headers:{'Accept':'application/json'}});
+    const res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&q=${encodeURIComponent(query)}`, 8000, {headers:{'Accept':'application/json'}});
     if(res && res.ok){
       const arr = await res.json();
-      if(arr && arr[0]){
-        const a = arr[0];
+      // Take the first result that is actually a PLACE. Without this the first result can be
+      // a restaurant or a pub that merely shares the name, and its country becomes the
+      // destination's country.
+      const a = (arr || []).find(x => GEOCODE_PLACE_TYPES.has(x.type) ||
+                                      GEOCODE_PLACE_TYPES.has(x.class) ||
+                                      x.class === 'place' || x.class === 'boundary');
+      if(a){
         const addr = a.address || {};
         result = {
           lat: parseFloat(a.lat), lng: parseFloat(a.lon),
@@ -845,9 +897,15 @@ function inferTagsFromExtract(text){
 const ENRICH_CACHE_KEY = 'tripflow_enrich_cache_v2';
 function enrichCache(){ return readJSONCache(ENRICH_CACHE_KEY); }
 function applyEnrichment(dest, payload){
-  if(payload.lat != null) dest.lat = payload.lat;
-  if(payload.lng != null) dest.lng = payload.lng;
-  if(payload.country){ dest.country = payload.country; dest.currencyCode = currencyCodeForCountry(payload.country); }
+  // Enrichment ADDS attractions. It must never restate who the destination is: a destination
+  // resolved from search already carries a verified name, country and coordinates, and letting
+  // a later background lookup overwrite them is precisely how a page came to show one place's
+  // name above another place's country. Identity is written once, at creation.
+  if(!dest.__geo){
+    if(payload.lat != null) dest.lat = payload.lat;
+    if(payload.lng != null) dest.lng = payload.lng;
+    if(payload.country){ dest.country = payload.country; dest.currencyCode = currencyCodeForCountry(payload.country); }
+  }
   if(payload.attractions && payload.attractions.length){
     for(let i=PLACES.length-1;i>=0;i--){ if(PLACES[i].destId===dest.id && PLACES[i].type==='attraction') PLACES.splice(i,1); }
     payload.attractions.forEach((p,i)=>{
@@ -1602,6 +1660,7 @@ function applyGeoToDestination(dest, geo){
   if(geo.region) dest.region = geo.region;
   if(geo.type) dest.placeType = geo.type;
   if(geo.displayName) dest.displayName = geo.displayName;
+  if(geo.placeId) dest.placeId = geo.placeId;
   dest.__geo = true;
   return dest;
 }
@@ -1628,6 +1687,7 @@ function makeGenericDestination(name, geo){
     : { lat: 20 + (rnd()*40-20), lng: (rnd()*340-170) };
   const dest = {
     id, name:clean,
+    placeId: (geo && geo.placeId) || null,   // canonical identity; everything else derives from it
     country: (geo && geo.country) || '',
     countryCode: (geo && geo.countryCode) || '',
     region: (geo && geo.region) || '',

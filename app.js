@@ -1185,8 +1185,42 @@ const DEST_TABS = [
   ['hotels','Hotels'],['itinerary','Itinerary'],['map','Map'],['ideas','Trip Ideas'],
 ];
 
+/** Resolves free text ("Seoul Korea" typed and Entered, rather than picked from the
+ * suggestions) into a verified destination. The typed string is a QUERY, never an identity:
+ * treating it as one is how a destination came to be named "Seoul Korea" while its country
+ * said Malaysia, because the name was taken from the text and the country from whatever an
+ * unfiltered geocode returned. The canonical resolver decides both, together, or neither. */
+function resolveTypedDestination(text, onReady){
+  const dest = findDestination(text);              // immediate, so the page can render now
+  if(dest && dest.__geo) return dest;              // already verified, nothing to reconcile
+  geoResolve(text).then(geo => {
+    if(!geo) return;
+    const verified = findDestination(geo.name, geo);
+    // If the verified place is a different destination than the placeholder we created, go
+    // there rather than repainting the placeholder with someone else's country.
+    if(verified && verified.id !== dest.id){
+      if(typeof onReady === 'function') onReady(verified);
+    } else if(verified){
+      applyGeoToDestination(verified, geo);
+      if(typeof onReady === 'function') onReady(verified);
+    }
+  }).catch(()=>{});
+  return dest;
+}
+
 function renderDestinationView(idOrName, tab){
-  let dest = resolveDestFromId(idOrName) || findDestination(idOrName);
+  let dest = resolveDestFromId(idOrName) || resolveTypedDestination(idOrName, verified => {
+    // The canonical answer arrived after the first paint: navigate to the verified
+    // destination so the page never shows a half-resolved identity.
+    if(verified && verified.id !== (destState && destState.id)) navigate(`#/destination/${encodeURIComponent(verified.id)}`);
+  });
+  // One destination, one identity. A destination whose fields disagree is a bug, not
+  // something to render — the caption and the name must come from the same resolved place.
+  const check = (typeof geoValidateDestination === 'function') ? geoValidateDestination(dest) : {ok:true};
+  if(!check.ok){
+    console.warn('TripFlow: refusing to render inconsistent destination', dest && dest.id, check.problems);
+    dest = Object.assign({}, dest, { country:'', countryCode:'', flag:'🌍', displayName: dest.name });
+  }
   if(destState.id !== dest.id){ destState = { id:dest.id, tab:tab, thingsFilters:{cat:'all',price:'any',rating:'any',sort:'rec'}, restFilters:{cuisine:'all',price:'any',rating:'any',open:false,dietary:new Set(),sort:'rec'}, hotelFilters:{price:'any',stars:'any',guest:'any',amenity:'all',sort:'rec'}, mapCats:new Set(['attraction','restaurant','hotel']) }; }
   destState.tab = tab || destState.tab || 'overview';
 
