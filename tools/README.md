@@ -16,6 +16,7 @@ is what serves the *worldwide* destinations a visitor types in, not the built-in
 | `audit-duplicates.js` | Walks every destination's tabs and reports any image rendered more than once, comparing by file content rather than by name. |
 | `test-assistant.js` | Drives the real assistant in the page over ~35 realistic phrasings and prints each answer. |
 | `test-assistant-stress.js` | Feeds it empty, malformed, hostile and absurd input; fails on any throw, empty reply or page error. |
+| `audit-image-accuracy.js` | Reports, per destination, WHICH rung produced its photo and from which article — so a wrong-place image is visible instead of counting as a success. |
 | `test-destination-page.js` | Opens a typed-in destination's page with recorded payloads and reports what every image resolves to. |
 | `test-global-imagery.js` | Runs the shipped geo + photo chain against the live network and reports real worldwide image coverage. |
 | `test-geo-search.js` | Replays real recorded Photon/Wikipedia payloads (`geo-fixtures.json`) through the shipped `geo.js` and checks each test destination resolves with correct country, type and coordinates. |
@@ -127,6 +128,31 @@ Every rung is a genuine photograph of somewhere the traveller is actually going.
 rung is reached only for a place with no photograph of its own and nothing photographed
 nearby — Patagonia is the one case in 51, since its lead image is a map and its centroid is
 empty steppe.
+
+## Image accuracy
+
+Coverage and accuracy are different questions, and only the second one matters to a traveller.
+`audit-image-accuracy.js` reports which rung answered for each destination, which is how these
+were found — every one was a real wrong-place image being served:
+
+| Wrong image | Why it passed | Rule added |
+|---|---|---|
+| A MotoGP rider for Viñales | Name search matches people | Candidate must carry coordinates |
+| A generic Madagascar photo for Nosy Be | A country-level fallback existed | **Removed.** A photo of Madagascar is not a photo of Nosy Be |
+| A municipality map for Santorini, a 10th-century map for Tuscany | Names say nothing about being maps | Photographs on Commons are JPEG; maps, flags and diagrams are PNG/SVG |
+| Santorini's **airport terminal** | Infrastructure is genuinely in the destination | Heroes reject airports, stations, hospitals |
+| A village hall, then a rural pub, then a reservoir, for the **state of Victoria** | A centroid in bushland, and Wikipedia titles every town as "Town, State" so the name test always passes | No landmark is used for a state, province or country at all |
+
+The ladder: the destination's own article (coordinates within a type-scaled radius **and** the
+title naming the place) → a landmark verifiably inside it → the name card. Nothing else.
+
+The last rung is not a failure. A state whose centroid is farmland has no image that honestly
+represents it, and a beautiful photograph of the wrong place is worse than none.
+
+**What this does not do:** Google Images and Google Maps are not used — there is no API access
+here, and scraping them would breach their terms and yield unstable URLs. Verification is done
+against Wikipedia/Wikimedia structured data (coordinates, article titles, file formats), which
+is what a visual check would be trying to establish anyway.
 
 ## Honesty rules
 

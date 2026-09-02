@@ -349,8 +349,19 @@ const NON_PHOTO_FILE = new RegExp([
   // essentially never what a traveller should see — this alone caught two locator maps.
   'svg png', '\\bsvg\\b',
 ].join('|'), 'i');
+/** Photographs on Wikimedia Commons are overwhelmingly JPEG; maps, diagrams, flags and
+ *  charts are PNG, GIF or SVG. Names alone cannot separate them — "2011_Dimos_Thiras.png" is
+ *  a municipality map of Santorini and says nothing about being one, and a 10th-century map
+ *  arrived for Tuscany the same way. The import pipeline catches these by inspecting pixels,
+ *  which is too expensive at runtime; the file format is the cheap signal that agrees with it
+ *  almost always, and anything wrongly excluded simply falls to the next candidate. */
+function isPhotographicFormat(url){
+  const base = String(url).split('?')[0].toLowerCase();
+  return /\.jpe?g$/.test(base);
+}
 function looksLikePhoto(url){
   if(!url) return false;
+  if(!isPhotographicFormat(url)) return false;
   let name = String(url).split('/').pop() || '';
   try { name = decodeURIComponent(name); } catch(e){}
   // Underscores are word characters, so /\bmap\b/ does NOT match inside "Pat_map.PNG" — which
@@ -408,6 +419,81 @@ async function fetchNearbyPhoto(lat, lng){
  *  the wrong Springfield) and absurd for Patagonia, whose Wikipedia article sits 606km from
  *  the geocoder's centroid — both points being legitimately inside a region of a million
  *  square kilometres. So the tolerance scales with the kind of place. */
+/** Infrastructure that is genuinely IN a destination but is not what anyone travels to see.
+ *  The bundled-image importer has rejected these for hero images since it was written; without
+ *  the same rule at runtime, Santorini resolved to a photograph of its airport terminal. */
+/** For a large place — a region, state or country — a single small building cannot represent
+ *  it. "Sedgwick hall" is genuinely inside Victoria and genuinely photographed, and tells a
+ *  traveller nothing about the state. Compact places are exempt: any landmark inside a town
+ *  or an island reads as that place. */
+const SMALL_BUILDING_TITLE = /\b(hall|post office|church|chapel|school|college|court|courthouse|library|hotel|inn|pub|shop|store|house|cottage|villa|mill|farm|bridge|monument|memorial|statue|clock tower|water tower|silo|barn)\b/i;
+const LARGE_PLACE_TYPES = new Set(['region','state','province','county','country']);
+
+const NON_HERO_TITLE = /(airport|airfield|air base|bus station|railway station|\bstation\b|terminal|hospital|prison|barracks|power (plant|station)|sewage|landfill|industrial estate|business park|car park|parking)/i;
+
+/** Does this article title actually name the destination? Coordinates prove a candidate is
+ *  in the right area; this proves it is the right PLACE. Without it a neighbouring town's
+ *  article passes the distance check and its photo is served as your destination. */
+function titleNamesPlace(title, name){
+  const norm = v => String(v||'').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'')
+                     .replace(/[^a-z0-9 ]+/g,' ').replace(/\s+/g,' ').trim();
+  const t = norm(title), n = norm(name);
+  if(!t || !n) return false;
+  if(t === n) return true;
+  // "Queenstown, New Zealand" for Queenstown; "Oia, Greece" for Oia.
+  if(t.startsWith(n + ' ') || t.endsWith(' ' + n) || t.includes(' ' + n + ' ')) return true;
+  // Transliteration: Marrakech/Marrakesh, Reykjavik/Reykjavík.
+  if(Math.abs(t.length - n.length) <= 2 && t.length >= 5){
+    let same = 0;
+    for(let i = 0; i < Math.min(t.length, n.length); i++) if(t[i] === n[i]) same++;
+    if(same / Math.max(t.length, n.length) >= 0.8) return true;
+  }
+  return false;
+}
+
+const __destPhotoTier = {};   // which rung answered, for auditing
+/** Which rung of the chain produced a destination's photo: 'article' (the place itself),
+ *  'landmark' (something inside it), or null (name card). Exposed so the accuracy audit can
+ *  tell a photo OF the destination from a photo merely NEAR it. */
+function destPhotoTierFor(destId){ return __destPhotoTier['dest:' + String(destId||'').toLowerCase()] || null; }
+/** A landmark photo, but only from within `maxKm` of the point. fetchNearbyPhoto searches a
+ *  fixed 10km circle (the API's cap); this filters that result set down to what is actually
+ *  inside the destination, and returns nothing rather than something from further out. */
+async function fetchNearbyPhotoWithin(lat, lng, maxKm, placeName, placeType, requireNamed){
+  if(lat == null || lng == null || !maxKm) return null;
+  const large = LARGE_PLACE_TYPES.has(placeType);
+  const url = `https://en.wikipedia.org/w/api.php?action=query&generator=geosearch` +
+    `&ggscoord=${lat}|${lng}&ggsradius=10000&ggslimit=40` +
+    `&prop=pageimages|coordinates&piprop=thumbnail&pithumbsize=720&colimit=40&format=json&origin=*`;
+  const data = await fetchWikiJSON(url);
+  if(!data) return null;
+  const pages = Object.values((data.query && data.query.pages) || {})
+    .filter(p => p.thumbnail && p.thumbnail.source && looksLikePhoto(p.thumbnail.source))
+    .filter(p => (p.coordinates || [])[0])
+    .filter(p => !NON_ATTRACTION_TITLE_PATTERNS.some(re => re.test(p.title || '')))
+    .filter(p => !NON_HERO_TITLE.test(p.title || ''))
+    // Judge the FILE as well as the article: the article "Sedgwick, Victoria" is a place, but
+    // its photograph is Sedgwick_hall.jpg — a village hall offered as the state of Victoria.
+    .filter(p => {
+      if(!large) return true;
+      let file = String((p.thumbnail || {}).source || '').split('/').pop();
+      try { file = decodeURIComponent(file); } catch(e){}
+      file = file.replace(/^\d+px-/, '')
+                 .replace(/([a-z])([A-Z])/g, '$1 $2')   // SpringGullyHotel -> Spring Gully Hotel
+                 .replace(/[_\-.]+/g, ' ');
+      return !SMALL_BUILDING_TITLE.test(p.title || '') && !SMALL_BUILDING_TITLE.test(file);
+    })
+    .map(p => ({ p, km: kmBetween(lat, lng, p.coordinates[0].lat, p.coordinates[0].lon),
+                 // A landmark that carries the destination's name is recognisable AS the
+                 // destination; nearest-first alone offered a rural post office for the whole
+                 // state of Victoria, which no traveller would recognise.
+                 named: placeName && titleNamesPlace(p.title, placeName) ? 0 : 1 }))
+    .filter(x => x.km <= maxKm)
+    .filter(x => !requireNamed || x.named === 0)
+    .sort((a, b) => a.named - b.named || a.km - b.km);
+  return pages.length ? capWikiThumb(pages[0].p.thumbnail.source, 720) : null;
+}
+
 const DEST_PHOTO_MAX_KM = {
   city:75, town:60, village:40, hamlet:40, suburb:30, borough:40, locality:50, municipality:75,
   island:150, archipelago:400, peninsula:300, county:150, national_park:200, nature_reserve:150,
@@ -416,6 +502,13 @@ const DEST_PHOTO_MAX_KM = {
   region:800, state:600, province:600, country:2000,
 };
 function destPhotoRadiusKm(type){ return DEST_PHOTO_MAX_KM[type] || 100; }
+/** A landmark may stand in for a destination only if it is genuinely within it. A temple 6km
+ *  from the centre of Beijing is Beijing; a church 8km from a hamlet is the next village. */
+const DEST_NEARBY_KM = { city:15, town:6, village:3, hamlet:3, suburb:3, borough:5, locality:4,
+  municipality:8, island:25, archipelago:40, country:0, region:50, state:40, province:40,
+  county:25, national_park:30, nature_reserve:20, protected_area:25, peninsula:30, bay:20,
+  beach:5, lake:20, fjord:25, peak:10, volcano:10, glacier:15, attraction:3, monument:3 };
+function destNearbyRadiusKm(type){ const v = DEST_NEARBY_KM[type]; return v === undefined ? 8 : v; }
 
 /** The full destination-photo chain. Cached under the destination id like any other lookup. */
 async function resolveDestinationPhoto(dest){
@@ -433,7 +526,7 @@ async function resolveDestinationPhoto(dest){
     }
     if(dest.region && dest.region !== dest.name) queries.push(`${dest.name} ${dest.region}`);
     const hasCoords = dest.lat != null && dest.lng != null && dest.__geo;
-    let answered = false, found = null, anchorLat = null, anchorLng = null;
+    let answered = false, found = null, anchorLat = null, anchorLng = null, tier = null;
 
     for(const q of queries){
       const candidates = await fetchWikiCandidates(q, 4);
@@ -443,37 +536,46 @@ async function resolveDestinationPhoto(dest){
         // A candidate with no coordinates is not a place — that is what "Maverick Viñales" is.
         if(c.lat == null) continue;
         if(hasCoords && kmBetween(dest.lat, dest.lng, c.lat, c.lng) > destPhotoRadiusKm(dest.placeType)) continue;
+        // Coordinates alone are not enough: the article must also name the destination, and
+        // must not be its airport or bus station.
+        if(NON_HERO_TITLE.test(c.title || '')) continue;
+        if(!titleNamesPlace(c.title, dest.name)) continue;
         if(!anchorLat){ anchorLat = c.lat; anchorLng = c.lng; }   // a vetted point inside the place
         if(!c.thumb) continue;                                    // right place, no usable photo
-        found = c.thumb; break;
+        found = c.thumb; tier = 'article'; break;
       }
       if(found) break;
     }
 
-    // The place is real but unphotographed: borrow a landmark beside it.
+    // The place is real but unphotographed: borrow a landmark that is genuinely INSIDE it.
+    // fetchNearbyPhoto searches a 10km circle, so anything tighter than that is enforced here
+    // against the landmark's own coordinates.
+    // For a state, province or country the geocoded centroid is an arbitrary point in a huge
+    // area, and no landmark near it reliably represents the whole: Victoria offered in turn a
+    // village hall, then a rural pub. Chasing that with more filename patterns is endless, so
+    // for those types a landmark must NAME the destination or it is not used at all. Compact
+    // places keep the nearest-landmark behaviour, where anything inside genuinely reads as
+    // the place — Santorini's caldera cableway, the Gotthard pass for the Swiss Alps.
     if(!found && (hasCoords || anchorLat)){
-      // Search around the article's own point when we have one: Patagonia's geocoded centroid
-      // is empty steppe, while its article sits 600km away somewhere with photographs.
-      for(const [la, ln] of [[anchorLat, anchorLng], [dest.lat, dest.lng]]){
+      // Requiring the landmark to name the destination does not work for these: Wikipedia
+      // titles every settlement in a state as "Town, State", so the name test always passes
+      // and a reservoir in "Kennington, Victoria" is served as the state of Victoria. There is
+      // no reliable signal here, so no landmark is used — the name card is the honest answer.
+      const noLandmark = new Set(['state','province','country']).has(dest.placeType);
+      for(const [la, ln] of (noLandmark ? [] : [[anchorLat, anchorLng], [dest.lat, dest.lng]])){
         if(la == null) continue;
-        const nearby = await fetchNearbyPhoto(la, ln);
-        if(nearby){ found = nearby; answered = true; break; }
+        const near = await fetchNearbyPhotoWithin(la, ln, destNearbyRadiusKm(dest.placeType),
+                                                  dest.name, dest.placeType);
+        if(near){ found = near; tier = 'landmark'; answered = true; break; }
       }
     }
-    // Last resort before giving up on photography entirely: the country itself. Reached only
-    // for somewhere with no picture of its own and nothing photographed within 10km — a vast
-    // sparsely-mapped region like Patagonia, whose centroid is empty steppe. Still a real
-    // photograph of a place the traveller is actually going to.
-    if(!found && dest.country){
-      const byCountry = await fetchWikiCandidates(dest.country, 3);
-      if(byCountry){
-        answered = true;
-        for(const c of byCountry){ if(c.thumb && c.lat != null){ found = c.thumb; break; } }
-      }
-    }
+    // No country fallback. A photograph of Madagascar is not a photograph of Nosy Be, and a
+    // beautiful image of the wrong place is worse than none: a destination with nothing
+    // verifiably its own gets the name card instead.
 
     if(found) cache[key] = found;
     else if(answered) cache[key] = { miss: Date.now() };
+    __destPhotoTier[key] = tier;
     if(found || answered) writeJSONCache(PHOTO_CACHE_KEY, cache);
     return found;
   });
