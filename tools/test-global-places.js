@@ -70,11 +70,24 @@ const CASES = [
 
 /* ---------------- geocoding (the same keyless source geo.js uses) ---------------- */
 
-async function geocode(query){
+/** Photon throttles a long run, and a throttled request looks identical to "this place does not
+ *  exist" unless you retry. Six destinations in the first full run reported as ungeocodable and
+ *  every one of them resolved first try on its own, so the failures were mine, not the data's. */
+async function geocodeOnce(query){
   const url = `https://photon.komoot.io/api?q=${encodeURIComponent(query)}&limit=8&lang=en`;
   const res = await fetch(url, {headers:{'Accept':'application/json'}});
   if(!res.ok) throw new Error('geocode http ' + res.status);
-  const json = await res.json();
+  return res.json();
+}
+
+async function geocode(query){
+  let json = null, lastErr = null;
+  for(let attempt = 0; attempt < 3; attempt++){
+    if(attempt) await new Promise(r => setTimeout(r, 1500 * attempt));
+    try{ json = await geocodeOnce(query); lastErr = null; break; }
+    catch(e){ lastErr = e; }
+  }
+  if(lastErr) throw lastErr;
   const PLACE_TYPES = new Set(['city','town','village','hamlet','state','region','county',
                                'country','island','municipality','locality','district','suburb']);
   const feats = (json.features || []).filter(f => {
@@ -106,19 +119,25 @@ function mark(ok, soft){
 }
 
 (async () => {
-  const only = process.env.ONLY ? process.env.ONLY.split(',').map(s=>s.trim().toLowerCase()) : null;
+  // Split on "|" — several destination names contain a comma ("Reine, Norway").
+  const only = process.env.ONLY ? process.env.ONLY.split('|').map(s=>s.trim().toLowerCase()) : null;
   const cases = only ? CASES.filter(c => only.includes(c.q.toLowerCase())) : CASES;
 
   console.log('\nquery                  geo   country            cur   eat   stay  bounds  notes');
   console.log('-'.repeat(96));
 
   for(const c of cases){
-    let dest = null;
-    try{ dest = await geocode(c.q); }catch(e){ /* reported below */ }
+    // Swallowing the reason here cost me an hour chasing a "could not geocode" that turned out
+    // to be a rate limit. Say what actually happened.
+    let dest = null, geoErr = '';
+    try{ dest = await geocode(c.q); }catch(e){ geoErr = e.message || String(e); }
 
     if(!dest || !hasVerifiedGeo(dest)){
       fail++;
-      console.log(`${c.q.padEnd(22)} FAIL  (could not geocode)`);
+      const why = geoErr ? geoErr
+        : !dest ? 'no result matched'
+        : `unverified: lat=${dest.lat} lng=${dest.lng}`;
+      console.log(`${c.q.padEnd(22)} FAIL  (geocode: ${why})`);
       continue;
     }
 
