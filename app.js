@@ -104,7 +104,23 @@ function catEmoji(type){ return {attraction:'📍',restaurant:'🍜',hotel:'🏨
  * lead photo for that exact place, whether it's a city, coastline, mountain range, island, or
  * small town, not a one-size-fits-all "skyline" shot; 2) the country, only if the destination's
  * own name comes up empty. */
-function destPhotoQuery(dest){ return [dest.name, dest.country].filter(Boolean).join('||'); }
+/** The chain of things to look a destination's photo up as, most specific first.
+ *  Now shaped by the structured geography from geo.js, so each kind of place is searched as
+ *  the thing it actually is: a national park by its full park name, a region qualified by its
+ *  country (there are many "Tuscany"s), a country by itself. The old version only ever tried
+ *  the bare name then the country, which for a park or a region often found the wrong thing
+ *  or nothing at all. */
+function destPhotoQuery(dest){
+  const type = dest.placeType || '';
+  const q = [dest.name];
+  if(type === 'national_park' && !/national park/i.test(dest.name)) q.push(`${dest.name} National Park`);
+  if(dest.country && dest.country !== dest.name) q.push(`${dest.name}, ${dest.country}`, `${dest.name} ${dest.country}`);
+  if(dest.region && dest.region !== dest.name) q.push(`${dest.name} ${dest.region}`);
+  if(dest.country) q.push(dest.country);
+  // De-duplicate while keeping order; the chain is tried top to bottom.
+  const seen = new Set();
+  return q.filter(Boolean).filter(x => { const k = x.toLowerCase(); if(seen.has(k)) return false; seen.add(k); return true; }).join('||');
+}
 /** A destination's best CURRENTLY KNOWN photo.
  * dest.hero is fixed at construction — a bundled photo for the curated twelve, a placeholder
  * for a typed-in city whose photo is only found later. Once that lookup has answered, every
@@ -549,14 +565,64 @@ function runGlobalSearch(q){
   html += placeGroup('Attractions', attrMatches);
   html += placeGroup('Restaurants', restMatches);
   html += placeGroup('Hotels', hotelMatches);
-  if(!html){
-    html = `<div class="empty" style="padding:26px">No matches. Press Enter to explore "${esc(q)}" as a destination.</div>`;
-  }
-  results.innerHTML = html;
+  // What is already in memory paints immediately; the worldwide lookup is merged in below
+  // when it answers, so the panel is never blocked on the network.
+  results.innerHTML = html || `<div class="empty" style="padding:22px">Searching the world for "${esc(q)}"…</div>`;
   hydratePhotos(results);
   wireGlobalSearchResults(results);
+  runGlobalPlaceSearch(q, html, results);
 }
+
+/** Merges worldwide destination results into the search panel.
+ *  Replaces the old dead end — "No matches. Press Enter to explore X" — which told the user
+ *  to do the app's job for it even when X was a major world city. */
+let __globalSearchToken = 0;
+let __globalSearchController = null;
+function runGlobalPlaceSearch(q, localHTML, results){
+  if(!q || q.trim().length < 2) return;
+  if(__globalSearchController) __globalSearchController.abort();
+  const controller = new AbortController();
+  __globalSearchController = controller;
+  const token = ++__globalSearchToken;
+
+  geoSearch(q, { signal: controller.signal, limit: 6 }).then(found => {
+    if(token !== __globalSearchToken || !results.isConnected) return;
+    const known = new Set(DESTINATIONS.filter(d => !d.id.startsWith('gen-')).map(d => d.name.toLowerCase()));
+    const fresh = found.filter(r => !known.has(r.name.toLowerCase()));
+    let html = localHTML;
+    if(fresh.length){
+      html += `<div class="gsearch-group">Destinations worldwide</div>`;
+      fresh.forEach((r, i) => {
+        __globalSearchResults[i] = r;
+        html += `<button class="gsearch-row" data-geo="${i}">
+          <div class="ic globeIc">${r.flag || '🌍'}</div>
+          <div><div>${esc(r.name)}</div><div class="small">${esc(r.context || r.country || '')}${r.typeLabel ? ` · ${esc(r.typeLabel)}` : ''}</div></div>
+        </button>`;
+      });
+    }
+    if(!html){
+      html = `<div class="empty" style="padding:26px">Nothing found for "${esc(q)}". Try a city, island, region or country.</div>`;
+    }
+    results.innerHTML = html;
+    hydratePhotos(results);
+    wireGlobalSearchResults(results);
+  }).catch(() => {
+    if(token !== __globalSearchToken || !results.isConnected) return;
+    if(!localHTML){
+      results.innerHTML = `<div class="empty" style="padding:22px">Couldn't reach the destination search. Press Enter to explore "${esc(q)}" anyway.</div>`;
+    }
+  });
+}
+const __globalSearchResults = [];
 function wireGlobalSearchResults(results){
+  results.querySelectorAll('[data-geo]').forEach(b=>b.onclick=()=>{
+    const geo = __globalSearchResults[parseInt(b.dataset.geo, 10)];
+    if(!geo) return;
+    const dest = findDestination(geo.name, geo);     // created with real coordinates and flag
+    recordSearch(geo.displayName || geo.name);
+    closeDropdowns();
+    navigate(`#/destination/${encodeURIComponent(dest.id)}`);
+  });
   results.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{ recordSearch($('globalSearchInput').value); closeDropdowns(); navigate(b.dataset.go); });
   results.querySelectorAll('[data-place]').forEach(b=>b.onclick=()=>{ recordSearch($('globalSearchInput').value); closeDropdowns(); openPlaceDetail(b.dataset.place); });
   results.querySelectorAll('[data-recent]').forEach(b=>b.onclick=()=>{ $('globalSearchInput').value = b.dataset.recent; runGlobalSearch(b.dataset.recent); });
@@ -976,7 +1042,7 @@ function wireDestCards(container){
 
 function initHero(){
   const auto = $('heroDestAuto');
-  $('heroDestination').addEventListener('input', debounce(e=>renderDestAuto(e.target.value, auto, (name)=>{ $('heroDestination').value=name; auto.classList.remove('show'); }), 120));
+  $('heroDestination').addEventListener('input', debounce(e=>renderDestAuto(e.target.value, auto, (name)=>{ $('heroDestination').value=name; auto.classList.remove('show'); }), 220));
   $('heroDestination').addEventListener('focus', e=>renderDestAuto(e.target.value, auto, (name)=>{ $('heroDestination').value=name; auto.classList.remove('show'); }));
   document.addEventListener('click', e=>{ if(!e.target.closest('.planbox-field')) auto.classList.remove('show'); });
 
@@ -1000,14 +1066,80 @@ function stashHeroParams(){
     travelers: parseInt($('heroTravelers').value)||2,
   };
 }
-function renderDestAuto(q, el, onPick){
-  q = (q||'').trim().toLowerCase();
-  if(!q){ el.classList.remove('show'); return; }
-  const matches = DESTINATIONS.filter(d=>!d.id.startsWith('gen-') && (d.name.toLowerCase().includes(q)||d.country.toLowerCase().includes(q))).slice(0,6);
-  if(!matches.length){ el.classList.remove('show'); return; }
-  el.innerHTML = matches.map(d=>`<button class="autolist-row" data-name="${esc(d.name+', '+d.country)}">${d.flag} ${esc(d.name)}, ${esc(d.country)}</button>`).join('');
+/* ---------------- destination autocomplete ----------------
+   Two tiers, rendered in two passes so typing never waits on the network:
+
+     1. The curated destinations match instantly from memory and paint on the first frame.
+     2. geo.js searches the whole world and merges in when it answers, typically 200-400ms.
+
+   The previous version only ever did step 1, which is why "Beijing" reported "No matches"
+   for a city of 22 million: it was not in the list of twelve. */
+
+/** Live global lookups, keyed per input element so two open autocompletes cannot fight. */
+const __destAutoState = new WeakMap();
+
+function destAutoRowHTML(item){
+  // A curated destination and a global search result render identically.
+  const sub = item.__curated ? esc(item.country) : esc(item.context || item.country || '');
+  const badge = item.__curated ? '' : `<span class="autoType">${esc(item.typeLabel || 'Place')}</span>`;
+  return `<button class="autolist-row" data-name="${esc(item.__pickName)}" data-geo="${esc(JSON.stringify(item.__geo || null))}">
+    <span class="autoFlag">${item.flag || '🌍'}</span>
+    <span class="autoText"><span class="autoName">${esc(item.name)}</span>${sub ? `<span class="autoSub">${sub}</span>` : ''}</span>
+    ${badge}
+  </button>`;
+}
+
+function destAutoPaint(el, items, onPick){
+  if(!items.length){ el.classList.remove('show'); el.innerHTML = ''; return; }
+  el.innerHTML = items.map(destAutoRowHTML).join('');
   el.classList.add('show');
-  el.querySelectorAll('[data-name]').forEach(b=>b.onclick=()=>onPick(b.dataset.name));
+  el.querySelectorAll('[data-name]').forEach(b => b.onclick = () => {
+    let geo = null;
+    try { geo = JSON.parse(b.dataset.geo || 'null'); } catch(e){}
+    // Selecting a global result creates the destination with its real coordinates, country
+    // and flag immediately, rather than leaving it to background enrichment.
+    if(geo) findDestination(geo.name, geo);
+    onPick(b.dataset.name, geo);
+  });
+}
+
+function renderDestAuto(q, el, onPick){
+  const raw = (q || '').trim();
+  const state = __destAutoState.get(el) || {};
+  __destAutoState.set(el, state);
+  if(state.controller){ state.controller.abort(); state.controller = null; }
+  if(!raw){ el.classList.remove('show'); return; }
+
+  const lower = raw.toLowerCase();
+  const curated = DESTINATIONS
+    .filter(d => !d.id.startsWith('gen-') &&
+                 (d.name.toLowerCase().includes(lower) || d.country.toLowerCase().includes(lower)))
+    .slice(0, 4)
+    .map(d => Object.assign({}, d, { __curated:true, __pickName: `${d.name}, ${d.country}` }));
+
+  destAutoPaint(el, curated, onPick);          // instant, from memory
+
+  if(raw.length < 2) return;
+  const token = (state.token || 0) + 1;
+  state.token = token;
+  const controller = new AbortController();
+  state.controller = controller;
+
+  geoSearch(raw, { signal: controller.signal, limit: 8 }).then(results => {
+    // A slower earlier request must never overwrite a newer one's answer.
+    if(state.token !== token || !el.isConnected) return;
+    const seen = new Set(curated.map(d => d.name.toLowerCase()));
+    const global = results
+      .filter(r => !seen.has(r.name.toLowerCase()))
+      .map(r => Object.assign({}, r, {
+        __curated:false,
+        __geo:r,
+        __pickName: r.country ? `${r.name}, ${r.country}` : r.name,
+      }));
+    destAutoPaint(el, curated.concat(global).slice(0, 8), onPick);
+  }).catch(() => {
+    // Offline or blocked: the curated matches already on screen stay as they are.
+  });
 }
 
 /* ============================================================
@@ -2131,7 +2263,7 @@ function initCustomizeModal(){
 ============================================================ */
 function renderIdeasView(destIdParam){
   const auto = $('ideasDestAuto');
-  $('ideasDestInput').oninput = debounce(e=>renderDestAuto(e.target.value, auto, name=>{ $('ideasDestInput').value=name; auto.classList.remove('show'); }),120);
+  $('ideasDestInput').oninput = debounce(e=>renderDestAuto(e.target.value, auto, name=>{ $('ideasDestInput').value=name; auto.classList.remove('show'); }),220);
   $('ideasGenBtn').onclick = ()=>{
     const name = $('ideasDestInput').value.trim();
     if(!name){ toast('Type a destination first.'); return; }
@@ -2235,7 +2367,7 @@ function openNewTripModal(){
 }
 function initNewTripModal(){
   const auto = $('newTripDestAuto');
-  $('newTripDest').addEventListener('input', debounce(e=>renderDestAuto(e.target.value, auto, name=>{ $('newTripDest').value=name; auto.classList.remove('show'); }),120));
+  $('newTripDest').addEventListener('input', debounce(e=>renderDestAuto(e.target.value, auto, name=>{ $('newTripDest').value=name; auto.classList.remove('show'); }),220));
   $('createTripBtn').onclick = ()=>{
     const name = $('newTripDest').value.trim();
     if(!name){ toast('Enter a destination.'); return; }

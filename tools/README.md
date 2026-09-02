@@ -16,6 +16,7 @@ is what serves the *worldwide* destinations a visitor types in, not the built-in
 | `audit-duplicates.js` | Walks every destination's tabs and reports any image rendered more than once, comparing by file content rather than by name. |
 | `test-assistant.js` | Drives the real assistant in the page over ~35 realistic phrasings and prints each answer. |
 | `test-assistant-stress.js` | Feeds it empty, malformed, hostile and absurd input; fails on any throw, empty reply or page error. |
+| `test-geo-search.js` | Replays real recorded Photon/Wikipedia payloads (`geo-fixtures.json`) through the shipped `geo.js` and checks each test destination resolves with correct country, type and coordinates. |
 
 ## How a photo is chosen
 
@@ -72,6 +73,36 @@ collections shows its own hero each time. Handing repeat appearances an arbitrar
 landmark did dedupe the page, but it put a satellite image of the caldera on Santorini's
 Beach card and the Catacombs on Paris's food card. A destination card has to sell the
 destination, so the best photo repeats rather than a worse one being substituted.
+
+## Global destination search
+
+`geo.js` looks destinations up live; nothing about them is stored in the repo. Two keyless,
+CORS-enabled providers:
+
+1. **Photon** (`photon.komoot.io`) — an OSM geocoder built for type-ahead. With `lang=en` it
+   returns English names ("Beijing", not "北京市") and structured place data. This answers
+   almost everything.
+2. **Wikipedia search** — for what Photon cannot do. Loose tourist regions are often absent
+   from OSM as searchable places ("Amalfi Coast" returns a footpath in Australia), and
+   abbreviations are not geocoder input ("NYC"). Wikipedia's answer is fed *back* through
+   Photon, so the result still carries full structured data.
+
+Nominatim is deliberately unused: its usage policy forbids autocomplete, and it refused these
+queries outright when tested.
+
+Two things were tuned by testing against real payloads, and both are worth keeping:
+
+- **Provider order dominates the ranking.** Re-ranking on the typed string put *Roma, Texas*
+  (population 11,000) above Rome, because "Roma" matches letter-for-letter and "Rome" does
+  not. Photon already ranks by prominence, which is most of what "travel relevance" means, so
+  type weight and a small string bonus adjust its order rather than replacing it.
+- **A prefix match is not automatically a hit.** "NYC" matched *Nychyporivka*, a Ukrainian
+  village starting with those three letters, which suppressed the fallback that finds New York
+  City. A prefix now only counts when the result is not wildly longer than the query.
+
+Type filtering is what keeps a railway station out of "Beijing" and hospitals out of "NYC":
+only place kinds in `GEO_TYPE_RANK` can appear. Country flags are computed from the ISO 3166
+alpha-2 code via regional indicator symbols — no table to maintain.
 
 ## Honesty rules
 

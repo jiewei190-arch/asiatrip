@@ -663,3 +663,13 @@ input:checked+.slider:before{transform:translateX(18px)}
 .keyRow input{width:100%;border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-size:13px;background:var(--surface);outline:0}
 .keyRow input:focus{border-color:var(--green)}
 .keyWhere{margin:6px 0 0;color:var(--muted)}
+
+/* ---- global destination autocomplete rows ---- */
+.autolist-row{display:flex;align-items:center;gap:10px;width:100%}
+.autoFlag{font-size:17px;line-height:1;flex-shrink:0}
+.autoText{display:flex;flex-direction:column;min-width:0;flex:1;text-align:left}
+.autoName{font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.autoSub{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.autoType{flex-shrink:0;font-size:10px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;
+  color:var(--muted);background:var(--soft);border-radius:99px;padding:3px 7px}
+.gsearch-row .globeIc{display:flex;align-items:center;justify-content:center;font-size:19px}

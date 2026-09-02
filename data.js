@@ -1270,31 +1270,79 @@ const GENERIC_DEST_NAME_CACHE_KEY = 'tripflow_generic_dest_names_v1';
  * curated list. Without this, resolving a URL like #/destination/gen-beijing after a reload (very
  * common on mobile Safari, which reloads backgrounded tabs) would have nothing to recover the
  * original typed name from, and would wrongly treat the raw id/slug itself as the destination name. */
-function rememberGenericDestName(id, name){
+function rememberGenericDestName(id, name, geo){
   const cache = readJSONCache(GENERIC_DEST_NAME_CACHE_KEY);
-  cache[id] = name;
+  // Stored as an object so a reload recovers the real coordinates and country too; the old
+  // format was a bare string, which is still read below for anything cached before this.
+  cache[id] = geo ? { name, geo } : { name };
   writeJSONCache(GENERIC_DEST_NAME_CACHE_KEY, cache);
 }
 function recallGenericDestName(id){
-  const cache = readJSONCache(GENERIC_DEST_NAME_CACHE_KEY);
-  return cache[id] || null;
+  const hit = readJSONCache(GENERIC_DEST_NAME_CACHE_KEY)[id];
+  if(!hit) return null;
+  return typeof hit === 'string' ? hit : hit.name;      // tolerate the pre-v2 bare-string form
 }
-function makeGenericDestination(name){
-  const clean = titleCaseDestName(name.split(',')[0].trim() || name.trim());
+function recallGenericDestGeo(id){
+  const hit = readJSONCache(GENERIC_DEST_NAME_CACHE_KEY)[id];
+  return (hit && typeof hit === 'object' && hit.geo) ? hit.geo : null;
+}
+/** Upgrades a destination that was created before its real geography was known. */
+function applyGeoToDestination(dest, geo){
+  if(!dest || !geo) return dest;
+  if(geo.lat != null && geo.lng != null){ dest.lat = geo.lat; dest.lng = geo.lng; }
+  if(geo.country){
+    dest.country = geo.country;
+    dest.currencyCode = currencyCodeForCountry(geo.country);
+    dest.currency = `Local currency (${dest.currencyCode})`;
+  }
+  if(geo.countryCode) dest.countryCode = geo.countryCode;
+  if(geo.flag) dest.flag = geo.flag;
+  if(geo.region) dest.region = geo.region;
+  if(geo.type) dest.placeType = geo.type;
+  if(geo.displayName) dest.displayName = geo.displayName;
+  dest.__geo = true;
+  return dest;
+}
+/** Builds a destination for anywhere on Earth.
+ *
+ * `geo` is the structured result from geo.js (name, country, countryCode, coordinates, type).
+ * When it is present the destination starts life with its REAL position, country and flag.
+ * Without it the coordinates were seeded from a hash of the name — a deterministic point
+ * somewhere random on the globe — so the map pointed at open ocean until the background
+ * enrichment happened to fix it. That fallback still exists for a bare typed string, but a
+ * destination chosen from search no longer goes through it. */
+function makeGenericDestination(name, geo){
+  const clean = titleCaseDestName((geo && geo.name) || name.split(',')[0].trim() || name.trim());
   const id = 'gen-'+slugify(clean); // derive the id from the cleaned name (not the raw ", Country" text) so recovering a
   const existing = DESTINATIONS.find(d=>d.id===id);            // remembered name after a reload always reproduces the same id
-  if(existing) return existing;
-  rememberGenericDestName(id, clean);
+  if(existing){
+    if(geo && !existing.__geo) applyGeoToDestination(existing, geo);
+    return existing;
+  }
+  rememberGenericDestName(id, clean, geo);
   const rnd = seededRandom(id);
-  const base = { lat: 20 + (rnd()*40-20), lng: (rnd()*340-170) };
+  const base = (geo && geo.lat != null && geo.lng != null)
+    ? { lat: geo.lat, lng: geo.lng }
+    : { lat: 20 + (rnd()*40-20), lng: (rnd()*340-170) };
   const dest = {
-    id, name:clean, country:'', flag:'🌍',
-    tagline:`Discover ${clean} — attractions, food and stays curated for your trip.`,
+    id, name:clean,
+    country: (geo && geo.country) || '',
+    countryCode: (geo && geo.countryCode) || '',
+    region: (geo && geo.region) || '',
+    placeType: (geo && geo.type) || '',
+    displayName: (geo && geo.displayName) || clean,
+    __geo: !!geo,
+    flag: (geo && geo.flag) || '🌍',
+    tagline: (geo && geo.context)
+      ? `${geo.typeLabel || 'Destination'} in ${geo.context} — attractions, food and stays for your trip.`
+      : `Discover ${clean} — attractions, food and stays curated for your trip.`,
     description:`${clean} is ready to explore. We've put together a starter set of top-rated attractions, restaurants and places to stay while you fine-tune your plan.`,
     tags:['trending'], lat:base.lat, lng:base.lng,
     weather:"Check seasonal averages closer to your travel dates.",
     bestTime:"Year-round — varies by season",
-    currency:"Local currency", currencyCode:'USD', language:"Local language",
+    currency: (geo && geo.country) ? `Local currency (${currencyCodeForCountry(geo.country)})` : "Local currency",
+    currencyCode: (geo && geo.country) ? currencyCodeForCountry(geo.country) : 'USD',
+    language:"Local language",
     avgDailyBudget:{budget:50,moderate:120,luxury:280},
     travelInfo:{ recommendedDays:'3–5 days', timezone:"Check your device's clock once you arrive",
       visa:"Entry requirements vary by nationality — check your country's foreign ministry site before you go.",
@@ -1318,7 +1366,9 @@ function makeGenericDestination(name){
   return dest;
 }
 
-function findDestination(query){
+/** Resolves a typed string to a destination. `geo` is the structured search result when the
+ *  user picked a suggestion, which is what lets a brand-new destination arrive complete. */
+function findDestination(query, geo){
   if(!query) return null;
   const q = query.trim().toLowerCase();
   if(!q) return null;
@@ -1326,7 +1376,7 @@ function findDestination(query){
   if(d) return d;
   d = DESTINATIONS.find(x=> x.name.toLowerCase().includes(q) || q.includes(x.name.toLowerCase()) || x.country.toLowerCase().includes(q));
   if(d) return d;
-  return makeGenericDestination(query);
+  return makeGenericDestination(query, geo);
 }
 
 /** Resolve a destination strictly by its stable id (from a URL hash, a saved trip, etc.) —
@@ -1341,7 +1391,9 @@ function resolveDestFromId(id){
   if(d) return d;
   if(id.indexOf('gen-')===0){
     const remembered = recallGenericDestName(id);
-    if(remembered) return makeGenericDestination(remembered);
+    // Restore the remembered geography too, so a reloaded destination keeps its real
+    // coordinates and flag instead of falling back to the hash-seeded placeholder position.
+    if(remembered) return makeGenericDestination(remembered, recallGenericDestGeo(id));
     // last resort: de-slugify so we at least show a readable name instead of the raw id
     return makeGenericDestination(id.slice(4).replace(/-/g,' '));
   }
