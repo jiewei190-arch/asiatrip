@@ -283,3 +283,34 @@ node tools/audit-images.js                           # verify in a real browser
 `import-images.py` reads its target list from `$TRIPFLOW_WORK/manifest.json` (default
 `tools/.work/`). `audit-images.js` needs a static server on `127.0.0.1:8099` and Playwright;
 set `CHROMIUM_PATH` if Chromium is not in Playwright's default location.
+
+## Phase 2: real places, real maps, real money
+
+`test-geo-integrity.js` — the regression guard for the Seoul-to-Spain bug. It reproduces the old
+`20 + rnd()*40-20` formula, asserts it landed in Andalusia, and asserts the code that produced it
+is gone. Also covers the three-layer containment test (country code, boundary box, radius), which
+exists because no single one works at every scale: a radius around Japan's centroid exiles
+Okinawa, and Japan's boundary box contains Seoul.
+
+`test-places-ui.js` — drives the real destination UI in a headless browser using live captures in
+`places-fixtures.json`, because the browser here has no outbound network. Proves a verified
+destination gets its real coordinates, an unverified one draws no map at all, discovered
+restaurants render with real names, and none of the old invented names or ratings can reappear.
+Needs Playwright on NODE_PATH.
+
+`test-global-places.js` — hits the real services for a spread of destination types worldwide and
+checks geocoding, country, currency, discovery and containment together. Not mocked, so a failure
+here is something a traveller would have seen. The public Overpass mirrors throttle, so a lone
+EMPTY row is worth re-running before believing it.
+
+`build-currency-data.py` — regenerates `currency-data.js` (245 countries, 152 currencies) from the
+ISO country-codes dataset. Rates are fetched live; the catalogue is bundled.
+
+### Two things worth knowing about Overpass
+
+It reports a query timeout as **HTTP 200 with an empty element list and a `remark` field**. Taken
+at face value that reads as "this city has no hotels", which is exactly how Seoul's Stays tab came
+back empty. `overpassQuery` checks for the remark.
+
+Including relations (`nwr` rather than `nw`) took the Seoul hotel query from 16 seconds to a
+timeout at 82. Almost nothing in these categories is mapped as a relation, so the queries use `nw`.
