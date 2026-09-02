@@ -170,6 +170,19 @@ earlier — it requires an API key with billing enabled, and this app was explic
 need no key from anyone. Photon/OSM provides the same guarantees keylessly: a stable canonical
 id, verified coordinates, and a country that comes from the same record as the name.
 
+## Countries: the Wikivoyage banner
+
+Countries resolved to nothing for a long time, and the reason is worth recording: most
+countries' Wikidata P18 is a satellite photograph or a relief map — Japan's is "Satellite
+image of Japan", Brazil's "Brazil topo.jpg", Australia's "Australia satellite plane.jpg".
+The filters were right to reject them; there was simply nothing else being tried.
+
+Wikidata P948 is the Wikivoyage banner: an image editors chose to represent the place **to
+travellers**. It is exactly the right property for a destination hero and is preferred over
+P18 for destinations, while named entities still take P18 first (there it is a photograph of
+the thing itself). Countries went from 2/6 to 6/6 — Egypt returns camels and pyramids, Japan
+lanterns, Italy Florence, Australia Uluru at sunset.
+
 ## Destination imagery vs entity imagery
 
 These need opposite things, and conflating them regresses both.

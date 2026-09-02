@@ -82,6 +82,7 @@ const IMAGE_CONFIDENCE = {
   osm_image: 100,        // the entity's own photo, tagged on the entity itself
   osm_commons: 95,
   wikidata_p18: 90,
+  wikivoyage_banner: 88,   // an image editors chose to represent the place to travellers
   osm_wikipedia: 85,
   wikipedia_verified: 70,  // article matched by name AND coordinates
   landmark_inside: 45,     // a real photo of somewhere inside the destination
@@ -107,16 +108,33 @@ async function commonsFileThumb(fileName, width){
   return null;
 }
 
-/** Wikidata P18 ("image") for an entity id such as Q243. */
-async function wikidataImage(qid, width){
+/** A representative photograph for a Wikidata entity, best property first.
+ *
+ *  P948 is the Wikivoyage banner — an image editors chose to represent this place TO
+ *  TRAVELLERS — and it is far better suited here than P18, which for most countries is a
+ *  satellite photograph or a relief map: Japan's P18 is "Satellite image of Japan", Brazil's
+ *  is "Brazil topo.jpg", Australia's is "Australia satellite plane.jpg". Those are correctly
+ *  rejected as non-photographs, which left countries with nothing until P948 was tried.
+ *  P18 still comes first for a named entity, where it is a photograph of the thing itself. */
+async function wikidataImage(qid, width, opts){
   if(!/^Q\d+$/i.test(String(qid || ''))) return null;
+  const o = opts || {};
+  const props = o.preferBanner ? ['P948', 'P18'] : ['P18', 'P948'];
   const url = `${WIKIDATA_API}?action=wbgetclaims&entity=${encodeURIComponent(qid)}` +
-    `&property=P18&format=json&origin=*`;
+    `&format=json&origin=*`;
   const data = await fetchWikiJSON(url);
-  const claims = data && data.claims && data.claims.P18;
-  if(!claims || !claims.length) return null;
-  const file = ((claims[0].mainsnak || {}).datavalue || {}).value;
-  return file ? commonsFileThumb(file, width) : null;
+  const claims = (data && data.claims) || {};
+  for(const prop of props){
+    const c = claims[prop];
+    if(!c || !c.length) continue;
+    const file = ((c[0].mainsnak || {}).datavalue || {}).value;
+    if(!file) continue;
+    const thumb = await commonsFileThumb(file, width);
+    if(thumb && looksLikePhoto(thumb) && isTravelAppropriate(thumb)){
+      return o.withProp ? { url: thumb, prop } : thumb;
+    }
+  }
+  return null;
 }
 
 /* ---------------- Commons geosearch: photographs AT the entity ----------------
@@ -307,8 +325,8 @@ async function destinationWikidataImage(entity, width){
     const c = (p.coordinates || [])[0];
     if(c && entity.lat != null &&
        kmBetween(entity.lat, entity.lng, c.lat, c.lon) > destPhotoRadiusKm(entity.placeType)) continue;
-    const img = await wikidataImage(qid, width);
-    if(img && looksLikePhoto(img) && isTravelAppropriate(img)) return img;
+    const img = await wikidataImage(qid, width, { preferBanner: true, withProp: true });
+    if(img) return img;
   }
   return null;
 }
@@ -376,7 +394,10 @@ async function resolveEntityImage(entity, opts){
   if(!result && isDestination){
     try {
       const img = await destinationWikidataImage(entity, o.width || 720);
-      if(img) result = { url: img, source: 'wikidata_p18', confidence: IMAGE_CONFIDENCE.wikidata_p18 };
+      if(img){
+        const source = img.prop === 'P948' ? 'wikivoyage_banner' : 'wikidata_p18';
+        result = { url: img.url, source, confidence: IMAGE_CONFIDENCE[source] };
+      }
     } catch(err){ if(err.name === 'AbortError') throw err; }
   }
 
