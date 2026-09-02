@@ -33,10 +33,17 @@
    is never on the render path: cards paint immediately and upgrade if a better image arrives.
 ============================================================ */
 
-const OVERPASS_ENDPOINTS = [
-  'https://overpass.kumi.systems/api/interpreter',   // fastest and most reliable in testing
-  'https://overpass-api.de/api/interpreter',
-];
+/* places.js owns the canonical mirror list and loads first. Declaring `const OVERPASS_ENDPOINTS`
+ * a second time in the same global scope is a fatal SyntaxError that takes the whole page down,
+ * which is exactly what happened. Reuse it when it is there, and keep a local copy so imagery.js
+ * still works when a test loads it on its own. */
+const IMAGERY_OVERPASS_ENDPOINTS = (typeof OVERPASS_ENDPOINTS !== 'undefined' && OVERPASS_ENDPOINTS.length)
+  ? OVERPASS_ENDPOINTS
+  : [
+      'https://overpass.private.coffee/api/interpreter',
+      'https://overpass.kumi.systems/api/interpreter',
+      'https://overpass-api.de/api/interpreter',
+    ];
 const IMAGERY_CACHE_KEY = 'tripflow_entity_image_v1';
 const IMAGERY_TTL_MS = 30 * 24 * 3600 * 1000;
 const IMAGERY_CACHE_MAX = 500;
@@ -220,7 +227,7 @@ async function overpassEntityTags(entity, opts){
   // Overpass is community-run and defends itself: overpass-api.de answers 406 without a
   // proper Accept header, and every mirror returns 429 under load. Both are expected rather
   // than exceptional, so each mirror gets one patient retry before moving on.
-  for(const ep of OVERPASS_ENDPOINTS){
+  for(const ep of IMAGERY_OVERPASS_ENDPOINTS){
     let data = null;
     for(let attempt = 0; attempt < 2 && !data; attempt++){
       try {

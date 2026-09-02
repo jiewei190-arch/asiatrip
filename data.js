@@ -685,37 +685,25 @@ const CURRENCY_META = {
   BGN:{symbol:'лв',name:'Bulgarian Lev'},
 };
 const FX_CACHE_KEY = 'tripflow_fx_cache_v1';
-// Approximate fallback rates, used ONLY when the live rate fetch fails (offline, blocked,
-// timeout) so the converter still works instead of going fully dark — clearly marked as
-// approximate (not "live") wherever they're shown, and replaced the moment a live fetch succeeds.
-const FALLBACK_EXCHANGE_RATES = {
-  EUR:0.92, GBP:0.79, JPY:149.5, CAD:1.37, AUD:1.52, CNY:7.1, INR:83.4, THB:35.8, MXN:18.2,
-  BRL:5.4, CHF:0.88, KRW:1330, IDR:15700, ZAR:18.9, NZD:1.64, SGD:1.34, HKD:7.82, ISK:138.5,
-  ILS:3.7, MYR:4.7, PHP:56.2, TRY:34.1, PLN:4.0, CZK:23.4, HUF:365, NOK:10.6, SEK:10.4, DKK:6.86,
-  RON:4.58, BGN:1.8,
-};
+/* Exchange rates live in currency.js now.
+ *
+ * What used to be here: a table of ~30 rates hardcoded into the source, used whenever the live
+ * fetch failed. They were wrong the day after they were written and got worse every day after
+ * that, and a stale rate shown to someone budgeting a trip is a wrong number presented as a
+ * fact. The spec's rule — no guessing, no outdated static rates — is right, so the table is
+ * gone. currency.js caches real rates for 12 hours, falls back to an older cached rate clearly
+ * marked stale, and otherwise says plainly that no rate is available. */
 let EXCHANGE_RATES = {USD:1};
 let EXCHANGE_RATES_ARE_LIVE = false;
 async function loadExchangeRates(){
   try{
-    const cached = JSON.parse(localStorage.getItem(FX_CACHE_KEY) || 'null');
-    if(cached && cached.rates && (Date.now() - cached.ts) < 12*3600*1000){ EXCHANGE_RATES = cached.rates; EXCHANGE_RATES_ARE_LIVE = true; return true; }
-  }catch(e){}
-  try{
-    const symbols = Object.keys(CURRENCY_META).filter(c=>c!=='USD').join(',');
-    const res = await fetchWithTimeout(`https://api.frankfurter.app/latest?from=USD&to=${symbols}`, 8000);
-    if(res && res.ok){
-      const data = await res.json();
-      if(data && data.rates){
-        EXCHANGE_RATES = Object.assign({USD:1}, data.rates);
-        EXCHANGE_RATES_ARE_LIVE = true;
-        writeJSONCache(FX_CACHE_KEY, {ts:Date.now(), rates:EXCHANGE_RATES});
-        return true;
-      }
+    const box = await getRates('USD');
+    if(box && box.rates){
+      EXCHANGE_RATES = Object.assign({USD:1}, box.rates);
+      EXCHANGE_RATES_ARE_LIVE = !box.stale;
+      return !box.stale;
     }
-  }catch(e){}
-  // Live fetch failed — fall back to approximate rates so the converter still functions.
-  if(!EXCHANGE_RATES_ARE_LIVE) EXCHANGE_RATES = Object.assign({USD:1}, FALLBACK_EXCHANGE_RATES);
+  }catch(e){ /* reported by the caller as "rates unavailable" */ }
   return false;
 }
 function convertUSD(amountUSD, toCurrency){

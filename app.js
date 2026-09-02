@@ -699,8 +699,20 @@ function openSettings(){
   $('themeToggle').checked = STATE.theme==='dark';
   openModal('modal-settings');
 }
+/** Every ISO 4217 currency, named and symbolled from Intl, with the destinations that use it in
+ *  the label so typing a country name finds the currency. The old list held 31 entries, which is
+ *  why anywhere outside western Europe and east Asia had no option to pick. */
 function populateCurrencyOptions(select){
-  select.innerHTML = Object.entries(CURRENCY_META).map(([code,m])=>`<option value="${code}">${code} — ${esc(m.name)} (${m.symbol})</option>`).join('');
+  if(!select) return;
+  const rows = (typeof searchCurrencies === 'function')
+    ? searchCurrencies('')
+    : Object.keys(CURRENCY_META).map(code=>({code, name:(CURRENCY_META[code]||{}).name||code, countries:[]}));
+  select.innerHTML = rows.map(r=>{
+    const sym = (typeof currencySymbol === 'function') ? currencySymbol(r.code) : '';
+    const where = r.countries && r.countries.length
+      ? ' · ' + r.countries.slice(0,3).join(', ') + (r.countries.length>3 ? '…' : '') : '';
+    return `<option value="${r.code}">${r.code} — ${esc(r.name)}${sym && sym!==r.code ? ' ('+esc(sym)+')' : ''}${esc(where)}</option>`;
+  }).join('');
 }
 /** Which build is this browser actually running? Surfaced because a stale cached bundle looks
  * identical to a current one — the page loads fine, it's just old — and that is exactly how
@@ -1398,19 +1410,29 @@ function initCurrencyConverter(dest){
     if(!$('convAmount')) return;
     const amount = Number($('convAmount').value) || 0;
     const from = $('convFrom').value, to = $('convTo').value;
-    const rateFrom = EXCHANGE_RATES[from], rateTo = EXCHANGE_RATES[to];
-    if(typeof rateFrom !== 'number' || typeof rateTo !== 'number'){
+    // Each keystroke starts a conversion; only the newest one is allowed to write the result,
+    // so a slow response cannot overwrite a newer amount.
+    const seq = (window.__convSeq = (window.__convSeq || 0) + 1);
+    $('convResult').textContent = '…';
+    convertCurrency(amount, from, to).then(r => {
+      if(seq !== window.__convSeq || !$('convResult')) return;
+      if(!r){
+        // A real gap in the data, not a glitch, and not something to paper over with a guess.
+        $('convResult').textContent = `No published rate for ${from} → ${to}.`;
+        $('convRateNote').textContent = 'Rates come from live providers; this pair is not covered by either.';
+        return;
+      }
+      $('convResult').textContent = `${formatMoney(amount, from)} = ${formatMoney(r.amount, to)}`;
+      const when = r.asOf ? new Date(r.asOf).toLocaleDateString(undefined, {year:'numeric', month:'short', day:'numeric'}) : '';
+      $('convRateNote').textContent =
+        `1 ${from} = ${r.rate.toLocaleString(undefined,{maximumFractionDigits:6})} ${to}` +
+        (when ? ` · as of ${when}` : '') +
+        (r.stale ? ' · cached rate, may be out of date' : '');
+    }).catch(()=>{
+      if(seq !== window.__convSeq || !$('convResult')) return;
       $('convResult').textContent = 'Rates unavailable — check your connection.';
       $('convRateNote').textContent = '';
-      return;
-    }
-    const usd = amount / rateFrom;
-    const converted = usd * rateTo;
-    const fromMeta = CURRENCY_META[from] || CURRENCY_META.USD, toMeta = CURRENCY_META[to] || CURRENCY_META.USD;
-    $('convResult').textContent = `${fromMeta.symbol}${amount.toLocaleString()} = ${toMeta.symbol}${converted.toLocaleString(undefined,{maximumFractionDigits: converted>=100?0:2})}`;
-    const rate = rateTo / rateFrom;
-    const rateSource = EXCHANGE_RATES_ARE_LIVE ? 'live rates, updated daily' : 'approximate rates — reconnect for live rates';
-    $('convRateNote').textContent = `1 ${from} = ${rate.toLocaleString(undefined,{maximumFractionDigits:4})} ${to} · ${rateSource}`;
+    });
   }
   $('convAmount').oninput = update;
   $('convFrom').onchange = update;
