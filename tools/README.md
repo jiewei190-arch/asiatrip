@@ -170,6 +170,27 @@ earlier — it requires an API key with billing enabled, and this app was explic
 need no key from anyone. Photon/OSM provides the same guarantees keylessly: a stable canonical
 id, verified coordinates, and a country that comes from the same record as the name.
 
+## Entity imagery (Phase 2)
+
+`imagery.js` is the one resolver. Overpass was the intended entity source and proved
+unusable here — slow (tens of seconds), 406 without an `Accept` header, and 429 under any
+load. **Wikimedia Commons geosearch replaced it and is better**: Commons geotags its media,
+so asking "what photographs were taken at these coordinates?" returns pictures of the thing
+standing there, over infrastructure that answers reliably.
+
+Containing the entity's name is not enough, and the two ways that fails are both common:
+
+| File title | Why it is wrong | Handling |
+|---|---|---|
+| `Rainbow Bridge from Tokyo Tower` | taken FROM the entity, of something else | rejected outright |
+| `Infant and Skull, Medieval, Louvre` | an object INSIDE it, not the place | rejected — another subject is named first |
+| `Louvre - panoramio (11)` | the entity leads the title | accepted at 92 |
+| `Detail of Tokyo Tower 2011` | short qualifier, still of the entity | accepted at 80 |
+
+Position carries the signal: a photograph OF something names it first. Verified on nine real
+landmarks and hotels — Eiffel Tower, Colosseum, Sagrada Família, Louvre, Sensō-ji, Shibuya
+Sky, Tokyo Tower, Marina Bay Sands — all now depict their entity.
+
 ## Image accuracy
 
 Coverage and accuracy are different questions, and only the second one matters to a traveller.

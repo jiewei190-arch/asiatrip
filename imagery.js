@@ -77,6 +77,8 @@ function imageryCacheSet(entity, value){
    A number the caller can threshold on, so "we are sure" and "this is a stand-in" are
    distinguishable rather than both being "an image". */
 const IMAGE_CONFIDENCE = {
+  commons_named: 92,     // a Commons photo whose own title names the entity
+  commons_nearby: 55,    // geotagged at the entity but not titled for it
   osm_image: 100,        // the entity's own photo, tagged on the entity itself
   osm_commons: 95,
   wikidata_p18: 90,
@@ -115,6 +117,68 @@ async function wikidataImage(qid, width){
   if(!claims || !claims.length) return null;
   const file = ((claims[0].mainsnak || {}).datavalue || {}).value;
   return file ? commonsFileThumb(file, width) : null;
+}
+
+/* ---------------- Commons geosearch: photographs AT the entity ----------------
+   Wikimedia Commons geotags its media, so asking "what photographs were taken here?" returns
+   pictures of the thing standing at those coordinates. This turned out to be the strongest
+   entity-specific source available without a key — Marina Bay Sands returns
+   "Marina Bay Sands infinity pool.JPG", Sensō-ji returns "浅草寺2 Senso-ji" — and unlike
+   Overpass it runs on Wikimedia infrastructure that answers reliably.
+
+   A photograph merely taken nearby is not proof it is OF the entity, so a file whose own
+   title names the entity scores far higher than one that just shares its coordinates. */
+/** How strongly does a Commons file title claim to DEPICT this entity?
+ *
+ *  Containing the name is not enough, and the two ways that fails are both common:
+ *    "Rainbow Bridge from Tokyo Tower"        — taken FROM the entity, of something else
+ *    "Infant and Skull, Medieval, Louvre"     — an object INSIDE it, not the place
+ *  Both would pass a naive substring test and put the wrong picture on the card. Position
+ *  carries the signal: a photograph OF something names it first. */
+function commonsTitleScore(title, want){
+  if(!want) return 40;                                   // no name to test against
+  const t = String(title).replace(/\.[a-z0-9]+$/i, '').replace(/[_]+/g, ' ').trim();
+  const lt = t.toLowerCase(), lw = String(want).toLowerCase();
+  const at = lt.indexOf(lw);
+  if(at < 0) return titleNamesPlace(t, want) ? 60 : 40;   // geotagged here, not named
+
+  // "<something> from <entity>" and "view from <entity>" are pictures of the view, not of it.
+  if(new RegExp(`\\b(from|seen from|view from|taken from)\\s+(the\\s+)?${lw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}`).test(lt)) return 0;
+
+  // Leading position means the file is about the entity. Anything before it is another
+  // subject, and the more that comes first the less likely the entity is what is pictured.
+  const before = t.slice(0, at).replace(/^(the|a|an)\s+/i, '').trim();
+  if(!before) return 92;
+  const commas = (before.match(/,/g) || []).length;
+  if(commas >= 1) return 0;                              // "Infant and Skull, Medieval, Louvre"
+  return before.split(/\s+/).length <= 2 ? 80 : 55;      // "Interior of Louvre" is still fine
+}
+
+async function commonsGeoPhoto(entity, opts){
+  const o = opts || {};
+  if(entity.lat == null || entity.lng == null) return null;
+  const radius = o.radius || 300;
+  const url = `${COMMONS_API}?action=query&format=json&origin=*` +
+    `&generator=geosearch&ggsnamespace=6&ggsradius=${radius}` +
+    `&ggscoord=${entity.lat}%7C${entity.lng}&ggslimit=30` +
+    `&prop=imageinfo&iiprop=url&iiurlwidth=${o.width || 720}`;
+  const data = await fetchWikiJSON(url);
+  if(!data) return null;
+
+  const want = String(entity.name || '');
+  let best = null;
+  for(const p of Object.values((data.query && data.query.pages) || {})){
+    const info = (p.imageinfo || [])[0];
+    const thumb = info && info.thumburl;
+    if(!thumb || !looksLikePhoto(thumb)) continue;
+    const title = String(p.title || '').replace(/^File:/i, '');
+    if(!isTravelAppropriate(title) || !isTravelAppropriate(thumb)) continue;
+    const score = commonsTitleScore(title, want);
+    if(score <= 0) continue;               // names the entity but does not depict it
+    if(!best || score > best.score) best = { url: thumb, score, named: score >= 85, title };
+    if(score >= 90) break;                 // as good as this rung gets
+  }
+  return best;
 }
 
 /* ---------------- Overpass: the entity's own tags ---------------- */
@@ -230,9 +294,24 @@ async function resolveEntityImage(entity, opts){
 
   let result = null;
 
-  // Rung 1-2: the entity's own OSM tags. This is the only evidence that a photo is of THIS
-  // place rather than one like it, so it is tried first for everything.
+  // Rung 1: photographs geotagged AT the entity. Tried first because it is both the most
+  // specific evidence available and the most reliably reachable source.
   try {
+    const geo = await commonsGeoPhoto(entity, { width: o.width, signal: o.signal,
+                                                radius: entity.kind === 'destination' ? 800 : 300 });
+    if(geo){
+      result = { url: geo.url,
+                 source: geo.named ? 'commons_named' : 'commons_nearby',
+                 confidence: geo.score };
+    }
+  } catch(err){
+    if(err.name === 'AbortError') throw err;
+  }
+
+  // Rung 2: the entity's own OSM tags — the other way to prove a photo is of THIS place.
+  // Overpass is slow and heavily rate-limited, so it only runs if the rung above found
+  // nothing.
+  if(!result) try {
     const tags = await overpassEntityTags(entity, { signal: o.signal, radius: o.radius });
     const found = await imageFromOsmTags(tags, o.width || 720);
     if(found && isTravelAppropriate(found.url)){
