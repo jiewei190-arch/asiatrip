@@ -500,6 +500,24 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
   </div>
 </div>
 
+<div class="modalBack" id="modal-apikeys">
+  <div class="modal">
+    <div class="modalHeader">
+      <div><h2>Connect data providers</h2><p class="small">All optional. TripFlow works without any of them — each one just adds a richer source.</p></div>
+      <button class="xbtn" data-close="modal-apikeys">×</button>
+    </div>
+    <div class="keyNotice">
+      🔒 Keys are stored only in this browser and sent straight to the provider. They are never
+      transmitted to TripFlow, never leave your device, and are never stored in the site's code.
+    </div>
+    <div class="keyList" id="keyList"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:18px">
+      <button class="btn" data-close="modal-apikeys">Cancel</button>
+      <button class="btn primary" id="saveApiKeysBtn">Save keys</button>
+    </div>
+  </div>
+</div>
+
 <div class="modalBack" id="modal-onboard">
   <div class="modal">
     <div class="modalHeader">
