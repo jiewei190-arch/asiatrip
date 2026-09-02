@@ -4037,10 +4037,7 @@ function initAI(){
   $('closeAI').onclick = closeAI;
   $('sendAI').onclick = sendAI;
   $('aiText').addEventListener('keydown', e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendAI(); } });
-  $('apiSetupBtn').onclick = ()=>{
-    const key = prompt('Optional: paste a free Google Gemini API key (aistudio.google.com) for richer conversational answers. The assistant already works without one — this just adds open-ended Q&A. Leave blank to clear.', STATE.geminiKey||'');
-    if(key!==null){ STATE.geminiKey = key.trim(); localStorage.setItem(LS_GEMINI, STATE.geminiKey); toast(STATE.geminiKey ? 'Gemini key saved.' : 'Gemini key cleared.'); }
-  };
+  $('apiSetupBtn').onclick = openApiKeysModal;
   renderAISuggestions();
   pushAIMessage('ai', `Hi! I'm your TripFlow AI assistant ✨. I can actually edit your itinerary — try "Make Day 2 more relaxed", "Optimize my route", or "What should I do in Tokyo for 3 days?"`);
 }
@@ -4095,13 +4092,129 @@ function pushAIMessage(who, text){
   msgs.scrollTop = msgs.scrollHeight;
   return div;
 }
-// Tries a short list of current/likely-available Gemini model ids in order, so a single
-// model being renamed or retired doesn't silently break the whole integration. Returns
-// {text} on success or {error} with a specific, user-visible reason on failure.
-const GEMINI_MODEL_CANDIDATES = ['gemini-2.5-flash','gemini-2.0-flash','gemini-1.5-flash'];
+/* ============================================================
+   DATA PROVIDER KEYS
+   ------------------------------------------------------------
+   Every provider worth adding (Unsplash, Pexels, OpenTripMap) requires an API key, and this is
+   a static site served from GitHub Pages: anything in the bundle is public, so a key committed
+   here would be a key given away. The app therefore never holds provider secrets — the person
+   using it supplies their own, kept in their own browser and sent only to the provider that
+   issued it. Same pattern the Gemini integration already used, generalised.
+============================================================ */
+const PROVIDERS = [
+  { id:'gemini',      storage:'tripflow_gemini_key',     label:'Google Gemini',
+    role:'Smarter assistant answers, trip curation and image search terms',
+    where:'aistudio.google.com/apikey', hint:'Usually starts with AIza…' },
+  { id:'unsplash',    storage:'tripflow_unsplash_key',   label:'Unsplash',
+    role:'High-quality destination and trip-idea photography',
+    where:'unsplash.com/developers', hint:'Use the Access Key, not the Secret Key' },
+  { id:'pexels',      storage:'tripflow_pexels_key',     label:'Pexels',
+    role:'Additional photography, and a fallback when other sources have nothing',
+    where:'pexels.com/api', hint:'' },
+  { id:'opentripmap', storage:'tripflow_opentripmap_key',label:'OpenTripMap',
+    role:'Real tourist attractions and points of interest for itineraries',
+    where:'opentripmap.io/product', hint:'' },
+];
+function providerKey(id){
+  const p = PROVIDERS.find(x=>x.id===id);
+  if(!p) return '';
+  try{ return localStorage.getItem(p.storage) || ''; }catch(e){ return ''; }
+}
+function setProviderKey(id, value){
+  const p = PROVIDERS.find(x=>x.id===id);
+  if(!p) return;
+  try{
+    if(value) localStorage.setItem(p.storage, value);
+    else localStorage.removeItem(p.storage);
+  }catch(e){}
+  if(id === 'gemini') STATE.geminiKey = value;   // the assistant reads this directly
+}
+function openApiKeysModal(){
+  $('keyList').innerHTML = PROVIDERS.map(p=>{
+    const current = providerKey(p.id);
+    return `<div class="keyRow">
+      <div class="keyHead">
+        <strong>${esc(p.label)}</strong>
+        ${current ? '<span class="keyOn">connected</span>' : '<span class="keyOff">not connected</span>'}
+      </div>
+      <p class="small" style="margin:2px 0 7px">${esc(p.role)}</p>
+      <input type="password" autocomplete="off" spellcheck="false" data-key="${p.id}"
+             placeholder="Paste key — leave blank to remove" value="${esc(current)}">
+      <p class="small keyWhere">Free key from <b>${esc(p.where)}</b>${p.hint?` · ${esc(p.hint)}`:''}</p>
+    </div>`;
+  }).join('');
+  openModal('modal-apikeys');
+}
+function initApiKeysModal(){
+  $('saveApiKeysBtn').onclick = ()=>{
+    let connected = 0;
+    $('keyList').querySelectorAll('[data-key]').forEach(inp=>{
+      const v = inp.value.trim();
+      setProviderKey(inp.dataset.key, v);
+      if(v) connected++;
+    });
+    // A retired-model list cached against the old key would outlive the key change.
+    try{ localStorage.removeItem(GEMINI_MODELS_CACHE_KEY); }catch(e){}
+    closeModal('modal-apikeys');
+    toast(connected ? `Saved — ${connected} provider${connected===1?'':'s'} connected.` : 'All provider keys cleared.');
+  };
+}
+
+/* Gemini model selection.
+ *
+ * A hand-written list of model ids is guaranteed to rot: gemini-2.5-flash was retired for new
+ * keys and the integration simply stopped working, with the app blaming the network. Rather
+ * than swap one stale list for another, ask the API which models THIS key can actually use and
+ * rank them. The static list below is only a last resort for when that call itself fails. */
+const GEMINI_FALLBACK_MODELS = ['gemini-3.6-flash','gemini-2.5-flash','gemini-2.0-flash','gemini-1.5-flash'];
+const GEMINI_MODELS_CACHE_KEY = 'tripflow_gemini_models_v1';
+const GEMINI_MODELS_TTL_MS = 24 * 3600 * 1000;
+/** Ranks usable models for this app's job: short, conversational travel answers, where a fast
+ * model matters more than a powerful one. Newer versions win within a family; non-chat models
+ * are excluded outright. */
+function rankGeminiModels(names){
+  const score = n=>{
+    let s = 0;
+    if(/embedding|aqa|imagen|vision|tts|audio/i.test(n)) return -1000;  // not text chat models
+    if(/flash/i.test(n)) s += 100;      // fast and cheap — the right shape for this
+    else if(/pro/i.test(n)) s += 40;
+    if(/lite/i.test(n)) s -= 12;
+    if(/preview|exp\b|experimental/i.test(n)) s -= 15;                  // prefer stable releases
+    const v = parseFloat((n.match(/(\d+(?:\.\d+)?)/) || [])[1] || '0');
+    s += v * 5;                                                          // newer wins
+    return s;
+  };
+  return names.filter(n=>score(n) > -1000).sort((a,b)=>score(b)-score(a));
+}
+/** Models actually available to this key, cached for a day so it isn't re-listed every message. */
+async function listGeminiModels(apiKey){
+  try{
+    const c = JSON.parse(localStorage.getItem(GEMINI_MODELS_CACHE_KEY) || 'null');
+    if(c && c.ts && (Date.now()-c.ts) < GEMINI_MODELS_TTL_MS && Array.isArray(c.models) && c.models.length) return c.models;
+  }catch(e){}
+  try{
+    const res = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`, 10000);
+    const data = await res.json().catch(()=>null);
+    if(res && res.ok && data && Array.isArray(data.models)){
+      const usable = data.models
+        .filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent'))
+        .map(m=>String(m.name||'').replace(/^models\//,''))
+        .filter(Boolean);
+      const ranked = rankGeminiModels(usable);
+      if(ranked.length){
+        try{ localStorage.setItem(GEMINI_MODELS_CACHE_KEY, JSON.stringify({ ts: Date.now(), models: ranked })); }catch(e){}
+        return ranked;
+      }
+    }
+  }catch(e){}
+  return null;   // couldn't ask — caller falls back to the static list
+}
+/** Returns {text} on success or {error} with a specific, user-visible reason on failure. */
 async function callGemini(prompt, apiKey){
   let lastError = null;
-  for(const model of GEMINI_MODEL_CANDIDATES){
+  const discovered = await listGeminiModels(apiKey);
+  const candidates = (discovered && discovered.length ? discovered : GEMINI_FALLBACK_MODELS).slice(0, 4);
+  for(const model of candidates){
     try{
       const res = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`, 12000, {
         method:'POST', headers:{'Content-Type':'application/json'},
@@ -4113,9 +4226,13 @@ async function callGemini(prompt, apiKey){
       }
       if(data && data.error && data.error.message){
         lastError = data.error.message;
-        // A "model not found" style error means try the next candidate; anything else
-        // (bad key, quota, permission) will fail the same way for every model, so stop.
-        if(!/not found|not supported|404/i.test(lastError)) break;
+        // A problem with THIS MODEL means try the next candidate; a problem with the key,
+        // quota or permission will fail identically for every model, so stop.
+        // "no longer available to new users" is the phrasing that retired gemini-2.5-flash —
+        // it matched none of the original patterns, so the loop gave up instead of falling
+        // through to a model that would have worked.
+        const modelSpecific = /not found|not supported|no longer available|unavailable|deprecat|retired|unsupported|does not exist|invalid model|404/i;
+        if(!modelSpecific.test(lastError)) break;
       } else {
         lastError = `HTTP ${res.status}`;
       }
@@ -4375,6 +4492,7 @@ function init(){
   initBookingModal();
   initPollModal();
   initOnboarding();
+  initApiKeysModal();
   initEditBudgetModal();
   initCustomizeModal();
   initAI();

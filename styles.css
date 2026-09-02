@@ -648,3 +648,15 @@ input:checked+.slider:before{transform:translateX(18px)}
   .gsearch-panel{position:fixed;top:70px;left:10px;right:10px;width:auto}
   .dropdown{position:fixed;top:70px;left:10px;right:10px;width:auto}
 }
+
+/* ---------- provider key panel ---------- */
+.keyNotice{margin-top:14px;padding:11px 13px;border-radius:12px;background:var(--mint);border:1px solid var(--green);font-size:12.5px;line-height:1.5;font-weight:600}
+.keyList{display:flex;flex-direction:column;gap:14px;margin-top:14px;max-height:min(52vh,420px);overflow-y:auto}
+.keyRow{border:1px solid var(--line);border-radius:14px;padding:12px 13px;background:var(--surface2)}
+.keyHead{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.keyHead strong{font-size:14px}
+.keyOn{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--green)}
+.keyOff{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.keyRow input{width:100%;border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-size:13px;background:var(--surface);outline:0}
+.keyRow input:focus{border-color:var(--green)}
+.keyWhere{margin:6px 0 0;color:var(--muted)}
