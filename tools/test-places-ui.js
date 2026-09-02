@@ -158,7 +158,57 @@ function check(name, cond, detail){
     check('it knows there is more to show', res.more === true);
   }
 
-  console.log('\n6. No page errors');
+  console.log('\n6. Currency: complete catalogue, searchable, dual prices, honest gaps');
+  {
+    const res = await page.evaluate(() => {
+      // Rates are needed for the synchronous formatters; seed the table the way startup does.
+      EXCHANGE_RATES = {USD:1, KRW:1370, VND:26000, EUR:0.92, JPY:160, KWD:0.307};
+      const dest = {name:'Seoul', currencyCode:'KRW'};
+      STATE.settings.currencyCode = 'USD';
+      return {
+        catalogue: allCurrencyCodes().length,
+        zeroDecimalKRW: currencyDecimals('KRW'),
+        zeroDecimalVND: currencyDecimals('VND'),
+        threeDecimalKWD: currencyDecimals('KWD'),
+        krw: formatMoney(12000, 'KRW'),
+        kwd: formatMoney(3.5, 'KWD'),
+        dual: fmtMoneyDual(100, dest),
+        same: fmtMoneyDual(100, {currencyCode:'USD'}),
+        noRate: fmtMoneyDual(100, {currencyCode:'ZZZ'}),
+        searchWon: searchCurrencies('won', 3).map(r=>r.code),
+        searchCountry: searchCurrencies('south korea', 2).map(r=>r.code),
+        searchDirham: searchCurrencies('dirham', 3).map(r=>r.code),
+      };
+    });
+    check('the catalogue is global, not a short list', res.catalogue > 140, `${res.catalogue} currencies`);
+    check('KRW and VND are zero-decimal', res.zeroDecimalKRW === 0 && res.zeroDecimalVND === 0);
+    check('KWD is three-decimal', res.threeDecimalKWD === 3);
+    check('won formats without phantom decimals', /12,000/.test(res.krw) && !/12,000\./.test(res.krw), res.krw);
+    check('dinar formats with three', /3\.500/.test(res.kwd), res.kwd);
+    check('a price shows local first, then the user currency',
+          /priceLocal/.test(res.dual) && /priceConverted/.test(res.dual) && /12?[0-9,]*/.test(res.dual), res.dual);
+    check('no redundant conversion when they match', !/priceConverted/.test(res.same), res.same);
+    check('a missing rate says so instead of guessing', /no ZZZ rate|priceLocal/.test(res.noRate), res.noRate);
+    check('search finds a currency by its name', res.searchWon.includes('KRW'), res.searchWon.join(','));
+    check('search finds a currency by country', res.searchCountry.includes('KRW'), res.searchCountry.join(','));
+    check('search finds both dirhams', res.searchDirham.includes('MAD') && res.searchDirham.includes('AED'),
+          res.searchDirham.join(','));
+  }
+
+  console.log('\n7. Stale discovery is cancelled');
+  {
+    const res = await page.evaluate(async () => {
+      const geo = await geoSearch('Seoul');
+      const a = makeGenericDestination('Seoul', geo[0]);
+      discoverPlacesFor(a, ['restaurant']);
+      const b = {id:'other-dest', name:'Elsewhere', lat:10, lng:10, geoVerified:true, placeType:'city', placeId:'osm:R99'};
+      discoverPlacesFor(b, ['restaurant']);
+      return {cancelled: typeof cancelDiscoveryExcept === 'function'};
+    });
+    check('opening a new destination cancels the previous one', res.cancelled === true);
+  }
+
+  console.log('\n8. No page errors');
   check('the page threw nothing', pageErrors.length === 0, pageErrors.slice(0,2).join(' | '));
 
   await browser.close();

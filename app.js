@@ -52,12 +52,43 @@ function uid(prefix){ return `${prefix}_${Date.now().toString(36)}_${(__uidN++).
 function currentCurrencyCode(){
   return (STATE.settings && STATE.settings.currencyCode) || 'USD';
 }
+/** Formats a stored (USD) amount in the user's chosen display currency.
+ *  Decimals come from ISO 4217 via currency.js, so all sixteen zero-decimal currencies are
+ *  handled rather than the three that happened to be hardcoded here (JPY, KRW, IDR) — VND, ISK,
+ *  CLP, XOF and the rest were showing phantom decimal places. */
 function fmt$(n){
-  const code = currentCurrencyCode();
-  const meta = CURRENCY_META[code] || CURRENCY_META.USD;
-  const converted = convertUSD(n||0, code);
-  const rounded = Math.abs(converted) >= 100 || code==='JPY' || code==='KRW' || code==='IDR' ? Math.round(converted) : Math.round(converted*100)/100;
-  return meta.symbol + rounded.toLocaleString(undefined, code==='JPY'||code==='KRW'||code==='IDR'||Math.abs(converted)>=100 ? {maximumFractionDigits:0} : {minimumFractionDigits:2,maximumFractionDigits:2});
+  return fmtIn(n, currentCurrencyCode()) || '—';
+}
+
+/** The same amount in a specific currency, or '' when no rate is available for it.
+ *  Synchronous on purpose: cards render inside template strings, and the rate table is already
+ *  in memory by then. Returning '' rather than a guess is what keeps a missing rate honest. */
+function fmtIn(amountUSD, code){
+  const n = Number(amountUSD) || 0;
+  if(!code) return '';
+  const rate = (code === 'USD') ? 1 : (typeof EXCHANGE_RATES !== 'undefined' ? EXCHANGE_RATES[code] : null);
+  if(typeof rate !== 'number' || !isFinite(rate)) return '';
+  const value = n * rate;
+  const round = Math.abs(value) >= 100;
+  return (typeof formatMoney === 'function')
+    ? formatMoney(value, code, {round})
+    : value.toFixed(2) + ' ' + code;
+}
+
+/** A price in the destination's own currency, with the user's currency alongside when they
+ *  differ — the local price is the one that will actually be charged, so it leads. */
+function fmtMoneyDual(amountUSD, dest){
+  const userCode = currentCurrencyCode();
+  const localCode = (dest && dest.currencyCode) || userCode;
+  const localTxt = fmtIn(amountUSD, localCode);
+  if(!localTxt) return `<span class="priceLocal">${esc(fmt$(amountUSD))}</span>`;
+  if(localCode === userCode) return `<span class="priceLocal">${esc(localTxt)}</span>`;
+  const userTxt = fmtIn(amountUSD, userCode);
+  if(!userTxt){
+    // We know the local price but cannot convert it. Say that rather than dropping one side.
+    return `<span class="priceLocal">${esc(localTxt)}</span> <span class="priceConverted">(no ${esc(userCode)} rate)</span>`;
+  }
+  return `<span class="priceLocal">${esc(localTxt)}</span> <span class="priceConverted">≈ ${esc(userTxt)}</span>`;
 }
 function clamp(n,a,b){ return Math.max(a,Math.min(b,n)); }
 function haversine(a,b){
@@ -696,23 +727,48 @@ function openSettings(){
   $('settingsName').value = STATE.settings.name;
   populateCurrencyOptions($('settingsCurrency'));
   $('settingsCurrency').value = currentCurrencyCode();
+  wireCurrencySearch('settingsCurrencySearch', 'settingsCurrency');
   $('themeToggle').checked = STATE.theme==='dark';
   openModal('modal-settings');
 }
 /** Every ISO 4217 currency, named and symbolled from Intl, with the destinations that use it in
  *  the label so typing a country name finds the currency. The old list held 31 entries, which is
  *  why anywhere outside western Europe and east Asia had no option to pick. */
+/** Attaches a search box to a currency <select>. 152 currencies in a plain dropdown is a
+ *  scroll, not a choice — this filters by code, currency name or country, so "won", "KRW",
+ *  "South Korea" and "korea" all land on the same entry. */
+function wireCurrencySearch(inputId, selectId){
+  const input = $(inputId), select = $(selectId);
+  if(!input || !select) return;
+  input.oninput = () => {
+    const keep = select.value;
+    const rows = (typeof searchCurrencies === 'function') ? searchCurrencies(input.value) : [];
+    if(!rows.length){
+      select.innerHTML = `<option value="">No currency matches "${esc(input.value)}"</option>`;
+      return;
+    }
+    renderCurrencyOptions(select, rows);
+    // Keep the current selection if it survived the filter, so typing does not silently
+    // change which currency is chosen.
+    if(rows.some(r => r.code === keep)) select.value = keep;
+  };
+}
+
+function renderCurrencyOptions(select, rows){
+  select.innerHTML = rows.map(r => {
+    const sym = (typeof currencySymbol === 'function') ? currencySymbol(r.code) : '';
+    const where = r.countries && r.countries.length
+      ? ' · ' + r.countries.slice(0,3).join(', ') + (r.countries.length > 3 ? '…' : '') : '';
+    return `<option value="${r.code}">${r.code} — ${esc(r.name)}${sym && sym !== r.code ? ' ('+esc(sym)+')' : ''}${esc(where)}</option>`;
+  }).join('');
+}
+
 function populateCurrencyOptions(select){
   if(!select) return;
   const rows = (typeof searchCurrencies === 'function')
     ? searchCurrencies('')
     : Object.keys(CURRENCY_META).map(code=>({code, name:(CURRENCY_META[code]||{}).name||code, countries:[]}));
-  select.innerHTML = rows.map(r=>{
-    const sym = (typeof currencySymbol === 'function') ? currencySymbol(r.code) : '';
-    const where = r.countries && r.countries.length
-      ? ' · ' + r.countries.slice(0,3).join(', ') + (r.countries.length>3 ? '…' : '') : '';
-    return `<option value="${r.code}">${r.code} — ${esc(r.name)}${sym && sym!==r.code ? ' ('+esc(sym)+')' : ''}${esc(where)}</option>`;
-  }).join('');
+  renderCurrencyOptions(select, rows);
 }
 /** Which build is this browser actually running? Surfaced because a stale cached bundle looks
  * identical to a current one — the page loads fine, it's just old — and that is exactly how
@@ -795,7 +851,7 @@ function placeCardHTML(p, opts){
     // one exists. A discovered stay has neither by default, and inventing them is the bug.
     const starBit  = p.stars ? `<span class="stars">${'★'.repeat(p.stars)}</span>` : '';
     const guestBit = (p.guestRating != null) ? `<span>${p.guestRating}/10</span>` : '';
-    const priceBit = (p.price != null) ? `<span class="priceLevel">${fmt$(p.price)}/night</span>` : '';
+    const priceBit = (p.price != null) ? `<span class="priceLevel">${fmtMoneyDual(p.price, dest)}/night</span>` : '';
     metaHTML = `${starBit}${guestBit}${priceBit}` ||
       `<span class="small">${esc(p.category || 'Place to stay')}</span>`;
   }
@@ -1358,8 +1414,8 @@ function renderDestOverview(dest, body){
     <div class="card" style="margin-top:8px">
       <h3>Average daily budget</h3>
       <div class="sectionGrid" style="grid-template-columns:repeat(3,1fr)">
-        <div class="ovCard"><div class="k">Budget</div><div class="v" style="font-size:20px">${fmt$(dest.avgDailyBudget.budget)}<span class="small">/day</span></div></div>
-        <div class="ovCard"><div class="k">Moderate</div><div class="v" style="font-size:20px">${fmt$(dest.avgDailyBudget.moderate)}<span class="small">/day</span></div></div>
+        <div class="ovCard"><div class="k">Budget</div><div class="v" style="font-size:20px">${fmtMoneyDual(dest.avgDailyBudget.budget, dest)}<span class="small">/day</span></div></div>
+        <div class="ovCard"><div class="k">Moderate</div><div class="v" style="font-size:20px">${fmtMoneyDual(dest.avgDailyBudget.moderate, dest)}<span class="small">/day</span></div></div>
         <div class="ovCard"><div class="k">Luxury</div><div class="v" style="font-size:20px">${fmt$(dest.avgDailyBudget.luxury)}<span class="small">/day</span></div></div>
       </div>
     </div>
@@ -1492,9 +1548,24 @@ function renderPagedPlaceGrid(gridId, arr, dest, kind, cardFn){
     ? `<div class="showMoreRow"><button class="btn" data-showmore="${esc(kind)}">Show more — ${arr.length - shown} more ${discoveryNounFor(kind)}</button></div>`
     : (arr.length > size ? `<div class="showMoreRow"><span class="small">Showing all ${arr.length}.</span></div>` : '');
 
+  // While discovery is still running and we have nothing yet, show skeleton cards. They hold the
+  // layout at its final height, so the page does not jump when the real cards land.
+  const status = (typeof placesStatus === 'function') ? placesStatus(dest.id, kind) : 'idle';
+  const skeletons = (status === 'loading' && !page.length)
+    ? `<div class="placeGrid">${Array.from({length:6}, () => `
+        <div class="placeCard skelCard" aria-hidden="true">
+          <div class="skelImg"></div>
+          <div class="placeBody">
+            <div class="skelLine skelTitle"></div>
+            <div class="skelLine skelShort"></div>
+            <div class="skelLine"></div>
+          </div>
+        </div>`).join('')}</div>`
+    : '';
+
   grid.innerHTML = notice + (page.length
     ? `<div class="placeGrid">${page.map(cardFn).join('')}</div>${more}`
-    : (notice ? '' : '<div class="empty">Nothing matches those filters. Try clearing one.</div>'));
+    : skeletons || (notice ? '' : '<div class="empty">Nothing matches those filters. Try clearing one.</div>'));
 
   const moreBtn = grid.querySelector('[data-showmore]');
   if(moreBtn) moreBtn.onclick = () => {

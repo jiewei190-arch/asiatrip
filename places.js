@@ -485,8 +485,25 @@ function placesStatus(destId, kind){
 
 /** Kicks off discovery for every kind around a destination. Called when a destination is
  *  created with verified coordinates, and again if its geo is confirmed later. */
+/* One controller per destination. Opening a new destination aborts the previous one's in-flight
+ * queries: an Overpass round trip can take tens of seconds, and without this a slow response for
+ * a destination the user has already left would still arrive and merge its places into the
+ * store — the stale-query problem, and a way for one destination's data to reach another. */
+const placesControllers = new Map();
+
+function cancelDiscoveryExcept(destId){
+  for(const [id, ctl] of placesControllers){
+    if(id === destId) continue;
+    try{ ctl.abort(); }catch(e){ /* already settled */ }
+    placesControllers.delete(id);
+  }
+}
+
 function discoverPlacesFor(dest, kinds){
   if(!dest || (typeof hasVerifiedGeo === 'function' && !hasVerifiedGeo(dest))) return;
+  cancelDiscoveryExcept(dest.id);
+  let ctl = placesControllers.get(dest.id);
+  if(!ctl){ ctl = new AbortController(); placesControllers.set(dest.id, ctl); }
   const list = kinds || ['restaurant', 'hotel', 'attraction'];
   const st = placesDiscoveryState.get(dest.id) || {};
   placesDiscoveryState.set(dest.id, st);
@@ -495,14 +512,17 @@ function discoverPlacesFor(dest, kinds){
     if(st[kind] === 'loading' || st[kind] === 'done') continue;
     st[kind] = 'loading';
     notifyPlacesUpdated(dest, kind, 0);
-    discoverPlaces(dest, kind)
+    discoverPlaces(dest, kind, {signal: ctl.signal})
       .then(found => {
+        // A cancelled destination must not write into the store, even if its request finished.
+        if(ctl.signal.aborted) return;
         st[kind] = 'done';
         st[kind + ':count'] = found.length;
         mergeDiscoveredPlaces(dest, kind, found);
         notifyPlacesUpdated(dest, kind, found.length);
       })
       .catch(() => {
+        if(ctl.signal.aborted) return;
         st[kind] = 'error';
         notifyPlacesUpdated(dest, kind, 0);
       });
@@ -530,6 +550,6 @@ if(typeof module !== 'undefined' && module.exports){
   module.exports = {
     PLACE_KINDS, OSM_SUBTYPE_LABEL, prettyCuisine, osmToPlace, dedupePlaces, rankPlaces,
     placeCompleteness, discoverPlaces, discoverPlacesFor, pagePlaces, normName,
-    discoveryRadiusKm, overpassQuery, photonNearby, DISCOVERY_RADIUS_KM,
+    discoveryRadiusKm, overpassQuery, photonNearby, DISCOVERY_RADIUS_KM, cancelDiscoveryExcept,
   };
 }

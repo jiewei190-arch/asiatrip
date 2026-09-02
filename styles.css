@@ -709,3 +709,27 @@ input:checked+.slider:before{transform:translateX(18px)}
 .priceLocal{ font-weight:600; }
 .priceConverted{ color:var(--text-dim,#9aa4b2); font-weight:400; }
 .priceStale{ color:var(--warn,#e0a34a); }
+
+/* Skeleton cards while places are being discovered. They hold the grid at its final height so
+   the page does not jump when the real cards arrive. */
+.skelCard{ pointer-events:none; }
+.skelImg{
+  aspect-ratio:4/3; width:100%; border-radius:12px 12px 0 0;
+  background:var(--surface-2,rgba(255,255,255,.05));
+}
+.skelLine{
+  height:11px; margin:9px 0; border-radius:6px;
+  background:var(--surface-2,rgba(255,255,255,.06));
+}
+.skelTitle{ height:15px; width:70%; }
+.skelShort{ width:45%; }
+.skelCard .skelImg, .skelCard .skelLine{
+  background-image:linear-gradient(90deg,
+    transparent 0%, var(--surface-3,rgba(255,255,255,.09)) 50%, transparent 100%);
+  background-size:200% 100%;
+  animation:skelShimmer 1.4s ease-in-out infinite;
+}
+@keyframes skelShimmer{ from{ background-position:200% 0; } to{ background-position:-200% 0; } }
+@media (prefers-reduced-motion:reduce){
+  .skelCard .skelImg, .skelCard .skelLine{ animation:none; background-image:none; }
+}
