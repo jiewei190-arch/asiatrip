@@ -62,8 +62,8 @@ Those images are never presented as being of the property itself.
 | `images/cuisine/tapas.jpg` | Tapas | [Tapas](https://en.wikipedia.org/wiki/Tapas) | Elemaki | [CC BY 3.0](https://commons.wikimedia.org/wiki/File:TapasenBarcelona.JPG) |
 | `images/cuisine/trattoria.jpg` | Trattoria | [Trattoria](https://en.wikipedia.org/wiki/Trattoria) | Unknown | see file page |
 | `images/cuisine/yakitori.jpg` | Yakitori | [Yakitori](https://en.wikipedia.org/wiki/Yakitori) | Unknown | see file page |
-| `images/dest/bali.jpg` | Bali — area stand-in (Uluwatu Temple) | [Uluwatu Temple](https://en.wikipedia.org/wiki/Uluwatu_Temple) | Unknown | see file page |
-| `images/dest/bangkok.jpg` | Bangkok | [Bangkok](https://en.wikipedia.org/wiki/Bangkok) | Unknown | see file page |
+| `images/dest/bali.jpg` | Pura Ulun Danu Bratan | [Pura Ulun Danu Bratan](https://en.wikipedia.org/wiki/Pura_Ulun_Danu_Bratan) | Unknown | see file page |
+| `images/dest/bangkok.jpg` | Wat Arun | [Wat Arun](https://en.wikipedia.org/wiki/Wat_Arun) | Mastertongapollo | [CC BY-SA 4.0](https://commons.wikimedia.org/wiki/File:%E0%B9%80%E0%B8%88%E0%B8%94%E0%B8%B5%E0%B8%A2%E0%B9%8C%E0%B8%9B%E0%B8%A3%E0%B8%B0%E0%B8%98%E0%B8%B2%E0%B8%99%E0%B8%97%E0%B8%A3%E0%B8%87%E0%B8%9B%E0%B8%A3%E0%B8%B2%E0%B8%87%E0%B8%84%E0%B9%8C%E0%B8%A7%E0%B8%B1%E0%B8%94%E0%B8%AD%E0%B8%A3%E0%B8%B8%E0%B8%932.jpg) |
 | `images/dest/barcelona.jpg` | Barcelona | [Barcelona](https://en.wikipedia.org/wiki/Barcelona) | Unknown | see file page |
 | `images/dest/ljubljana.jpg` | Ljubljana | [Ljubljana](https://en.wikipedia.org/wiki/Ljubljana) | Unknown | see file page |
 | `images/dest/marrakech.jpg` | Marrakech | [Marrakesh](https://en.wikipedia.org/wiki/Marrakesh) | Unknown | see file page |
@@ -72,7 +72,7 @@ Those images are never presented as being of the property itself.
 | `images/dest/queenstown.jpg` | Queenstown | [Queenstown, New Zealand](https://en.wikipedia.org/wiki/Queenstown,_New_Zealand) | Unknown | see file page |
 | `images/dest/reykjavik.jpg` | Reykjavik | [Reykjavík](https://en.wikipedia.org/wiki/Reykjavík) | Unknown | see file page |
 | `images/dest/rome.jpg` | Rome | [Rome](https://en.wikipedia.org/wiki/Rome) | Unknown | see file page |
-| `images/dest/santorini.jpg` | Santorini — area stand-in (Red Beach) | [Red Beach (Santorini)](https://en.wikipedia.org/wiki/Red_Beach_(Santorini)) | Unknown | see file page |
+| `images/dest/santorini.jpg` | Oia | [Oia, Greece](https://en.wikipedia.org/wiki/Oia,_Greece) | Unknown | see file page |
 | `images/dest/tokyo.jpg` | Tokyo | [Tokyo](https://en.wikipedia.org/wiki/Tokyo) | Unknown | see file page |
 | `images/place/bali-a1.jpg` | Tegallalang Rice Terraces — area stand-in (Ubud) | [Ubud Palace](https://en.wikipedia.org/wiki/Ubud_Palace) | Unknown | see file page |
 | `images/place/bali-a2.jpg` | Uluwatu Temple | [Uluwatu Temple](https://en.wikipedia.org/wiki/Uluwatu_Temple) | Unknown | see file page |
@@ -260,14 +260,14 @@ Those images are never presented as being of the property itself.
 | `images/scene/rome-6.jpg` | Rome — Aurelian Walls — area stand-in (Aurelian Walls) | [Aurelian Walls](https://en.wikipedia.org/wiki/Aurelian_Walls) | Unknown | see file page |
 | `images/scene/rome-7.jpg` | Rome — Roman Forum — area stand-in (Roman Forum) | [Roman Forum](https://en.wikipedia.org/wiki/Roman_Forum) | Unknown | see file page |
 | `images/scene/rome-8.jpg` | Rome — San Marco Evangelista al Campidoglio, Rome — area stand-in (San Marco Evangelista al Campidoglio, Rome) | [San Marco Evangelista al Campidoglio, Rome](https://en.wikipedia.org/wiki/San_Marco_Evangelista_al_Campidoglio,_Rome) | Unknown | see file page |
-| `images/scene/santorini-1.jpg` | Santorini — Santorini caldera — area stand-in (Santorini caldera) | [Santorini caldera](https://en.wikipedia.org/wiki/Santorini_caldera) | Unknown | see file page |
-| `images/scene/santorini-2.jpg` | Santorini — Athinios (Santorini) — area stand-in (Athinios (Santorini)) | [Athinios (Santorini)](https://en.wikipedia.org/wiki/Athinios_(Santorini)) | Unknown | see file page |
-| `images/scene/santorini-3.jpg` | Santorini — Emporeio, Santorini — area stand-in (Emporeio, Santorini) | [Emporeio, Santorini](https://en.wikipedia.org/wiki/Emporeio,_Santorini) | Unknown | see file page |
-| `images/scene/santorini-4.jpg` | Santorini — Santorini Cable Car — area stand-in (Santorini Cable Car) | [Santorini Cable Car](https://en.wikipedia.org/wiki/Santorini_Cable_Car) | Unknown | see file page |
-| `images/scene/santorini-5.jpg` | Santorini — Perissa, Santorini — area stand-in (Perissa, Santorini) | [Perissa, Santorini](https://en.wikipedia.org/wiki/Perissa,_Santorini) | Unknown | see file page |
-| `images/scene/santorini-6.jpg` | Santorini — Akrotiri (prehistoric city) — area stand-in (Akrotiri (prehistoric city)) | [Akrotiri (prehistoric city)](https://en.wikipedia.org/wiki/Akrotiri_(prehistoric_city)) | Unknown | see file page |
-| `images/scene/santorini-7.jpg` | Santorini — Kolumbo — area stand-in (Kolumbo) | [Kolumbo](https://en.wikipedia.org/wiki/Kolumbo) | Unknown | see file page |
-| `images/scene/santorini-8.jpg` | Santorini — Episkopi Gonias — area stand-in (Episkopi Gonias) | [Episkopi Gonias](https://en.wikipedia.org/wiki/Episkopi_Gonias) | Unknown | see file page |
+| `images/scene/santorini-1.jpg` | Santorini — Athinios (Santorini) — area stand-in (Athinios (Santorini)) | [Athinios (Santorini)](https://en.wikipedia.org/wiki/Athinios_(Santorini)) | Unknown | see file page |
+| `images/scene/santorini-2.jpg` | Santorini — Emporeio, Santorini — area stand-in (Emporeio, Santorini) | [Emporeio, Santorini](https://en.wikipedia.org/wiki/Emporeio,_Santorini) | Unknown | see file page |
+| `images/scene/santorini-3.jpg` | Santorini — Santorini Cable Car — area stand-in (Santorini Cable Car) | [Santorini Cable Car](https://en.wikipedia.org/wiki/Santorini_Cable_Car) | Unknown | see file page |
+| `images/scene/santorini-4.jpg` | Santorini — Perissa, Santorini — area stand-in (Perissa, Santorini) | [Perissa, Santorini](https://en.wikipedia.org/wiki/Perissa,_Santorini) | Unknown | see file page |
+| `images/scene/santorini-5.jpg` | Santorini — Akrotiri (prehistoric city) — area stand-in (Akrotiri (prehistoric city)) | [Akrotiri (prehistoric city)](https://en.wikipedia.org/wiki/Akrotiri_(prehistoric_city)) | Unknown | see file page |
+| `images/scene/santorini-6.jpg` | Santorini — Kolumbo — area stand-in (Kolumbo) | [Kolumbo](https://en.wikipedia.org/wiki/Kolumbo) | Unknown | see file page |
+| `images/scene/santorini-7.jpg` | Santorini — Episkopi Gonias — area stand-in (Episkopi Gonias) | [Episkopi Gonias](https://en.wikipedia.org/wiki/Episkopi_Gonias) | Unknown | see file page |
+| `images/scene/santorini-8.jpg` | Santorini — Panagia Episkopi — area stand-in (Panagia Episkopi) | [Panagia Episkopi](https://en.wikipedia.org/wiki/Panagia_Episkopi) | Unknown | see file page |
 | `images/scene/tokyo-1.jpg` | Tokyo — Tokyo Tower — area stand-in (Tokyo Tower) | [Tokyo Tower](https://en.wikipedia.org/wiki/Tokyo_Tower) | Unknown | see file page |
 | `images/scene/tokyo-2.jpg` | Tokyo — Tokyo Skytree — area stand-in (Tokyo Skytree) | [Tokyo Skytree](https://en.wikipedia.org/wiki/Tokyo_Skytree) | Unknown | see file page |
 | `images/scene/tokyo-3.jpg` | Tokyo — Adachi, Tokyo — area stand-in (Adachi, Tokyo) | [Adachi, Tokyo](https://en.wikipedia.org/wiki/Adachi,_Tokyo) | Unknown | see file page |

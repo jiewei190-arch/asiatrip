@@ -63,7 +63,13 @@ shot — Marrakech rendered one identical photo on seven cards. Three things now
    keeping one key per distinct image so the loser falls through to its next option.
 
 `audit-duplicates.js` is what proves it: 15 places per destination, 15 distinct images, across
-all twelve.
+all twelve, on top of 12 unique destination heroes.
+
+One thing deliberately *not* deduplicated: a destination listed in several Discover
+collections shows its own hero each time. Handing repeat appearances an arbitrary nearby
+landmark did dedupe the page, but it put a satellite image of the caldera on Santorini's
+Beach card and the Catacombs on Paris's food card. A destination card has to sell the
+destination, so the best photo repeats rather than a worse one being substituted.
 
 ## Honesty rules
 

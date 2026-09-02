@@ -28,7 +28,8 @@ ROOT = os.path.dirname(HERE)
 PER_DEST = 8
 
 BAD_FILE = re.compile(r"(logo|flag|\bmap\b|coat[_ ]of[_ ]arms|seal|emblem|wordmark|icon|"
-                      r"banner|location|locator|blank|outline|chart|diagram|graph)", re.I)
+                      r"banner|location|locator|blank|outline|chart|diagram|graph|"
+                      r"aster|landsat|sentinel|satellite|nasa|aerial survey|topograph)", re.I)
 # Proximity is not notability. The first pass returned "Eifukuchō Station" and "Takachiho
 # University" for Tokyo — real places, but nothing anyone travels to see.
 BAD_TITLE = re.compile(r"(disambiguation|^list of|bombing|attack|massacre|earthquake|cemetery|"
