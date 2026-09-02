@@ -11,7 +11,9 @@ is what serves the *worldwide* destinations a visitor types in, not the built-in
 |---|---|
 | `import-images.py` | Searches Wikipedia for each destination/place/dish, picks the best-matching article's lead photo, re-encodes it to a web-sized progressive JPEG under `images/`, and records author + licence. |
 | `build-photo-index.py` | Writes `photos.js` (the bundled-image index consulted by `data.js`) and `CREDITS.md` from the import results. |
+| `import-scenes.py` | Collects a pool of distinct, notable landmark photos per destination, used to give every photo-less card a different real local image. |
 | `audit-images.js` | Renders the real site in Chromium at desktop and mobile sizes and fails on any broken image, leftover placeholder, or console error. |
+| `audit-duplicates.js` | Walks every destination's tabs and reports any image rendered more than once, comparing by file content rather than by name. |
 
 ## How a photo is chosen
 
@@ -39,6 +41,29 @@ Matching a place name to the right article is most of the work. In order:
 A target with no confident match is left out of the index on purpose. It then falls to a real
 category photograph, and only failing that to the generated name card — never to a
 loosely-related photo passed off as the place.
+
+## No card repeats another
+
+Every place lacking a photograph of its own used to fall back to the same destination-level
+shot — Marrakech rendered one identical photo on seven cards. Three things now prevent that:
+
+1. **A scene pool per destination.** `import-scenes.py` collects eight distinct nearby
+   landmarks, ranked by Wikipedia's *search* relevance rather than raw proximity — ranking by
+   distance returned "Eifukuchō Station" and "Takachiho University" for Tokyo, which are real
+   but nothing anyone travels to see. The search radius scales to how far each destination's
+   own places actually spread, so Yokohama (26km away, a different city) stays out of Tokyo
+   while Bali, whose temples sit tens of kilometres apart, stays whole.
+2. **Claiming.** Each image can be taken once per destination; a place whose preferred image
+   is already spoken for moves to its next option. Resolution runs in passes so priority beats
+   array order: "La Mamounia Restaurant" is inside the La Mamounia hotel and both legitimately
+   match the same building, but the building's photo belongs to the hotel and the restaurant
+   is better served by a plate of what it cooks.
+3. **Content-level de-duplication at index time.** Claiming keys on path, so it cannot see
+   that two different filenames hold identical bytes. `build-photo-index.py` collapses those,
+   keeping one key per distinct image so the loser falls through to its next option.
+
+`audit-duplicates.js` is what proves it: 15 places per destination, 15 distinct images, across
+all twelve.
 
 ## Honesty rules
 

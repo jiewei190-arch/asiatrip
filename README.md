@@ -29,7 +29,7 @@ Then open `http://localhost:8080`.
 
 ## Data
 
-Twelve real destinations ship with rich hand-authored data (attractions, restaurants, hotels, reviews) **and real photography committed to the repo** under `images/` — so the site is photography-first on first paint, with no placeholder flash, and it looks the same with the network blocked, throttled or offline. `photos.js` indexes those files and `CREDITS.md` carries the author and licence for every one; see `tools/README.md` for how each photo is matched and verified.
+Twelve real destinations ship with rich hand-authored data (attractions, restaurants, hotels, reviews) **and real photography committed to the repo** under `images/` — every destination and every place on it gets a different photograph, none repeated — so the site is photography-first on first paint, with no placeholder flash, and it looks the same with the network blocked, throttled or offline. `photos.js` indexes those files and `CREDITS.md` carries the author and licence for every one; see `tools/README.md` for how each photo is matched and verified.
 
 Type in **any other city worldwide** and TripFlow shows an instant starter page, then upgrades itself in the background using free, keyless public APIs:
 

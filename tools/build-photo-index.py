@@ -20,6 +20,29 @@ ok = sorted([r for r in res if not r.get("missing")], key=lambda r: r["key"])
 # Drop any entry whose file is not actually on disk, so the index can never promise a 404.
 ok = [r for r in ok if os.path.exists(os.path.join(ROOT, "images", r["key"] + ".jpg"))]
 
+# Two keys can hold byte-identical files: "La Mamounia Restaurant" is inside the La Mamounia
+# hotel, so both legitimately matched the same article and downloaded the same photo. The
+# in-page claim guard keys on path, so it cannot see that. Collapse them here instead: keep one
+# key per distinct image and drop the rest, so the loser falls through to its next option (the
+# restaurant to a plate of its cuisine). Priority keeps the photo with whoever it depicts.
+import hashlib
+def _rank(r):
+    kind = r["key"].split("/")[0]
+    return ({"dest": 0, "scene": 1, "cuisine": 1, "category": 1, "site": 0,
+             "place": 2}.get(kind, 3),
+            0 if clean(r.get("tier_label")).lower() == clean(r["label"]).lower() else 1,
+            {"a": 0, "h": 1, "r": 2}.get(r["key"].rsplit("-", 1)[-1][:1], 3),
+            r["key"])
+
+seen_hash, deduped, dropped = {}, [], []
+for r in sorted(ok, key=_rank):
+    path = os.path.join(ROOT, "images", r["key"] + ".jpg")
+    h = hashlib.md5(open(path, "rb").read()).hexdigest()
+    if h in seen_hash:
+        dropped.append((r["key"], seen_hash[h])); os.remove(path); continue
+    seen_hash[h] = r["key"]; deduped.append(r)
+ok = sorted(deduped, key=lambda r: r["key"])
+
 def is_exact(r):
     return clean(r.get("tier_label")).lower() == clean(r["label"]).lower()
 
@@ -31,6 +54,7 @@ for e in entries:
     cur += e + ","
 if cur: lines.append("  " + cur.rstrip(","))
 
+scene_index = json.load(open(os.path.join(SCRATCH, "scene_index.json")))
 cuisine_keys = json.load(open(os.path.join(SCRATCH, "cuisine_keys.json")))
 have = {r["key"] for r in ok}
 cuisine_keys = {c: k for c, k in cuisine_keys.items() if k in have}
@@ -59,7 +83,12 @@ window.LOCAL_PHOTOS = {
    have a photograph anywhere, and a real plate of what they cook sells the meal honestly
    where a street scene of their block does not. */
 window.CUISINE_PHOTO_KEYS = %s;
-''' % ("\n".join(lines), json.dumps(cuisine_keys, indent=1, sort_keys=True))
+
+/* How many distinct scene photos each destination has. Places with no photograph of their
+   own are dealt one each, so no two cards on a page ever show the same image. */
+window.SCENE_PHOTOS = %s;
+''' % ("\n".join(lines), json.dumps(cuisine_keys, indent=1, sort_keys=True),
+     json.dumps(scene_index, indent=1, sort_keys=True))
 open(os.path.join(ROOT, "photos.js"), "w").write(js)
 
 md = ["# Image credits", "",
@@ -87,3 +116,5 @@ open(os.path.join(ROOT, "CREDITS.md"), "w").write("\n".join(md))
 exact = sum(1 for r in ok if is_exact(r))
 print(f"photos.js: {len(ok)} images ({exact} exact, {len(ok)-exact} area stand-ins), "
       f"{len(cuisine_keys)} cuisines mapped")
+print(f"deduplicated: {len(dropped)} byte-identical duplicates removed")
+for k, kept in dropped[:6]: print(f"   dropped {k} (same image as {kept})")

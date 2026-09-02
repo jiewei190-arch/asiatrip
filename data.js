@@ -63,6 +63,28 @@ function img(seed,w,h,label){
   return svgToDataUri(svg);
 }
 
+/* ---- Per-destination scene pool ----
+   Several curated places have no photograph of their own (a small restaurant, most hotels).
+   They used to all fall back to the same single destination-level shot, so Marrakech rendered
+   one identical photo on seven cards. Each destination now carries a pool of genuinely
+   different nearby landmarks, handed out one per card, so every place still gets a real photo
+   OF THAT CITY and no two cards on a page repeat. */
+function scenePool(destId){
+  const counts = (typeof window !== 'undefined' && window.SCENE_PHOTOS) || {};
+  return counts[destId] || 0;
+}
+/** Hands out the next unused scene photo for a destination, or null once the pool runs dry. */
+function makeSceneDealer(destId){
+  const total = scenePool(destId);
+  let n = 0;
+  // Skips gaps rather than stopping at one: a missing number in the middle of the pool used
+  // to end the deal early and leave later cards without a distinct photo.
+  return () => {
+    while(n < total){ const src = bundledPhoto(`scene/${destId}-${++n}`); if(src) return src; }
+    return null;
+  };
+}
+
 /* ---- Generic category photography ----
    The last rung before the generated placeholder. A typed-in destination's starter
    restaurants and stays are openly illustrative demo entries, so a real photograph of a
@@ -1126,7 +1148,6 @@ function currencyCodeForCountry(country){
 }
 
 DESTINATIONS_RAW.forEach(d=>{
-  const claimedCuisines = new Set();   // one dish photo per cuisine, per destination
   DESTINATIONS.push({
     id:d.id, name:d.name, country:d.country, flag:d.flag, tagline:d.tagline, description:d.description,
     tags:d.tags, lat:d.lat, lng:d.lng, weather:d.weather, bestTime:d.bestTime, currency:d.currency,
@@ -1134,9 +1155,48 @@ DESTINATIONS_RAW.forEach(d=>{
     language:d.language, avgDailyBudget:d.avgDailyBudget, travelInfo:d.travelInfo,
     hero: bundledPhoto('dest/'+d.id) || img(d.id+'-hero',1600,900,'')
   });
-  (d.attractions||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-a${i+1}`, destId:d.id, type:'attraction', source:'curated', image:bundledPhoto(`place/${d.id}-a${i+1}`) || img(d.id+'-attr-'+i,640,480,p.name)}, p)));
-  (d.restaurants||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-r${i+1}`, destId:d.id, type:'restaurant', source:'curated', image:bundledPhotoExact(`place/${d.id}-r${i+1}`) || bundledCuisinePhoto(p.cuisine, claimedCuisines) || bundledPhoto(`place/${d.id}-r${i+1}`) || img(d.id+'-food-'+i,640,480,p.name)}, p)));
-  (d.hotels||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-h${i+1}`, destId:d.id, type:'hotel', source:'curated', image:bundledPhoto(`place/${d.id}-h${i+1}`) || hotelCategoryPhoto(p.stars) || img(d.id+'-hotel-'+i,640,480,p.name)}, p)));
+
+  /* Photo assignment, resolved for the whole destination at once so no two cards can show
+     the same image. Marrakech used to render one identical photo on seven cards, because
+     every place lacking a photo of its own fell back to the same destination-level shot.
+
+     Claiming is what guarantees uniqueness: each image can be taken once, and a place whose
+     preferred image is already spoken for simply moves to its next option. It is resolved in
+     passes rather than per-place so that priority beats array order — "La Mamounia Restaurant"
+     sits inside the La Mamounia hotel and both legitimately match the same building, but the
+     photo of the building belongs to the hotel, and the restaurant is better served by a plate
+     of what it cooks anyway. */
+  const attrs = d.attractions || [], rests = d.restaurants || [], hotels = d.hotels || [];
+  const used = new Set();
+  const claim = src => (src && !used.has(src)) ? (used.add(src), src) : null;
+  const claimedCuisines = new Set();
+  const dealScene = makeSceneDealer(d.id);
+  const nextScene = () => { let src; while((src = dealScene())) { const c = claim(src); if(c) return c; } return null; };
+
+  const attrImg = new Array(attrs.length).fill(null);
+  const restImg = new Array(rests.length).fill(null);
+  const hotelImg = new Array(hotels.length).fill(null);
+
+  // Pass 1 — a photo of the actual place, for the places that own it.
+  attrs.forEach((p,i)=>{ attrImg[i] = claim(bundledPhotoExact(`place/${d.id}-a${i+1}`)); });
+  hotels.forEach((p,i)=>{ hotelImg[i] = claim(bundledPhotoExact(`place/${d.id}-h${i+1}`)); });
+  // Pass 2 — restaurants: their own photo if still free, otherwise the food they serve.
+  rests.forEach((p,i)=>{
+    restImg[i] = claim(bundledPhotoExact(`place/${d.id}-r${i+1}`))
+              || claim(bundledCuisinePhoto(p.cuisine, claimedCuisines));
+  });
+  // Pass 3 — everything still unresolved gets a distinct real photo of somewhere in this
+  // destination, then its own neighbourhood, then a category photo, then the name card.
+  attrs.forEach((p,i)=>{ attrImg[i] = attrImg[i] || nextScene() || claim(bundledPhoto(`place/${d.id}-a${i+1}`))
+                                   || claim(categoryPhoto('attraction', p.category)) || img(d.id+'-attr-'+i,640,480,p.name); });
+  rests.forEach((p,i)=>{ restImg[i] = restImg[i] || nextScene() || claim(bundledPhoto(`place/${d.id}-r${i+1}`))
+                                   || claim(bundledPhoto('category/restaurant')) || img(d.id+'-food-'+i,640,480,p.name); });
+  hotels.forEach((p,i)=>{ hotelImg[i] = hotelImg[i] || nextScene() || claim(bundledPhoto(`place/${d.id}-h${i+1}`))
+                                     || claim(hotelCategoryPhoto(p.stars)) || img(d.id+'-hotel-'+i,640,480,p.name); });
+
+  attrs.forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-a${i+1}`, destId:d.id, type:'attraction', source:'curated', image:attrImg[i]}, p)));
+  rests.forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-r${i+1}`, destId:d.id, type:'restaurant', source:'curated', image:restImg[i]}, p)));
+  hotels.forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-h${i+1}`, destId:d.id, type:'hotel', source:'curated', image:hotelImg[i]}, p)));
 });
 
 /* ---------------- Real-data attraction padding for long trip ideas ----------------
