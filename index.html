@@ -380,7 +380,7 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
   <div class="aiHead">
     <div><div class="aiTitle">✦ TripFlow AI Assistant</div><div class="aiSub" id="aiContextLabel">Ask about places, itineraries, budgets.</div></div>
     <div class="aiBtns">
-      <button class="aiIcon" id="apiSetupBtn" title="Optional: connect Gemini API key"><i class="fa-solid fa-key"></i></button>
+      <button class="aiIcon" id="apiSetupBtn" title="Optional: connect an API key for open-ended chat — the assistant works fully without one"><i class="fa-solid fa-key"></i></button>
       <button class="aiIcon" id="minAI" title="Minimize">−</button>
       <button class="aiIcon" id="closeAI" title="Close">×</button>
     </div>
@@ -640,10 +640,10 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
 <script>
 /* Loaded with the same self-rotating token (see the note in <head>). Dynamically inserted
  * scripts with async=false still execute in insertion order, so photos.js (the bundled-image
- * index) runs before data.js, which runs before app.js — and being at the end of <body>, the
- * DOM is already parsed when they do. */
+ * index) runs before data.js, and assistant.js before app.js — and being at the end of <body>,
+ * the DOM is already parsed when they do. */
 (function(){
-  ['photos.js','data.js','app.js'].forEach(function(src){
+  ['photos.js','data.js','assistant.js','app.js'].forEach(function(src){
     var s = document.createElement('script');
     s.src = src + '?v=' + window.ASSET_VERSION;
     s.async = false;

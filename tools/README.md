@@ -14,6 +14,8 @@ is what serves the *worldwide* destinations a visitor types in, not the built-in
 | `import-scenes.py` | Collects a pool of distinct, notable landmark photos per destination, used to give every photo-less card a different real local image. |
 | `audit-images.js` | Renders the real site in Chromium at desktop and mobile sizes and fails on any broken image, leftover placeholder, or console error. |
 | `audit-duplicates.js` | Walks every destination's tabs and reports any image rendered more than once, comparing by file content rather than by name. |
+| `test-assistant.js` | Drives the real assistant in the page over ~35 realistic phrasings and prints each answer. |
+| `test-assistant-stress.js` | Feeds it empty, malformed, hostile and absurd input; fails on any throw, empty reply or page error. |
 
 ## How a photo is chosen
 

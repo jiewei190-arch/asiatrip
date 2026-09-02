@@ -25,7 +25,7 @@ Then open `http://localhost:8080`.
 - **Budget tracker** — auto-calculated category breakdown, manual expenses, budget style (Budget/Moderate/Luxury), over-budget warnings
 - **My Trips** — dashboard of all trips with open/edit/duplicate/share/delete
 - **Saved** — Google Maps-style collections
-- **AI assistant** — floating chat that can actually modify your itinerary (optimize routes, adjust budget, rearrange days, find alternatives); works out of the box with a rule-based engine, or connect a free Gemini API key for open-ended Q&A
+- **Assistant** — a floating chat that needs **no API key, no account and no network**. It answers from the app's own data and edits your itinerary directly: "plan 5 days in Rome", "add Senso-ji to day 2", "day 1 is too packed", "optimise my route", "how's my budget?", "do I need a visa?", "hidden gems in Bali", "cheap eats under $15". It remembers the conversation, so "add the second one to day 2" works. Optionally connect your own provider key for open-ended chat on top — the assistant is fully functional without one. See `assistant.js`.
 
 ## Data
 

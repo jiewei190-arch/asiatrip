@@ -4112,7 +4112,11 @@ function renderCollabTab(trip){
 }
 
 /* ============================================================
-   AI ASSISTANT — rule-based intent engine + optional Gemini
+   AI ASSISTANT — chat surface
+   ------------------------------------------------------------
+   The language engine lives in assistant.js; this file owns the panel, the contextual
+   suggestion chips, and the optional provider-key path. The assistant answers every message
+   locally with no key and no network — a key only ever adds open-ended chat on top.
 ============================================================ */
 function initAI(){
   STATE.geminiKey = localStorage.getItem(LS_GEMINI) || '';
@@ -4123,7 +4127,7 @@ function initAI(){
   $('aiText').addEventListener('keydown', e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendAI(); } });
   $('apiSetupBtn').onclick = openApiKeysModal;
   renderAISuggestions();
-  pushAIMessage('ai', `Hi! I'm your TripFlow AI assistant ✨. I can actually edit your itinerary — try "Make Day 2 more relaxed", "Optimize my route", or "What should I do in Tokyo for 3 days?"`);
+  pushAIMessage('ai', `Hi! I'm your TripFlow assistant ✨ — no setup, no API key, works offline.\n\nI can edit your itinerary directly ("make day 2 more relaxed", "add Senso-ji to day 1", "optimise my route"), answer questions about any destination ("do I need a visa?", "how much per day?"), and find places ("hidden gems in Bali", "cheap eats under $15").\n\nAsk me for **help** to see everything.`);
 }
 function openAI(){ $('ai').classList.remove('hidden'); $('aiLauncher').style.display='none'; renderAISuggestions(); $('aiText').focus(); }
 function closeAI(){ $('ai').classList.add('hidden'); $('aiLauncher').style.display='flex'; }
@@ -4138,40 +4142,47 @@ function renderAISuggestions(){
     const dest = resolveDestFromId(decodeURIComponent(parts[1]||'')) || findDestination(decodeURIComponent(parts[1]||''));
     const tab = parts[2]||'overview';
     if(tab==='map'){
-      list = [`Find nearby attractions in ${dest.name}`, `Find restaurants near me in ${dest.name}`, `Optimize my locations in ${dest.name}`, `Plan my entire trip to ${dest.name}`];
+      list = [`What should I do in ${dest.name}?`, `Where should I eat in ${dest.name}?`, `Hidden gems in ${dest.name}`, `Plan 4 days in ${dest.name}`];
     } else {
-      list = [`Plan my entire trip to ${dest.name}`, `Best places for food in ${dest.name}`, `Find hidden gems in ${dest.name}`, `Instagrammable locations in ${dest.name}`];
+      list = [`Plan 4 days in ${dest.name}`, `Do I need a visa for ${dest.name}?`, `How much per day in ${dest.name}?`, `What if it rains in ${dest.name}?`];
     }
   } else if(trip && parts[0]==='trip'){
     const tab = parts[2]||'itinerary';
     if(tab==='budget'){
-      list = ['Rebalance my budget', 'Find cheaper alternatives', 'Reduce my spending', 'Make this trip cheaper'];
+      list = ['How is my budget?', 'Make this cheaper', 'What will this cost?', 'Make it luxury'];
     } else if(tab==='collab'){
       list = ['Add more nightlife to Day 1', 'Find romantic restaurants nearby', 'Find hidden gems for the group', 'Rearrange my itinerary to reduce travel time'];
     } else {
       list = [
-        'Rearrange my itinerary to reduce travel time',
-        'Make Day 1 more relaxed',
-        `Add more nightlife to Day ${Math.min(2,trip.days.length)}`,
-        'Find hidden gems',
+        'Optimise my route',
+        'Day 1 is too packed',
+        `Add more nightlife to day ${Math.min(2,trip.days.length)}`,
+        'What does my trip look like?',
       ];
     }
   } else {
     list = [
-      'What should I do in Tokyo for 3 days?',
-      'Build me a cheap itinerary',
-      'Find romantic restaurants in Paris',
-      'What can I do on a rainy day in Bangkok?',
+      'Plan 5 days in Rome',
+      'Hidden gems in Bali',
+      'Romantic restaurants in Paris',
+      'What can you do?',
     ];
   }
   $('aiSuggestions').innerHTML = list.map(s=>`<button class="suggestion">${esc(s)}</button>`).join('');
   $('aiSuggestions').querySelectorAll('.suggestion').forEach(b=>b.onclick=()=>{ $('aiText').value=b.textContent; sendAI(); });
 }
+/** The assistant writes light markdown (**bold**, bullet lines). Render just that much —
+ * escaping first, so a place name containing markup can never inject HTML. */
+function aiRichText(text){
+  return esc(String(text == null ? '' : text))
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+}
 function pushAIMessage(who, text){
   const msgs = $('messages');
   const div = document.createElement('div');
   div.className = `msg ${who}`;
-  div.innerHTML = esc(text).replace(/\n/g,'<br>');
+  div.innerHTML = aiRichText(text);
   msgs.appendChild(div);
   msgs.scrollTop = msgs.scrollHeight;
   return div;
@@ -4331,9 +4342,12 @@ async function sendAI(){
   $('aiText').value = '';
   const typing = pushAIMessage('ai', '💭 Thinking…');
   const trip = getTrip(plannerState.tripId);
-  const result = handleIntent(text, trip);
-  if(result.handled){
-    typing.innerHTML = esc(result.reply).replace(/\n/g,'<br>');
+  // The local engine answers everything — it has no key, no network and no model to load,
+  // so it is the primary path rather than a fallback. A provider key, if the user has added
+  // one, is consulted only for the open-ended questions the local engine flags as unhandled.
+  const result = assistantRespond(text, trip);
+  if(!result.openEnded){
+    typing.innerHTML = aiRichText(result.reply);
     renderAISuggestions();
     return;
   }
@@ -4343,25 +4357,16 @@ async function sendAI(){
     const prompt = `You are TripFlow's travel planning assistant. ${context} Answer concisely with short, practical bullet points, using real place names when relevant. User: ${text}`;
     const gemini = await callGemini(prompt, STATE.geminiKey);
     if(gemini.text){
-      typing.innerHTML = esc(gemini.text).replace(/\n/g,'<br>');
+      typing.innerHTML = aiRichText(gemini.text);
     } else {
-      typing.innerHTML = esc(`Couldn't reach Gemini (${gemini.error || 'unknown error'}). Meanwhile: ` + result.reply);
+      typing.innerHTML = aiRichText(result.reply);
     }
   } else {
-    typing.innerHTML = esc(result.reply).replace(/\n/g,'<br>');
+    typing.innerHTML = aiRichText(result.reply);
   }
   renderAISuggestions();
 }
 
-function guessDestFromText(t){
-  // Matches any destination already known this session (curated or previously-searched
-  // generic ones) — not just curated — since AI suggestion chips on a destination page embed
-  // that exact destination's name. Prefers the longest/most-specific match to avoid a short
-  // name accidentally matching inside an unrelated longer phrase.
-  const matches = DESTINATIONS.filter(d=>d.name.length>2 && t.includes(d.name.toLowerCase()));
-  matches.sort((a,b)=>b.name.length-a.name.length);
-  return matches[0];
-}
 function adjustDayCount(trip, n){
   n = clamp(n,1,14);
   while(trip.days.length<n){
@@ -4406,159 +4411,6 @@ function makeDayRelaxed(day){
   return removedNames;
 }
 
-function handleIntent(text, trip){
-  const t = text.toLowerCase().trim();
-  const dest = trip ? destForTrip(trip) : null;
-
-  // Accepts both word orders — "what should I do in Tokyo for 3 days" AND
-  // "what should I do for 3 days in Tokyo" — plus a few common rephrasings ("what to do
-  // in", "things to do in", "what can I do in") rather than one rigid fixed phrase.
-  const dayM = t.match(/for (\d+)\s*days?/);
-  const daysFromText = dayM ? parseInt(dayM[1],10) : null;
-  const withoutDays = dayM ? t.slice(0,dayM.index).trim()+' '+t.slice(dayM.index+dayM[0].length).trim() : t;
-  let m = withoutDays.match(/(?:what should i do|what to do|what can i do|things to do|plan (?:my |an? )?(?:entire )?trip)\s+(?:in|to|for) ([a-z\s,]+?)[.?!]?$/);
-  if(m && m[1].trim().length>1){
-    const name = m[1].trim();
-    const days = daysFromText;
-    const d = findDestination(name);
-    if(!trip || trip.destId!==d.id){
-      const nDays = days||4;
-      const start = toDateInput(new Date(Date.now()+21*86400000));
-      const newTrip = buildAutoTrip(d.id, `${d.name} Trip`, start, addDays(start,nDays-1), 2, 'moderate');
-      STATE.trips.unshift(newTrip); saveState();
-      navigate(`#/trip/${newTrip.id}`);
-      return {handled:true, reply:`I put together a ${nDays}-day starter itinerary for ${d.name} — take a look! You can drag stops around, swap places, or ask me to adjust the pace.`};
-    } else if(days){
-      adjustDayCount(trip, days);
-      if(plannerState.tripId===trip.id) renderPlannerView(trip.id, 'itinerary');
-      return {handled:true, reply:`Updated "${trip.title}" to ${days} days and filled in top-rated picks for ${d.name}.`};
-    }
-  }
-
-  if(/\bcheap(er)?\b|budget[- ]friendly|build me a cheap|reduce (my )?spending|rebalance( my)? budget|(make|save).*(trip|itinerary).*(cheap|money)/.test(t)){
-    if(trip){
-      trip.budget.style='budget';
-      trip.budget.total = Math.round(dest.avgDailyBudget.budget*trip.days.length*trip.travelers);
-      const changed = swapForCheaperAlternatives(trip, plannerState.day, 3);
-      saveState();
-      if(plannerState.tripId===trip.id) renderPlannerView(trip.id, location.hash.split('/')[3] || 'itinerary');
-      return {handled:true, reply:`Switched "${trip.title}" to Budget style (~${fmt$(trip.budget.total)} total)${changed.length?` and swapped in ${changed.length} cheaper pick(s) for Day ${plannerState.day+1}`:''}.`};
-    } else {
-      const pool = DESTINATIONS.filter(d=>d.tags.includes('affordable'));
-      const d = pool[Math.floor(Math.random()*pool.length)] || DESTINATIONS[0];
-      const start = toDateInput(new Date(Date.now()+21*86400000));
-      const newTrip = buildAutoTrip(d.id, `${d.name} on a Budget`, start, addDays(start,3), 2, 'budget');
-      STATE.trips.unshift(newTrip); saveState();
-      navigate(`#/trip/${newTrip.id}`);
-      return {handled:true, reply:`I built a 4-day budget-friendly trip to ${d.name} (~${fmt$(newTrip.budget.total)} total). Open a specific destination first if you had somewhere else in mind!`};
-    }
-  }
-
-  if(/romantic (restaurants?|dinner|dining)/.test(t) || /find romantic/.test(t)){
-    const d = dest || guessDestFromText(t) || DESTINATIONS[0];
-    const picks = placesFor(d.id,'restaurant').filter(p=>(p.tags||[]).includes('romantic')).sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,3);
-    const list = picks.length ? picks : placesFor(d.id,'restaurant').sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,3);
-    return {handled:true, reply:`Romantic dinner spots in ${d.name}:\n` + list.map(p=>`• ${p.name} (${p.cuisine}, ★${p.rating}) — ${p.desc}`).join('\n') + `\n\nTry "add ${list[0].name} to day 1" and I'll drop it into your itinerary.`};
-  }
-
-  if(/rainy day|it'?s raining|raining outside/.test(t)){
-    const d = dest || guessDestFromText(t) || DESTINATIONS[0];
-    const outdoorCats = ['Beach','Viewpoint','Hiking','Nature','Wine','Adventure'];
-    const indoor = placesFor(d.id,'attraction').filter(p=>!outdoorCats.includes(p.category)).sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,4);
-    return {handled:true, reply:`Good indoor options in ${d.name} for a rainy day:\n` + indoor.map(p=>`• ${p.name} (${p.category})`).join('\n')};
-  }
-
-  if(/hidden gems?|off[- ]the[- ]beaten|lesser[- ]known|local favorites?/.test(t)){
-    const d = dest || guessDestFromText(t) || DESTINATIONS[0];
-    const picks = placesFor(d.id,'attraction').filter(p=>(p.tags||[]).includes('hidden')).sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,4);
-    const list = picks.length ? picks : placesFor(d.id,'attraction').sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,4);
-    return {handled:true, reply:`Hidden gems in ${d.name}:\n` + list.map(p=>`• ${p.name} — ${p.desc}`).join('\n') + `\n\nTry "add ${list[0].name} to day 1" and I'll drop it into your itinerary.`};
-  }
-
-  if(/instagrammable|photogenic|photo spots?|photography spots?/.test(t)){
-    const d = dest || guessDestFromText(t) || DESTINATIONS[0];
-    const picks = placesFor(d.id,'attraction').filter(p=>(p.tags||[]).includes('photography')).sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,4);
-    const list = picks.length ? picks : placesFor(d.id,'attraction').sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,4);
-    return {handled:true, reply:`Most photogenic spots in ${d.name}:\n` + list.map(p=>`• ${p.name} — ${p.desc}`).join('\n') + `\n\nTry "add ${list[0].name} to day 1" and I'll drop it into your itinerary.`};
-  }
-
-  if(/find (nearby )?attractions?/.test(t)){
-    const d = dest || guessDestFromText(t) || DESTINATIONS[0];
-    const list = placesFor(d.id,'attraction').sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,5);
-    return {handled:true, reply:`Top attractions in ${d.name}:\n` + list.map(p=>`• ${p.name} (★${p.rating}) — ${p.desc}`).join('\n')};
-  }
-
-  if(/find restaurants? (near me|nearby)/.test(t)){
-    const d = dest || guessDestFromText(t) || DESTINATIONS[0];
-    const list = placesFor(d.id,'restaurant').sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,5);
-    return {handled:true, reply:`Top restaurants in ${d.name}:\n` + list.map(p=>`• ${p.name} (${p.cuisine}, ★${p.rating})`).join('\n')};
-  }
-
-  if(/(optimize|reduce travel time|rearrange)/.test(t) && /(itinerary|trip|route|day)/.test(t) && trip){
-    const day = trip.days[plannerState.day];
-    if(day.stops.length<3) return {handled:true, reply:`Day ${plannerState.day+1} only has ${day.stops.length} stop(s) — add a couple more and I can optimize the route.`};
-    const before = totalDistance(day.stops);
-    day.stops = nearestNeighborOrder(day.stops);
-    recomputeDayTimes(day);
-    const after = totalDistance(day.stops);
-    logActivity(trip, `AI optimized the route for Day ${plannerState.day+1}.`);
-    saveState();
-    if(plannerState.tripId===trip.id) renderPlannerItinerary(trip);
-    return {handled:true, reply:`Reordered Day ${plannerState.day+1} — travel distance dropped from ${before.toFixed(1)} km to ${after.toFixed(1)} km.`};
-  }
-
-  m = t.match(/add (?:more )?nightlife to day (\d+)/);
-  if(m && trip){
-    const idx = parseInt(m[1],10)-1;
-    if(idx<0||idx>=trip.days.length) return {handled:true, reply:`This trip only has ${trip.days.length} days.`};
-    const used = new Set(trip.days.flatMap(d=>d.stops.map(s=>s.placeId)));
-    const picks = PLACES.filter(p=>p.destId===trip.destId && !used.has(p.id) && (p.tags||[]).includes('nightlife')).sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,2);
-    if(!picks.length) return {handled:true, reply:`I couldn't find more unused nightlife spots in ${dest.name} for this trip.`};
-    picks.forEach(p=>addPlaceToTripSilent(trip, idx, p));
-    logActivity(trip, `AI added nightlife picks to Day ${idx+1}.`);
-    saveState();
-    if(plannerState.tripId===trip.id) renderPlannerItinerary(trip);
-    return {handled:true, reply:`Added ${picks.map(p=>p.name).join(' and ')} to Day ${idx+1}.`};
-  }
-
-  if(/cheaper alternatives?|find cheaper/.test(t) && trip){
-    const changed = swapForCheaperAlternatives(trip, plannerState.day, 2);
-    saveState();
-    if(plannerState.tripId===trip.id) renderPlannerItinerary(trip);
-    return {handled:true, reply: changed.length ? `Swapped ${changed.map(c=>`${c.from} → ${c.to}`).join(', ')} on Day ${plannerState.day+1} for cheaper picks.` : `Day ${plannerState.day+1} is already pretty budget-friendly — nothing worth swapping.`};
-  }
-
-  m = t.match(/add (.+) to day (\d+)/);
-  if(m && trip){
-    const name = m[1].trim().toLowerCase();
-    const idx = parseInt(m[2],10)-1;
-    const p = PLACES.find(x=>x.destId===trip.destId && x.name.toLowerCase().includes(name));
-    if(p && idx>=0 && idx<trip.days.length){
-      addPlaceToTripSilent(trip, idx, p);
-      logActivity(trip, `AI added ${p.name} to Day ${idx+1}.`);
-      saveState();
-      if(plannerState.tripId===trip.id) renderPlannerItinerary(trip);
-      return {handled:true, reply:`Added ${p.name} to Day ${idx+1}.`};
-    }
-  }
-
-  m = t.match(/make day (\d+) more relax/);
-  if(m && trip){
-    const idx = parseInt(m[1],10)-1;
-    if(idx<0||idx>=trip.days.length) return {handled:true, reply:`This trip only has ${trip.days.length} days.`};
-    const day = trip.days[idx];
-    const removedNames = makeDayRelaxed(day);
-    recomputeDayTimes(day);
-    logActivity(trip, `AI made Day ${idx+1} more relaxed.`);
-    saveState();
-    if(plannerState.tripId===trip.id) renderPlannerItinerary(trip);
-    return {handled:true, reply: removedNames.length ? `Lightened up Day ${idx+1} — removed ${removedNames.join(', ')} so you have more breathing room.` : `Day ${idx+1} is already relaxed with just ${day.stops.length} stops.`};
-  }
-
-  return {handled:false, reply: dest
-    ? `${dest.name}'s best time to visit is ${dest.bestTime}, and the average daily budget is ${fmt$(dest.avgDailyBudget.moderate)}. Ask me to optimize your route, adjust a day, or find cheaper picks!`
-    : `Try opening a destination or a trip first, or ask me things like "Build me a cheap itinerary", "Find romantic restaurants in Paris", or "What can I do on a rainy day in Bangkok?"`};
-}
 
 /* ============================================================
    INIT
