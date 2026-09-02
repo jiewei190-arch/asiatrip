@@ -170,6 +170,20 @@ earlier — it requires an API key with billing enabled, and this app was explic
 need no key from anyone. Photon/OSM provides the same guarantees keylessly: a stable canonical
 id, verified coordinates, and a country that comes from the same record as the name.
 
+## Destination imagery vs entity imagery
+
+These need opposite things, and conflating them regresses both.
+
+A **named entity** wants the photograph taken at its coordinates — Commons geosearch.
+A **destination** wants the image that REPRESENTS it, which proximity cannot supply: geosearch
+at a city centroid offered the Tokyo International Forum's roof for Tokyo, a church for Reine
+and a waterfall for Hallstatt, displacing the skyline, the fjord and the village square. So
+destinations skip geosearch entirely and use the representative ladder: their own verified
+article, then Wikidata P18 (a curated image, which is what a country needs — a country's own
+article usually leads with a flag).
+
+`test-destination-imagery.js` covers this; `test-entity-imagery.js` covers named entities.
+
 ## Entity imagery (Phase 2)
 
 `imagery.js` is the one resolver. Overpass was the intended entity source and proved

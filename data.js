@@ -439,6 +439,10 @@ const INAPPROPRIATE_SUBJECT = new RegExp([
   '\\bslums?\\b','\\bpoverty\\b','\\brefugees?\\b','\\bprisons?\\b','\\bpenitentiary\\b',
   '\\bcemeter(y|ies)\\b','\\bgraves?\\b','\\bgraveyard\\b','\\bmorgue\\b','\\bfuneral\\b',
   '\\bpolice\\b','\\bpolitician\\b','\\bpresident\\b','\\bdictator\\b','\\bparade\\b','\\bDMZ\\b',
+  // Sexual content. A search for "Japan" returned "Kikakumono adult video in Japan" as the
+  // country's representative image; nothing of the sort belongs on a holiday planner.
+  '\\badult video\\b','\\bporn','\\bsex\\b','\\bsexual\\b','\\bnude\\b','\\bnudity\\b','\\berotic',
+  '\\bbrothel\\b','\\bprostitut','\\bstrip club\\b','\\bfetish\\b','\\bhentai\\b','\\bgore\\b',
 ].join('|'), 'i');
 
 /** True when a title or filename is safe to use as default travel imagery. */

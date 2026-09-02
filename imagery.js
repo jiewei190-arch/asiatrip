@@ -281,6 +281,38 @@ async function imageFromOsmTags(tags, width){
   return null;
 }
 
+/** A destination's Wikidata "image" (P18) — a curated, representative photograph chosen by
+ *  editors to stand for the place as a whole. That is exactly what a country or region needs
+ *  and exactly what proximity search cannot give: France's article leads with a flag, and
+ *  geosearch at the centroid of a country is meaningless, but P18 is a picture of France.
+ *  Resolved via the Wikipedia article we already matched, so it inherits that verification. */
+async function destinationWikidataImage(entity, width){
+  const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search` +
+    `&gsrsearch=${encodeURIComponent(entity.name)}&gsrlimit=3` +
+    `&prop=pageprops|coordinates&ppprop=wikibase_item&colimit=10&format=json&origin=*`;
+  const data = await fetchWikiJSON(url);
+  if(!data) return null;
+  const pages = Object.values((data.query && data.query.pages) || {})
+    .sort((a,b) => (a.index || 9) - (b.index || 9));
+  for(const p of pages){
+    const qid = (p.pageprops || {}).wikibase_item;
+    if(!qid) continue;
+    // The article must BE the place, not merely mention it. titleNamesPlace is deliberately
+    // generous elsewhere ("Queenstown, New Zealand" for Queenstown), and that generosity
+    // matched "Adult video in Japan" for Japan. For a representative image the title has to
+    // be the name itself, optionally with a parenthetical or a ", <region>" qualifier.
+    const bare = String(p.title).replace(/\s*\(.*?\)\s*$/, '').split(',')[0].trim();
+    if(bare.toLowerCase() !== String(entity.name).trim().toLowerCase()) continue;
+    // Same coordinate discipline as everywhere else: the article must be the right place.
+    const c = (p.coordinates || [])[0];
+    if(c && entity.lat != null &&
+       kmBetween(entity.lat, entity.lng, c.lat, c.lon) > destPhotoRadiusKm(entity.placeType)) continue;
+    const img = await wikidataImage(qid, width);
+    if(img && looksLikePhoto(img) && isTravelAppropriate(img)) return img;
+  }
+  return null;
+}
+
 /* ---------------- The resolver ----------------
    `entity` is the canonical object: { placeId, name, type, kind, country, countryCode,
    lat, lng }. `kind` is what the card is showing — 'destination', 'attraction',
@@ -294,11 +326,18 @@ async function resolveEntityImage(entity, opts){
 
   let result = null;
 
-  // Rung 1: photographs geotagged AT the entity. Tried first because it is both the most
-  // specific evidence available and the most reliably reachable source.
-  try {
-    const geo = await commonsGeoPhoto(entity, { width: o.width, signal: o.signal,
-                                                radius: entity.kind === 'destination' ? 800 : 300 });
+  // Rung 1: photographs geotagged AT the entity — but only for a NAMED entity.
+  //
+  // A destination and an entity need opposite things. "Marina Bay Sands" wants the photo
+  // taken at those coordinates; "Tokyo" wants the image that REPRESENTS Tokyo, and geosearch
+  // at a city centroid returns whatever happens to be photographed within a few hundred
+  // metres — it offered the Tokyo International Forum's roof for Tokyo, a church for Reine
+  // and a waterfall for Hallstatt, displacing the skyline, the fjord and the village square
+  // that the destination path had already resolved. Destinations therefore skip this rung
+  // entirely and keep the representative-image ladder in data.js.
+  const isDestination = entity.kind === 'destination';
+  if(!isDestination) try {
+    const geo = await commonsGeoPhoto(entity, { width: o.width, signal: o.signal, radius: 300 });
     if(geo){
       result = { url: geo.url,
                  source: geo.named ? 'commons_named' : 'commons_nearby',
@@ -310,8 +349,8 @@ async function resolveEntityImage(entity, opts){
 
   // Rung 2: the entity's own OSM tags — the other way to prove a photo is of THIS place.
   // Overpass is slow and heavily rate-limited, so it only runs if the rung above found
-  // nothing.
-  if(!result) try {
+  // nothing, and never for a destination.
+  if(!result && !isDestination) try {
     const tags = await overpassEntityTags(entity, { signal: o.signal, radius: o.radius });
     const found = await imageFromOsmTags(tags, o.width || 720);
     if(found && isTravelAppropriate(found.url)){
@@ -322,14 +361,23 @@ async function resolveEntityImage(entity, opts){
     if(err.name === 'AbortError') throw err;
   }
 
-  // Rung 3: the entity's Wikipedia article, verified by name and coordinates (data.js).
-  if(!result && entity.kind === 'destination'){
+  // Rung 3: the destination's own representative image, verified by name and coordinates.
+  if(!result && isDestination){
     const url = await resolveDestinationPhoto(entity);
     if(url){
       const tier = destPhotoTierFor(entity.placeId || entity.id);
       const source = tier === 'article' ? 'wikipedia_verified' : 'landmark_inside';
       result = { url, source, confidence: IMAGE_CONFIDENCE[source] };
     }
+  }
+
+  // Rung 4: a curated representative image, for the destinations whose own article leads with
+  // a flag or a map — which is most countries.
+  if(!result && isDestination){
+    try {
+      const img = await destinationWikidataImage(entity, o.width || 720);
+      if(img) result = { url: img, source: 'wikidata_p18', confidence: IMAGE_CONFIDENCE.wikidata_p18 };
+    } catch(err){ if(err.name === 'AbortError') throw err; }
   }
 
   // A NAMED entity that is not a destination must be depicted, not approximated. Below the
