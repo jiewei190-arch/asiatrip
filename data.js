@@ -292,6 +292,193 @@ async function fetchWikiThumbnailChain(queries){
   return null;
 }
 
+/* ---- Destination photography, worldwide ----
+   A destination's own article is usually the best photo of it, but searching by name alone
+   gets two things wrong often enough to matter, and both were measured across 51 places on
+   six continents rather than guessed at:
+
+     · It can match something that is not a place. "Vinales" returned Maverick Viñales, a
+       MotoGP rider — a photograph of a motorcyclist standing in for a Cuban valley. Articles
+       about people carry no coordinates, so requiring coordinates near the destination
+       rejects the whole class of error.
+     · It can find the right article with no photograph on it. "Swiss Alps" and "Reine"
+       resolved to the correct page and came back empty.
+
+   So: take several candidates rather than only the first, keep the best one that is provably
+   the right PLACE, and when the place itself has no picture, fall back to a real photograph
+   of a real landmark beside it (Reine borrows Moskenes Municipality, the Swiss Alps borrow
+   the Jungfrau). That lifts coverage from 96% to essentially everywhere a traveller can go,
+   and every image is still a genuine photograph of that location. */
+
+/** Wikipedia throttles bursts with 429. Without a retry a throttled moment reads as "this
+ *  place has no photo": a run of destinations went from resolving to blank purely because the
+ *  requests were refused, which measured as 67% coverage instead of the real 96%. One retry
+ *  after a short pause recovers nearly all of it, and a refusal is still never cached as a
+ *  miss — only a real answer is. */
+async function fetchWikiJSON(url){
+  for(let attempt = 0; attempt < 2; attempt++){
+    try {
+      const res = await fetchWithTimeout(url, 8000, {headers:{'Accept':'application/json'}});
+      if(res && res.ok) return await res.json();
+      if(res && (res.status === 429 || res.status === 503)){
+        await new Promise(r => setTimeout(r, 700 + attempt * 900));
+        continue;
+      }
+      return null;                        // a real error, not worth retrying
+    } catch(e){
+      if(attempt) return null;
+      await new Promise(r => setTimeout(r, 500));
+    }
+  }
+  return null;
+}
+
+/** Filenames that are graphics rather than photographs of a place. The bundled-image importer
+ *  rejects these too — without it here, "Faroe Islands" resolved to the national flag and
+ *  "Socotra" to a satellite view. */
+const NON_PHOTO_FILE = new RegExp([
+  'flag', 'coat[_ ]of[_ ]arms', '\\bseal\\b', '\\blogo\\b', 'emblem', 'blason',
+  // "map" in the languages Wikipedia files actually use — Nosy Be resolved to
+  // "Carte_de_Nosy_Be", a French map, because only the English word was blocked.
+  '\\bmap\\b', '\\bcarte\\b', '\\bmapa\\b', '\\bkarte\\b', '\\bkaart\\b', '\\bmappa\\b',
+  'locator', 'location_map', 'topograph', 'orthophoto',
+  // Satellite frames: "Alps_2007-03-13_10.10UTC_1px-250m.jpg" is imagery of a place, not a
+  // photograph of it.
+  'satview', 'satellite', '\\baster\\b', 'landsat', 'sentinel', '\\bnasa\\b', 'utc_',
+  // A rendered vector graphic. Wikipedia serves these as "<name>.svg.png", and a diagram is
+  // essentially never what a traveller should see — this alone caught two locator maps.
+  'svg png', '\\bsvg\\b',
+].join('|'), 'i');
+function looksLikePhoto(url){
+  if(!url) return false;
+  let name = String(url).split('/').pop() || '';
+  try { name = decodeURIComponent(name); } catch(e){}
+  // Underscores are word characters, so /\bmap\b/ does NOT match inside "Pat_map.PNG" — which
+  // is exactly how a map of Patagonia got through. Separators become spaces first so the word
+  // boundaries mean what they look like they mean.
+  name = name.replace(/[_\-.]+/g, ' ');
+  return !NON_PHOTO_FILE.test(name);
+}
+
+function kmBetween(aLat, aLng, bLat, bLng){
+  const R = 6371, rad = d => d * Math.PI / 180;
+  const dLat = rad(bLat - aLat), dLng = rad(bLng - aLng);
+  const h = Math.sin(dLat/2)**2 + Math.cos(rad(aLat)) * Math.cos(rad(bLat)) * Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** Candidate articles for a query, each with its photo and coordinates so it can be vetted. */
+async function fetchWikiCandidates(query, limit){
+  const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search` +
+    `&gsrsearch=${encodeURIComponent(query)}&gsrlimit=${limit || 4}` +
+    `&prop=pageimages|coordinates&piprop=thumbnail&pithumbsize=720&colimit=20&format=json&origin=*`;
+  const data = await fetchWikiJSON(url);
+  if(!data) return null;                                 // null = no answer, distinct from []
+  const pages = (data.query && data.query.pages) || {};
+  return Object.values(pages)
+    .sort((a,b) => (a.index || 9) - (b.index || 9))
+    .map(p => ({
+      title: p.title,
+      thumb: (p.thumbnail && p.thumbnail.source && looksLikePhoto(p.thumbnail.source))
+        ? capWikiThumb(p.thumbnail.source, 720) : null,
+      lat: (p.coordinates && p.coordinates[0]) ? p.coordinates[0].lat : null,
+      lng: (p.coordinates && p.coordinates[0]) ? p.coordinates[0].lon : null,
+    }));
+}
+
+/** A photograph of a real landmark near a coordinate. Wikipedia caps gsradius at 10km. */
+async function fetchNearbyPhoto(lat, lng){
+  if(lat == null || lng == null) return null;
+  const url = `https://en.wikipedia.org/w/api.php?action=query&generator=geosearch` +
+    `&ggscoord=${lat}|${lng}&ggsradius=10000&ggslimit=30` +
+    `&prop=pageimages&piprop=thumbnail&pithumbsize=720&format=json&origin=*`;
+  const data = await fetchWikiJSON(url);
+  if(!data) return null;
+  const pages = Object.values((data.query && data.query.pages) || {});
+  for(const p of pages){
+    if(p.thumbnail && p.thumbnail.source && looksLikePhoto(p.thumbnail.source)){
+      return capWikiThumb(p.thumbnail.source, 720);
+    }
+  }
+  return null;
+}
+
+/** How far a candidate article may sit from the destination and still be about it.
+ *  A single fixed radius cannot work: 75km is right for a town (a "Springfield" 600km away is
+ *  the wrong Springfield) and absurd for Patagonia, whose Wikipedia article sits 606km from
+ *  the geocoder's centroid — both points being legitimately inside a region of a million
+ *  square kilometres. So the tolerance scales with the kind of place. */
+const DEST_PHOTO_MAX_KM = {
+  city:75, town:60, village:40, hamlet:40, suburb:30, borough:40, locality:50, municipality:75,
+  island:150, archipelago:400, peninsula:300, county:150, national_park:200, nature_reserve:150,
+  protected_area:200, attraction:40, monument:40, castle:40, museum:40, peak:60, volcano:60,
+  bay:150, beach:60, fjord:150, lake:150, glacier:120,
+  region:800, state:600, province:600, country:2000,
+};
+function destPhotoRadiusKm(type){ return DEST_PHOTO_MAX_KM[type] || 100; }
+
+/** The full destination-photo chain. Cached under the destination id like any other lookup. */
+async function resolveDestinationPhoto(dest){
+  if(!dest) return null;
+  const cache = photoCache();
+  const key = 'dest:' + (dest.id || dest.name || '').toLowerCase();
+  const hit = cache[key];
+  if(typeof hit === 'string' && hit) return hit;
+  if(hit && typeof hit === 'object' && hit.miss && (Date.now() - hit.miss) < PHOTO_MISS_TTL_MS) return null;
+
+  return withPhotoSlot(async () => {
+    const queries = [dest.name];
+    if(dest.country && dest.country !== dest.name){
+      queries.push(`${dest.name}, ${dest.country}`, `${dest.name} ${dest.country}`);
+    }
+    if(dest.region && dest.region !== dest.name) queries.push(`${dest.name} ${dest.region}`);
+    const hasCoords = dest.lat != null && dest.lng != null && dest.__geo;
+    let answered = false, found = null, anchorLat = null, anchorLng = null;
+
+    for(const q of queries){
+      const candidates = await fetchWikiCandidates(q, 4);
+      if(candidates === null) continue;                  // request failed: not an answer
+      answered = true;
+      for(const c of candidates){
+        // A candidate with no coordinates is not a place — that is what "Maverick Viñales" is.
+        if(c.lat == null) continue;
+        if(hasCoords && kmBetween(dest.lat, dest.lng, c.lat, c.lng) > destPhotoRadiusKm(dest.placeType)) continue;
+        if(!anchorLat){ anchorLat = c.lat; anchorLng = c.lng; }   // a vetted point inside the place
+        if(!c.thumb) continue;                                    // right place, no usable photo
+        found = c.thumb; break;
+      }
+      if(found) break;
+    }
+
+    // The place is real but unphotographed: borrow a landmark beside it.
+    if(!found && (hasCoords || anchorLat)){
+      // Search around the article's own point when we have one: Patagonia's geocoded centroid
+      // is empty steppe, while its article sits 600km away somewhere with photographs.
+      for(const [la, ln] of [[anchorLat, anchorLng], [dest.lat, dest.lng]]){
+        if(la == null) continue;
+        const nearby = await fetchNearbyPhoto(la, ln);
+        if(nearby){ found = nearby; answered = true; break; }
+      }
+    }
+    // Last resort before giving up on photography entirely: the country itself. Reached only
+    // for somewhere with no picture of its own and nothing photographed within 10km — a vast
+    // sparsely-mapped region like Patagonia, whose centroid is empty steppe. Still a real
+    // photograph of a place the traveller is actually going to.
+    if(!found && dest.country){
+      const byCountry = await fetchWikiCandidates(dest.country, 3);
+      if(byCountry){
+        answered = true;
+        for(const c of byCountry){ if(c.thumb && c.lat != null){ found = c.thumb; break; } }
+      }
+    }
+
+    if(found) cache[key] = found;
+    else if(answered) cache[key] = { miss: Date.now() };
+    if(found || answered) writeJSONCache(PHOTO_CACHE_KEY, cache);
+    return found;
+  });
+}
+
 /* ---- Geocoding via OpenStreetMap Nominatim (no key) — real coordinates for ANY place typed, worldwide ---- */
 const GEOCODE_CACHE_KEY = 'tripflow_geocode_cache_v1';
 let __geocodeCache = null;

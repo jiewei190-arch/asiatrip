@@ -198,9 +198,17 @@ function hydratePhotos(container){
     // page whose photos have been resolved once already.
     const known = cachedWikiThumbnail(queries);
     if(known){ imgEl.src = known; return; }
-    fetchWikiThumbnailChain(queries).then(url=>{
-      if(!url) return;
-      imgEl.src = url;
+    // A destination resolves through the validated chain: candidates are checked to be the
+    // right PLACE (by coordinates) before their photo is used, and a real place with no
+    // photograph of its own borrows one from a landmark beside it. Places keep the simpler
+    // name-based chain — they are looked up within a destination already known to be right.
+    const destId = imgEl.dataset.photoDest;
+    const resolver = destId
+      ? resolveDestinationPhoto(DESTINATIONS.find(d => d.id === destId))
+      : fetchWikiThumbnailChain(queries);
+    Promise.resolve(resolver).then(url=>{
+      if(url){ imgEl.src = url; return; }
+      if(destId) return fetchWikiThumbnailChain(queries).then(u => { if(u) imgEl.src = u; });
     }).catch(()=>{});
   });
 }
@@ -529,7 +537,7 @@ function runGlobalSearch(q){
     if(trending.length){
       html += `<div class="gsearch-group">Trending Destinations</div>`;
       trending.forEach(d=>{
-        html += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${destHeroSrc(d)}" alt="" data-photo-q="${esc(destPhotoQuery(d))}"><div><div>${d.flag} ${esc(d.name)}</div><div class="small">${esc(d.tagline)}</div></div></button>`;
+        html += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${destHeroSrc(d)}" alt="" data-photo-dest="${esc(d.id)}" data-photo-q="${esc(destPhotoQuery(d))}"><div><div>${d.flag} ${esc(d.name)}</div><div class="small">${esc(d.tagline)}</div></div></button>`;
       });
     }
     if(!html) html = '<div class="empty" style="padding:26px">Search for a city, attraction, restaurant or hotel.</div>';
@@ -548,7 +556,7 @@ function runGlobalSearch(q){
     if(!matches.length) return '';
     let h = `<div class="gsearch-group">${esc(label)}</div>`;
     matches.forEach(d=>{
-      h += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${destHeroSrc(d)}" alt="" data-photo-q="${esc(destPhotoQuery(d))}"><div><div>${d.flag} ${esc(d.name)}, ${esc(d.country)}</div><div class="small">Explore destination</div></div></button>`;
+      h += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${destHeroSrc(d)}" alt="" data-photo-dest="${esc(d.id)}" data-photo-q="${esc(destPhotoQuery(d))}"><div><div>${d.flag} ${esc(d.name)}, ${esc(d.country)}</div><div class="small">Explore destination</div></div></button>`;
     });
     return h;
   };
@@ -1031,7 +1039,7 @@ function renderHomeView(){
 function destCardHTML(d, tagLabel){
   return `<button class="destCard" data-dest="${d.id}">
     ${tagLabel?`<span class="destCardTag">${esc(tagLabel)}</span>`:''}
-    <img src="${destHeroSrc(d)}" alt="${esc(d.name)}" loading="lazy" data-photo-q="${esc(destPhotoQuery(d))}">
+    <img src="${destHeroSrc(d)}" alt="${esc(d.name)}" loading="lazy" data-photo-dest="${esc(d.id)}" data-photo-q="${esc(destPhotoQuery(d))}">
     <div class="destCardBody"><h4>${d.flag} ${esc(d.name)}</h4><span>${esc(d.country)}</span></div>
   </button>`;
 }
@@ -1183,7 +1191,7 @@ function renderDestinationView(idOrName, tab){
   destState.tab = tab || destState.tab || 'overview';
 
   $('destHero').innerHTML = `
-    <img src="${destHeroSrc(dest)}" alt="${esc(dest.name)}" data-photo-q="${esc(destPhotoQuery(dest))}">
+    <img src="${destHeroSrc(dest)}" alt="${esc(dest.name)}" data-photo-dest="${esc(dest.id)}" data-photo-q="${esc(destPhotoQuery(dest))}">
     <div class="destHeroActions">
       <button class="btn" id="destSaveBtn"><i class="fa-solid fa-heart"></i> Save destination</button>
     </div>
@@ -2306,7 +2314,7 @@ function tripCardHTML(t){
   const over = planned>t.budget.total;
   const progress = computeTripProgress(t);
   return `<div class="tripCard2" data-trip="${t.id}">
-    <div class="tripCoverWrap"><img src="${t.cover||destHeroSrc(dest)}" alt="" data-photo-q="${esc(destPhotoQuery(dest))}"><span class="badge2">${dest.flag} ${esc(dest.name)}</span></div>
+    <div class="tripCoverWrap"><img src="${t.cover||destHeroSrc(dest)}" alt="" data-photo-dest="${esc(dest.id)}" data-photo-q="${esc(destPhotoQuery(dest))}"><span class="badge2">${dest.flag} ${esc(dest.name)}</span></div>
     <div class="tripCardBody">
       <h3>${esc(t.title)}</h3>
       <div class="tripMetaRow"><span>📅 ${fmtDateShort(t.start)} – ${fmtDateShort(t.end)}</span><span>${t.days.length} days</span></div>
@@ -2466,7 +2474,7 @@ function renderSavedView(collId){
   }).filter(Boolean);
   grid.innerHTML = items.map(p=>{
     if(p.__isDest){
-      return `<div class="placeCard"><div class="placeImgWrap"><img src="${destHeroSrc(p)}" alt="" data-photo-q="${esc(destPhotoQuery(p))}"><span class="placeCatBadge">Destination</span></div><div class="placeBody"><h4>${p.flag} ${esc(p.name)}</h4><p class="placeDesc">${esc(p.tagline)}</p><div class="placeFoot"><button class="btn primary block" data-godest="${p.id}">Explore</button><button class="btn" data-unsavedest="${p.id}">Remove</button></div></div></div>`;
+      return `<div class="placeCard"><div class="placeImgWrap"><img src="${destHeroSrc(p)}" alt="" data-photo-dest="${esc(p.id)}" data-photo-q="${esc(destPhotoQuery(p))}"><span class="placeCatBadge">Destination</span></div><div class="placeBody"><h4>${p.flag} ${esc(p.name)}</h4><p class="placeDesc">${esc(p.tagline)}</p><div class="placeFoot"><button class="btn primary block" data-godest="${p.id}">Explore</button><button class="btn" data-unsavedest="${p.id}">Remove</button></div></div></div>`;
     }
     return placeCardHTML(p,{showDest:true});
   }).join('');

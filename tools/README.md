@@ -16,6 +16,7 @@ is what serves the *worldwide* destinations a visitor types in, not the built-in
 | `audit-duplicates.js` | Walks every destination's tabs and reports any image rendered more than once, comparing by file content rather than by name. |
 | `test-assistant.js` | Drives the real assistant in the page over ~35 realistic phrasings and prints each answer. |
 | `test-assistant-stress.js` | Feeds it empty, malformed, hostile and absurd input; fails on any throw, empty reply or page error. |
+| `test-global-imagery.js` | Runs the shipped geo + photo chain against the live network and reports real worldwide image coverage. |
 | `test-geo-search.js` | Replays real recorded Photon/Wikipedia payloads (`geo-fixtures.json`) through the shipped `geo.js` and checks each test destination resolves with correct country, type and coordinates. |
 
 ## How a photo is chosen
@@ -103,6 +104,28 @@ Two things were tuned by testing against real payloads, and both are worth keepi
 Type filtering is what keeps a railway station out of "Beijing" and hospitals out of "NYC":
 only place kinds in `GEO_TYPE_RANK` can appear. Country flags are computed from the ISO 3166
 alpha-2 code via regional indicator symbols — no table to maintain.
+
+## Imagery for a destination anywhere
+
+`resolveDestinationPhoto` in `data.js`. Measured across 51 places on six continents, not
+assumed — and the measuring found more bugs than the building did:
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| "Vinales" showed a MotoGP rider | Search by name can match a person | A candidate must carry coordinates near the destination; people have none |
+| Faroe Islands showed its flag, Socotra a satellite frame | No filename filter at runtime | Reject flags, seals, satellite frames and rendered vector graphics |
+| A map of Patagonia passed the filter | `\bmap\b` finds no word boundary inside `Pat_map.PNG` — underscore is a word character | Separators become spaces before matching |
+| Patagonia rejected its own article | A fixed 75km radius, against a region of a million km² whose article sits 606km from the geocoded centroid | The radius scales with place type: 40km for a village, 800km for a region, 2000km for a country |
+| A run of destinations "had no photo" | Wikipedia throttles bursts with 429, and a refusal read as an answer | One retry with backoff; a refusal is never cached as a miss |
+
+The ladder, in order: the destination's own article (vetted as the right place) → a real
+photograph of a landmark within 10km → the same around the article's own coordinates, which
+for a huge region is somewhere quite different → the country → the generated name card.
+
+Every rung is a genuine photograph of somewhere the traveller is actually going. The last
+rung is reached only for a place with no photograph of its own and nothing photographed
+nearby — Patagonia is the one case in 51, since its lead image is a map and its centroid is
+empty steppe.
 
 ## Honesty rules
 
