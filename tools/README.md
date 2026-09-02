@@ -170,6 +170,19 @@ earlier — it requires an API key with billing enabled, and this app was explic
 need no key from anyone. Photon/OSM provides the same guarantees keylessly: a stable canonical
 id, verified coordinates, and a country that comes from the same record as the name.
 
+## Restaurants: labelled, not disguised
+
+Only about 4% of restaurants carry any image reference in the free data, so most food cards
+necessarily show a dish rather than the premises. Two instructions were in tension — "no
+random generic food" and "any related food photo is fine" — and the resolution is that
+showing one is fine, letting it be MISTAKEN for the restaurant is not. Cards using a category
+or cuisine stand-in now carry a small "Illustrative" mark. The card stays appetising and
+nobody is misled about what they are looking at.
+
+`test-phase2-imagery.js` runs the full Phase 2 list: cities, countries, towns, villages and
+ambiguous pairs, asserting the country is right AND an image resolved. Paris, Texas resolves
+to its own Eiffel Tower replica; London, Ontario to its own skyline.
+
 ## Countries: the Wikivoyage banner
 
 Countries resolved to nothing for a long time, and the reason is worth recording: most

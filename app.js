@@ -110,6 +110,17 @@ function catEmoji(type){ return {attraction:'📍',restaurant:'🍜',hotel:'🏨
  *  country (there are many "Tuscany"s), a country by itself. The old version only ever tried
  *  the bare name then the country, which for a park or a region often found the wrong thing
  *  or nothing at all. */
+/** True when an image is a category or cuisine stand-in rather than a photograph of the
+ * place named on the card. Only about 4% of restaurants carry any image reference in the
+ * free data, so most food cards necessarily show a dish rather than the premises. Showing
+ * one is fine; letting it be MISTAKEN for the restaurant is not, so cards that use one say
+ * so. That satisfies both instructions: the card stays appetising, and nobody is misled
+ * into thinking they are looking at the actual place. */
+function isIllustrativeImage(src){
+  const v = String(src || '');
+  return v.indexOf('images/category/') >= 0 || v.indexOf('images/cuisine/') >= 0;
+}
+
 function destPhotoQuery(dest){
   const type = dest.placeType || '';
   const q = [dest.name];
@@ -756,6 +767,7 @@ function placeCardHTML(p, opts){
     <div class="placeImgWrap">
       <img src="${p.image}" alt="${esc(p.name)}" loading="lazy" data-photo-place="${esc(p.id)}" data-photo-q="${esc(photoQuery(p.name, dest&&dest.name))}">
       <span class="placeCatBadge">${esc(catLabel)}</span>
+      ${isIllustrativeImage(p.image) ? `<span class="illusBadge" title="No photograph of this place is available; this shows the kind of food or stay it is">Illustrative</span>` : ''}
       <button class="placeSaveBtn" data-save="${p.id}" title="Save">${isSaved?'♥':'♡'}</button>
     </div>
     <div class="placeBody">

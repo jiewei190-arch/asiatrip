@@ -673,3 +673,9 @@ input:checked+.slider:before{transform:translateX(18px)}
 .autoType{flex-shrink:0;font-size:10px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;
   color:var(--muted);background:var(--soft);border-radius:99px;padding:3px 7px}
 .gsearch-row .globeIc{display:flex;align-items:center;justify-content:center;font-size:19px}
+
+/* A quiet mark on cards whose picture is a category stand-in rather than the place itself. */
+.illusBadge{position:absolute;bottom:8px;right:8px;z-index:1;
+  background:rgba(16,37,30,.72);color:#fff;font-size:9.5px;font-weight:800;
+  letter-spacing:.05em;text-transform:uppercase;padding:3px 7px;border-radius:99px;
+  backdrop-filter:blur(3px)}
