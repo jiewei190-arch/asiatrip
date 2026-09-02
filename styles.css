@@ -104,12 +104,15 @@ h1,h2,h3,h4{font-family:'Plus Jakarta Sans',sans-serif}
 
 /* ---------- Landing / hero ---------- */
 .hero-land{position:relative;padding:90px 24px 70px;overflow:hidden;color:#fff}
-.hero-land-bg{position:absolute;inset:0;z-index:0;background:
-  radial-gradient(circle at 15% 20%, rgba(81,197,159,.35), transparent 45%),
-  radial-gradient(circle at 85% 15%, rgba(255,132,93,.28), transparent 50%),
-  radial-gradient(circle at 75% 85%, rgba(94,168,214,.25), transparent 55%),
-  radial-gradient(circle at 20% 90%, rgba(224,165,39,.2), transparent 50%),
-  linear-gradient(160deg,#0b1f19,#10251e 55%,#0d2a22)}
+.hero-land-bg{position:absolute;inset:0;z-index:0;
+  background-image:
+    linear-gradient(180deg, rgba(8,24,19,.72) 0%, rgba(8,24,19,.46) 38%, rgba(8,24,19,.66) 100%),
+    radial-gradient(ellipse at 50% 55%, rgba(8,24,19,.55), transparent 68%),
+    url('images/site/hero.jpg'),
+    linear-gradient(160deg,#0b1f19,#10251e 55%,#0d2a22);
+  background-size:cover,cover,cover,cover;
+  background-position:center,center,center 42%,center;
+  background-repeat:no-repeat}
 .hero-land-inner{position:relative;z-index:1;max-width:880px;margin:0 auto;text-align:center}
 .eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.14em;color:var(--green);font-weight:800}
 .eyebrow.light{color:#bdf3da}
@@ -136,13 +139,13 @@ h1,h2,h3,h4{font-family:'Plus Jakarta Sans',sans-serif}
 .landSectionHead p{margin:0;color:var(--muted)}
 
 .destStrip{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
-.destCard{position:relative;border-radius:18px;overflow:hidden;height:230px;background:var(--soft);box-shadow:var(--shadow);text-align:left}
+.destCard{position:relative;border-radius:18px;overflow:hidden;height:268px;background:var(--soft);box-shadow:var(--shadow);text-align:left}
 .destCard img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:.3s}
 .destCard:hover img{transform:scale(1.06)}
-.destCard:after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 40%,rgba(0,0,0,.75))}
+.destCard:after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,0) 42%,rgba(0,0,0,.34) 68%,rgba(0,0,0,.82))}
 .destCardBody{position:absolute;left:0;right:0;bottom:0;padding:14px;color:#fff;z-index:1}
-.destCardBody h4{margin:0;font:800 17px 'Plus Jakarta Sans'}
-.destCardBody span{font-size:12px;opacity:.9}
+.destCardBody h4{margin:0;font:800 19px/1.2 'Plus Jakarta Sans';text-shadow:0 1px 12px rgba(0,0,0,.45)}
+.destCardBody span{font-size:12.5px;opacity:.92;letter-spacing:.01em}
 .destCardTag{position:absolute;top:12px;left:12px;background:rgba(255,255,255,.92);color:var(--ink);font-size:11px;font-weight:800;padding:5px 9px;border-radius:99px;z-index:1}
 
 .featureGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;max-width:1280px;margin:0 auto}
@@ -526,8 +529,8 @@ main{max-width:1280px;margin:0 auto;padding:0 24px 60px;min-height:60vh}
 .ideasSearch{display:flex;gap:10px;position:relative;max-width:640px;margin-bottom:26px}
 .ideasSearch input{flex:1;padding:13px 15px;border:1px solid var(--line);border-radius:12px;outline:0;font-weight:600;background:var(--surface)}
 .ideaCard{background:var(--surface);border:1px solid var(--line);border-radius:20px;overflow:hidden;box-shadow:var(--shadow);display:flex;flex-direction:column}
-.ideaCoverRow{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:2px;height:130px}
-.ideaCoverRow img{width:100%;height:100%;object-fit:cover}
+.ideaCoverRow{display:grid;grid-template-columns:1.4fr 1fr 1fr;grid-template-rows:130px;gap:2px;height:130px;overflow:hidden}
+.ideaCoverRow img{width:100%;height:100%;min-height:0;object-fit:cover;display:block}
 .ideaBody{padding:18px}
 .ideaBody h3{margin:0 0 6px;font-size:19px}
 .ideaBody p{margin:0 0 12px;color:var(--muted);font-size:13.5px;line-height:1.5}

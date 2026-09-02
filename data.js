@@ -30,29 +30,112 @@ function svgToDataUri(svg){
   const b64 = (typeof btoa === 'function') ? btoa(bytes) : Buffer.from(svg, 'utf8').toString('base64');
   return 'data:image/svg+xml;base64,' + b64;
 }
-/** Deliberately neutral, and deliberately NOT decorative. This stands in only for the moment
- * before a real photo resolves, or for the rare place that genuinely has no photograph
- * available anywhere. A bright colored gradient reads as content — as though this IS what the
- * destination looks like — which is worse than showing nothing, because it dresses up an
- * absence as a design. A muted frame reads honestly as "photo pending / none found". */
+/** The frame shown only when NO photograph exists for something — offline, or a place
+ * genuinely unphotographed anywhere. Everything else now resolves to a real photo: bundled
+ * for the curated destinations, a dish or category photograph for demo entries, the live
+ * lookup for typed-in cities.
+ *
+ * It used to draw a grey panel with a large camera glyph, which read to people as a broken
+ * image — the single most common complaint about the site's look. It is now a quiet dark
+ * editorial panel carrying the place's own name: unmistakably a typographic card rather than
+ * a photograph, so it still never passes itself off as "what this place looks like", but it
+ * sits in a grid of photography without looking like a failure. Deterministic per seed, so a
+ * given place keeps the same shade across reloads. */
 function img(seed,w,h,label){
   w=w||640; h=h||480;
-  const maxChars = Math.max(10, Math.floor(w/18));
+  const maxChars = Math.max(10, Math.floor(w/14));
   let text = String(label||'').trim();
   if(text.length > maxChars) text = text.slice(0, maxChars-1) + '…';
-  const fontSize = Math.round(w/24);
-  const cx = w/2, cy = h*0.42, s = Math.max(10, w*0.058);
-  const stroke = Math.max(2, s*0.13);
+  const hue = 194 + (hashStr(String(seed)) % 26);          // narrow teal-slate band, on-brand
+  const fontSize = Math.round(Math.min(w/11, h/5.5));
+  const rule = Math.round(w*0.07);
+  const cy = Math.round(h*0.52);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
-<rect width="${w}" height="${h}" fill="#e8ecea"/>
-<g fill="none" stroke="#a4b0ab" stroke-width="${stroke}" stroke-linejoin="round" stroke-linecap="round">
-<rect x="${cx-s*1.5}" y="${cy-s*1.05}" width="${s*3}" height="${s*2.1}" rx="${s*0.26}"/>
-<path d="M ${cx-s*1.5} ${cy+s*0.5} L ${cx-s*0.5} ${cy-s*0.3} L ${cx+s*0.3} ${cy+s*0.35} L ${cx+s*0.8} ${cy-s*0.1} L ${cx+s*1.5} ${cy+s*0.55}"/>
-</g>
-<circle cx="${cx+s*0.7}" cy="${cy-s*0.55}" r="${s*0.19}" fill="#a4b0ab"/>
-<text x="50%" y="${Math.round(h*0.75)}" font-family="Arial,Helvetica,sans-serif" font-size="${fontSize}" font-weight="600" fill="#8b9a94" text-anchor="middle" dominant-baseline="middle">${escapeXML(text)}</text>
+<defs><linearGradient id="g" x1="0" y1="0" x2="0.6" y2="1">
+<stop offset="0" stop-color="hsl(${hue},22%,26%)"/><stop offset="1" stop-color="hsl(${hue},26%,14%)"/>
+</linearGradient></defs>
+<rect width="${w}" height="${h}" fill="url(#g)"/>
+<rect x="${w/2-rule/2}" y="${cy-fontSize*1.15}" width="${rule}" height="2" fill="hsl(${hue},30%,62%)" opacity="0.85"/>
+<text x="50%" y="${cy}" font-family="'Plus Jakarta Sans',Arial,Helvetica,sans-serif" font-size="${fontSize}"
+ font-weight="700" fill="#eef4f2" text-anchor="middle" dominant-baseline="middle"
+ letter-spacing="${(fontSize*0.02).toFixed(2)}">${escapeXML(text)}</text>
 </svg>`;
   return svgToDataUri(svg);
+}
+
+/* ---- Per-destination scene pool ----
+   Several curated places have no photograph of their own (a small restaurant, most hotels).
+   They used to all fall back to the same single destination-level shot, so Marrakech rendered
+   one identical photo on seven cards. Each destination now carries a pool of genuinely
+   different nearby landmarks, handed out one per card, so every place still gets a real photo
+   OF THAT CITY and no two cards on a page repeat. */
+function scenePool(destId){
+  const counts = (typeof window !== 'undefined' && window.SCENE_PHOTOS) || {};
+  return counts[destId] || 0;
+}
+/** Hands out the next unused scene photo for a destination, or null once the pool runs dry. */
+function makeSceneDealer(destId){
+  const total = scenePool(destId);
+  let n = 0;
+  // Skips gaps rather than stopping at one: a missing number in the middle of the pool used
+  // to end the deal early and leave later cards without a distinct photo.
+  return () => {
+    while(n < total){ const src = bundledPhoto(`scene/${destId}-${++n}`); if(src) return src; }
+    return null;
+  };
+}
+
+/* ---- Generic category photography ----
+   The last rung before the generated placeholder. A typed-in destination's starter
+   restaurants and stays are openly illustrative demo entries, so a real photograph of a
+   bakery or a hotel room represents them honestly, where a grey frame just looks broken.
+   These are never presented as the specific property — and because their path lives under
+   images/category/, hydratePhotos still treats them as upgradeable and swaps in a real
+   photo of the actual place the moment the live lookup finds one. */
+const CATEGORY_PHOTOS = {
+  attraction:{ Culture:'old-town', Museum:'museum', History:'cathedral', Nature:'promenade',
+               Viewpoint:'viewpoint', Market:'market' },
+  restaurant:{ 'Local Cuisine':'restaurant', Fusion:'fine-dining', 'Café':'bakery',
+               Seafood:'restaurant', International:'restaurant', 'Bakery & Café':'bakery' },
+};
+function categoryPhoto(group, key){
+  const slug = (CATEGORY_PHOTOS[group] || {})[key];
+  return slug ? bundledPhoto('category/' + slug) : null;
+}
+/** Stays are graded by star rating so a hostel and a five-star suite don't share one photo. */
+function hotelCategoryPhoto(stars){
+  const slug = stars >= 5 ? 'hotel-luxury' : (stars <= 2 ? 'hostel' : 'hotel-room');
+  return bundledPhoto('category/' + slug);
+}
+
+/* ---- Bundled photography (images/, indexed by photos.js) ----
+   The 12 curated destinations and their places ship with real, licence-cleared photographs
+   committed to the repo, so they paint immediately on first load and keep working with the
+   network blocked, throttled or offline — the live Wikipedia lookup below is what handles
+   the *worldwide* destinations a visitor types in, not the curated ones.
+
+   A key that isn't in the index has no confidently-matching photograph; that place keeps the
+   placeholder and the live lookup rather than borrowing a loosely-related image. photos.js is
+   optional at runtime (imagecheck.html loads data.js on its own to exercise the live path),
+   so its absence degrades to exactly the old behaviour instead of throwing. */
+function photoIndex(){ return (typeof window !== 'undefined' && window.LOCAL_PHOTOS) || {}; }
+/** Any bundled photo for this key — an exact match (1) or an honest area stand-in (2). */
+function bundledPhoto(key){ return photoIndex()[key] ? 'images/' + key + '.jpg' : null; }
+/** Only a photo that actually depicts the thing itself, never a neighbourhood stand-in. */
+function bundledPhotoExact(key){ return photoIndex()[key] === 1 ? 'images/' + key + '.jpg' : null; }
+/** A photo of the food a restaurant serves. Most small restaurants have no photograph
+ * anywhere, and a street scene of their neighbourhood is a poor advert for a dinner — a real
+ * plate of the cuisine they actually cook says far more, and claims nothing untrue about the
+ * premises. Ranked above the area stand-in for that reason, and below a photo of the real place. */
+function bundledCuisinePhoto(cuisine, claimed){
+  const keys = (typeof window !== 'undefined' && window.CUISINE_PHOTO_KEYS) || {};
+  const key = cuisine && keys[cuisine];
+  if(!key) return null;
+  // Two ramen bars in the same city sharing one identical bowl reads as a bug, not a menu.
+  // The first restaurant of a cuisine gets the dish; later ones fall through to their own
+  // neighbourhood photo, which at least differs from card to card.
+  if(claimed){ if(claimed.has(key)) return null; claimed.add(key); }
+  return bundledPhoto(key);
 }
 
 /* ============================================================
@@ -1070,11 +1153,50 @@ DESTINATIONS_RAW.forEach(d=>{
     tags:d.tags, lat:d.lat, lng:d.lng, weather:d.weather, bestTime:d.bestTime, currency:d.currency,
     currencyCode: currencyCodeForCountry(d.country),
     language:d.language, avgDailyBudget:d.avgDailyBudget, travelInfo:d.travelInfo,
-    hero: img(d.id+'-hero',1600,900,d.name)
+    hero: bundledPhoto('dest/'+d.id) || img(d.id+'-hero',1600,900,'')
   });
-  (d.attractions||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-a${i+1}`, destId:d.id, type:'attraction', source:'curated', image:img(d.id+'-attr-'+i,640,480,p.name)}, p)));
-  (d.restaurants||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-r${i+1}`, destId:d.id, type:'restaurant', source:'curated', image:img(d.id+'-food-'+i,640,480,p.name)}, p)));
-  (d.hotels||[]).forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-h${i+1}`, destId:d.id, type:'hotel', source:'curated', image:img(d.id+'-hotel-'+i,640,480,p.name)}, p)));
+
+  /* Photo assignment, resolved for the whole destination at once so no two cards can show
+     the same image. Marrakech used to render one identical photo on seven cards, because
+     every place lacking a photo of its own fell back to the same destination-level shot.
+
+     Claiming is what guarantees uniqueness: each image can be taken once, and a place whose
+     preferred image is already spoken for simply moves to its next option. It is resolved in
+     passes rather than per-place so that priority beats array order — "La Mamounia Restaurant"
+     sits inside the La Mamounia hotel and both legitimately match the same building, but the
+     photo of the building belongs to the hotel, and the restaurant is better served by a plate
+     of what it cooks anyway. */
+  const attrs = d.attractions || [], rests = d.restaurants || [], hotels = d.hotels || [];
+  const used = new Set();
+  const claim = src => (src && !used.has(src)) ? (used.add(src), src) : null;
+  const claimedCuisines = new Set();
+  const dealScene = makeSceneDealer(d.id);
+  const nextScene = () => { let src; while((src = dealScene())) { const c = claim(src); if(c) return c; } return null; };
+
+  const attrImg = new Array(attrs.length).fill(null);
+  const restImg = new Array(rests.length).fill(null);
+  const hotelImg = new Array(hotels.length).fill(null);
+
+  // Pass 1 — a photo of the actual place, for the places that own it.
+  attrs.forEach((p,i)=>{ attrImg[i] = claim(bundledPhotoExact(`place/${d.id}-a${i+1}`)); });
+  hotels.forEach((p,i)=>{ hotelImg[i] = claim(bundledPhotoExact(`place/${d.id}-h${i+1}`)); });
+  // Pass 2 — restaurants: their own photo if still free, otherwise the food they serve.
+  rests.forEach((p,i)=>{
+    restImg[i] = claim(bundledPhotoExact(`place/${d.id}-r${i+1}`))
+              || claim(bundledCuisinePhoto(p.cuisine, claimedCuisines));
+  });
+  // Pass 3 — everything still unresolved gets a distinct real photo of somewhere in this
+  // destination, then its own neighbourhood, then a category photo, then the name card.
+  attrs.forEach((p,i)=>{ attrImg[i] = attrImg[i] || nextScene() || claim(bundledPhoto(`place/${d.id}-a${i+1}`))
+                                   || claim(categoryPhoto('attraction', p.category)) || img(d.id+'-attr-'+i,640,480,p.name); });
+  rests.forEach((p,i)=>{ restImg[i] = restImg[i] || nextScene() || claim(bundledPhoto(`place/${d.id}-r${i+1}`))
+                                   || claim(bundledPhoto('category/restaurant')) || img(d.id+'-food-'+i,640,480,p.name); });
+  hotels.forEach((p,i)=>{ hotelImg[i] = hotelImg[i] || nextScene() || claim(bundledPhoto(`place/${d.id}-h${i+1}`))
+                                     || claim(hotelCategoryPhoto(p.stars)) || img(d.id+'-hotel-'+i,640,480,p.name); });
+
+  attrs.forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-a${i+1}`, destId:d.id, type:'attraction', source:'curated', image:attrImg[i]}, p)));
+  rests.forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-r${i+1}`, destId:d.id, type:'restaurant', source:'curated', image:restImg[i]}, p)));
+  hotels.forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-h${i+1}`, destId:d.id, type:'hotel', source:'curated', image:hotelImg[i]}, p)));
 });
 
 /* ---------------- Real-data attraction padding for long trip ideas ----------------
@@ -1180,19 +1302,19 @@ function makeGenericDestination(name){
       localTransport:'Local transit options vary — ride-hailing apps and local buses/taxis are usually available.',
       etiquette:'Research local customs and dress norms before you go — they vary widely by region.' },
     __enriched:false, __enriching:false,
-    hero: img(id+'-hero',1600,900,clean)
+    hero: img(id+'-hero',1600,900,'')
   };
   DESTINATIONS.push(dest);
   const attrNames = ['Old Town Walking Tour','Central Museum','City Cathedral','Riverside Promenade','Panoramic Viewpoint','Historic Market Square'];
   const attrCats = ['Culture','Museum','History','Nature','Viewpoint','Market'];
   const attrTags = [['culture','history'],['culture','art'],['history','photography'],['nature','relax'],['photography'],['shopping','food']];
-  attrNames.forEach((n,i)=>PLACES.push({ id:`${id}-a${i+1}`, destId:id, type:'attraction', name:`${clean} ${n}`, category:attrCats[i], rating:+(4.3+rnd()*0.5).toFixed(1), reviews:800+Math.floor(rnd()*9000), priceLevel:i%3, price:[0,10,18,0,0,5][i], area:clean, lat:base.lat+(rnd()*0.06-0.03), lng:base.lng+(rnd()*0.06-0.03), desc:`A well-loved local favorite for visitors exploring ${clean}.`, tags:attrTags[i], duration:75, image:img(id+'-attr-'+i,640,480,`${clean} ${n}`) }));
+  attrNames.forEach((n,i)=>PLACES.push({ id:`${id}-a${i+1}`, destId:id, type:'attraction', name:`${clean} ${n}`, category:attrCats[i], rating:+(4.3+rnd()*0.5).toFixed(1), reviews:800+Math.floor(rnd()*9000), priceLevel:i%3, price:[0,10,18,0,0,5][i], area:clean, lat:base.lat+(rnd()*0.06-0.03), lng:base.lng+(rnd()*0.06-0.03), desc:`A well-loved local favorite for visitors exploring ${clean}.`, tags:attrTags[i], duration:75, image:categoryPhoto('attraction', attrCats[i]) || img(id+'-attr-'+i,640,480,`${clean} ${n}`) }));
   const restNames = ['The Local Table','Market Street Kitchen','Grandma\'s Corner Café','The Harborview Grill','Spice & Sea','The Old Bakery'];
   const cuisines = ['Local Cuisine','Fusion','Café','Seafood','International','Bakery & Café'];
-  restNames.forEach((n,i)=>PLACES.push({ id:`${id}-r${i+1}`, destId:id, type:'restaurant', name:n, cuisine:cuisines[i], rating:+(4.2+rnd()*0.6).toFixed(1), reviews:300+Math.floor(rnd()*4000), priceLevel:1+(i%3), price:[10,18,8,28,15,7][i], area:clean, lat:base.lat+(rnd()*0.05-0.025), lng:base.lng+(rnd()*0.05-0.025), desc:`A favorite spot locals and visitors both recommend in ${clean}.`, tags:['food'], dietary: i%2? ['vegetarian']:[], hours:'11:00 AM – 10:00 PM', image:img(id+'-food-'+i,640,480,n) }));
+  restNames.forEach((n,i)=>PLACES.push({ id:`${id}-r${i+1}`, destId:id, type:'restaurant', name:n, cuisine:cuisines[i], rating:+(4.2+rnd()*0.6).toFixed(1), reviews:300+Math.floor(rnd()*4000), priceLevel:1+(i%3), price:[10,18,8,28,15,7][i], area:clean, lat:base.lat+(rnd()*0.05-0.025), lng:base.lng+(rnd()*0.05-0.025), desc:`A favorite spot locals and visitors both recommend in ${clean}.`, tags:['food'], dietary: i%2? ['vegetarian']:[], hours:'11:00 AM – 10:00 PM', image:bundledCuisinePhoto(cuisines[i]) || categoryPhoto('restaurant', cuisines[i]) || img(id+'-food-'+i,640,480,n) }));
   const hotelNames = [`Grand ${clean} Hotel`,`${clean} Boutique Inn`,`${clean} Central Suites`,`${clean} Budget Stay`];
   const stars=[5,4,3,2];
-  hotelNames.forEach((n,i)=>PLACES.push({ id:`${id}-h${i+1}`, destId:id, type:'hotel', name:n, stars:stars[i], guestRating:+(7.9+rnd()*1.4).toFixed(1), price:[280,150,95,40][i], area:clean, lat:base.lat+(rnd()*0.04-0.02), lng:base.lng+(rnd()*0.04-0.02), desc:`Comfortable, well-located stay for exploring ${clean}.`, amenities:['Free WiFi','Breakfast'].concat(i<2?['Pool','Bar']:[]), image:img(id+'-hotel-'+i,640,480,n) }));
+  hotelNames.forEach((n,i)=>PLACES.push({ id:`${id}-h${i+1}`, destId:id, type:'hotel', name:n, stars:stars[i], guestRating:+(7.9+rnd()*1.4).toFixed(1), price:[280,150,95,40][i], area:clean, lat:base.lat+(rnd()*0.04-0.02), lng:base.lng+(rnd()*0.04-0.02), desc:`Comfortable, well-located stay for exploring ${clean}.`, amenities:['Free WiFi','Breakfast'].concat(i<2?['Pool','Bar']:[]), image:hotelCategoryPhoto(stars[i]) || img(id+'-hotel-'+i,640,480,n) }));
   return dest;
 }
 

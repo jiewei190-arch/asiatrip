@@ -105,6 +105,16 @@ function catEmoji(type){ return {attraction:'📍',restaurant:'🍜',hotel:'🏨
  * small town, not a one-size-fits-all "skyline" shot; 2) the country, only if the destination's
  * own name comes up empty. */
 function destPhotoQuery(dest){ return [dest.name, dest.country].filter(Boolean).join('||'); }
+/** A destination's best CURRENTLY KNOWN photo.
+ * dest.hero is fixed at construction — a bundled photo for the curated twelve, a placeholder
+ * for a typed-in city whose photo is only found later. Once that lookup has answered, every
+ * subsequent render should start from the real photo instead of painting the grey frame
+ * again and re-resolving it; a card scrolled into view a second time was still flashing the
+ * placeholder purely because it re-read the stale field. */
+function destHeroSrc(dest){
+  if(dest.hero && dest.hero.indexOf('data:image/svg') !== 0) return dest.hero;
+  return cachedWikiThumbnail([dest.name, dest.country].filter(Boolean)) || dest.hero;
+}
 /** Place image priority chain: the specific place first (most relevant — a named landmark,
  * restaurant, hotel), falling back to the destination's own photo if that specific place has no
  * usable Wikipedia photo (common for real supplemented places pulled from GeoSearch, like an
@@ -120,6 +130,11 @@ function hydratePhotos(container){
     const queries = qRaw.split('||').filter(Boolean);
     const src = imgEl.getAttribute('src')||'';
     const isPlaceholder = src.indexOf('data:image/svg')===0;
+    // A generic category photo (images/category/...) is a stand-in, not an answer: it looks
+    // like a real photograph so the card never shows a grey frame, but it must still be
+    // replaced the moment a real photo of THIS place resolves.
+    const isGenericStandIn = src.indexOf('images/category/') >= 0;
+    const upgradeable = isPlaceholder || isGenericStandIn;
     // Every image gets an onerror safety net, not just ones we're about to upgrade below.
     // Places supplemented/enriched from live Wikipedia data (ensureRealAttractionSupply,
     // enrichGenericDestination) already start with a resolved real photo URL baked in — never
@@ -130,11 +145,36 @@ function hydratePhotos(container){
     if(!imgEl.dataset.photoFallbackWired){
       imgEl.dataset.photoFallbackWired = '1';
       const label = imgEl.alt || queries[0] || '';
-      const fallback = isPlaceholder ? src : img('fallback-'+(queries[0]||src), 640,480, label);
-      imgEl.onerror = () => { imgEl.onerror = null; imgEl.src = fallback; };
+      // Walk down to the next REAL photograph rather than straight to the grey frame: the
+      // bundled ladder set on the element (its destination's hero, its cuisine plate), then
+      // the generated placeholder only once every photograph has genuinely failed. Each step
+      // is tried at most once, so a chain of dead sources can't loop.
+      // Every image already carries its own priority chain in data-photo-q — the specific
+      // place first, then broader fallbacks ending at the destination itself. On failure,
+      // walk DOWN that same chain for another real photograph (a hotlink-blocked or expired
+      // Wikipedia thumbnail lands on its destination's photo, not on a grey frame) and only
+      // then give up to the generated placeholder.
+      const ladder = (imgEl.dataset.photoFallbacks || '').split('|').filter(Boolean);
+      const broader = queries.slice(1);
+      const lastResort = isPlaceholder ? src : img('fallback-'+(queries[0]||src), 640,480, label);
+      let step = 0;
+      const settle = () => { imgEl.onerror = null; imgEl.src = lastResort; };
+      imgEl.onerror = () => {
+        while(step < ladder.length){
+          const next = ladder[step++];
+          if(next && next !== imgEl.getAttribute('src')){ imgEl.src = next; return; }
+        }
+        if(!broader.length) return settle();
+        const known = cachedWikiThumbnail(broader);
+        if(known && known !== imgEl.getAttribute('src')){ broader.length = 0; imgEl.src = known; return; }
+        const pending = broader.slice(); broader.length = 0;   // one live retry, never a loop
+        fetchWikiThumbnailChain(pending)
+          .then(url => { if(url && url !== imgEl.getAttribute('src')) imgEl.src = url; else settle(); })
+          .catch(settle);
+      };
     }
     if(imgEl.dataset.photoResolved) return;
-    if(!isPlaceholder){ imgEl.dataset.photoResolved='1'; return; } // already a real photo, just needed the safety net above
+    if(!upgradeable){ imgEl.dataset.photoResolved='1'; return; } // already a real photo of this place, just needed the safety net above
     if(!queries.length) return;
     imgEl.dataset.photoResolved = '1';
     // hydratePhotos runs synchronously right after each render, so swapping a known photo in
@@ -473,7 +513,7 @@ function runGlobalSearch(q){
     if(trending.length){
       html += `<div class="gsearch-group">Trending Destinations</div>`;
       trending.forEach(d=>{
-        html += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${d.hero}" alt="" data-photo-q="${esc(destPhotoQuery(d))}"><div><div>${d.flag} ${esc(d.name)}</div><div class="small">${esc(d.tagline)}</div></div></button>`;
+        html += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${destHeroSrc(d)}" alt="" data-photo-q="${esc(destPhotoQuery(d))}"><div><div>${d.flag} ${esc(d.name)}</div><div class="small">${esc(d.tagline)}</div></div></button>`;
       });
     }
     if(!html) html = '<div class="empty" style="padding:26px">Search for a city, attraction, restaurant or hotel.</div>';
@@ -492,7 +532,7 @@ function runGlobalSearch(q){
     if(!matches.length) return '';
     let h = `<div class="gsearch-group">${esc(label)}</div>`;
     matches.forEach(d=>{
-      h += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${d.hero}" alt="" data-photo-q="${esc(destPhotoQuery(d))}"><div><div>${d.flag} ${esc(d.name)}, ${esc(d.country)}</div><div class="small">Explore destination</div></div></button>`;
+      h += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${destHeroSrc(d)}" alt="" data-photo-q="${esc(destPhotoQuery(d))}"><div><div>${d.flag} ${esc(d.name)}, ${esc(d.country)}</div><div class="small">Explore destination</div></div></button>`;
     });
     return h;
   };
@@ -925,7 +965,7 @@ function renderHomeView(){
 function destCardHTML(d, tagLabel){
   return `<button class="destCard" data-dest="${d.id}">
     ${tagLabel?`<span class="destCardTag">${esc(tagLabel)}</span>`:''}
-    <img src="${d.hero}" alt="${esc(d.name)}" loading="lazy" data-photo-q="${esc(destPhotoQuery(d))}">
+    <img src="${destHeroSrc(d)}" alt="${esc(d.name)}" loading="lazy" data-photo-q="${esc(destPhotoQuery(d))}">
     <div class="destCardBody"><h4>${d.flag} ${esc(d.name)}</h4><span>${esc(d.country)}</span></div>
   </button>`;
 }
@@ -1011,7 +1051,7 @@ function renderDestinationView(idOrName, tab){
   destState.tab = tab || destState.tab || 'overview';
 
   $('destHero').innerHTML = `
-    <img src="${dest.hero}" alt="${esc(dest.name)}" data-photo-q="${esc(destPhotoQuery(dest))}">
+    <img src="${destHeroSrc(dest)}" alt="${esc(dest.name)}" data-photo-q="${esc(destPhotoQuery(dest))}">
     <div class="destHeroActions">
       <button class="btn" id="destSaveBtn"><i class="fa-solid fa-heart"></i> Save destination</button>
     </div>
@@ -1704,10 +1744,54 @@ function getCurrentIdeas(destId){
   return regenerateIdeas(destId);
 }
 
+/** The places from an idea that best express its theme, most expressive first.
+ * Used for the card's collage and chips only — a food trip should look like food before a
+ * traveller reads a word of it. The itinerary keeps idea.places in its own order. */
+function themeOrderedPlaces(idea){
+  const interests = idea.interests || [];
+  const wantsFood = interests.includes('food');
+  const rank = p => {
+    let s = 0;
+    if(wantsFood && p.type === 'restaurant') s += 3;
+    if((p.tags||[]).some(t=>interests.includes(t))) s += 2;
+    if(interests.includes('relax') && p.type === 'hotel') s += 1;
+    return s;
+  };
+  return idea.places
+    .map((p,i)=>({p, i, s: rank(p)}))
+    .sort((a,b)=> b.s - a.s || a.i - b.i)     // stable: ties keep the itinerary's order
+    .map(x=>x.p);
+}
 function ideaCardHTML(idea){
   const dest = DESTINATIONS.find(d=>d.id===idea.destId);
-  const imgs = idea.places.slice(0,3).map(p=>({src:p.image, q:photoQuery(p.name, dest.name)}));
-  while(imgs.length<3) imgs.push({src:dest.hero, q:destPhotoQuery(dest)});
+  // A collage of three copies of the same hero reads as a broken card. Fill any short idea
+  // from OTHER real places in the destination — preferring ones that share the idea's theme,
+  // so a food idea tops up with food — and only use the hero if the destination genuinely
+  // has nothing else. Duplicate images are skipped at every step.
+  const imgs = [];
+  const used = new Set();
+  const add = (src, q) => {
+    if(!src || used.has(src) || imgs.length >= 3) return;
+    used.add(src); imgs.push({src, q});
+  };
+  // pickPlacesForIdea returns every attraction before every restaurant, so taking the first
+  // three places gave "Food Lover's Tokyo" a collage of temples and skylines and no food at
+  // all. Lead the CARD with whatever actually expresses its theme; the itinerary keeps the
+  // original order, which is structural.
+  const coverOrder = themeOrderedPlaces(idea);
+  coverOrder.slice(0,3).forEach(p=>add(p.image, photoQuery(p.name, dest.name)));
+  if(imgs.length < 3){
+    const themed = (idea.interests||[]);
+    const pool = PLACES.filter(p=>p.destId===dest.id && !idea.places.some(ip=>ip.id===p.id));
+    const onTheme = pool.filter(p=>(p.tags||[]).some(t=>themed.includes(t)));
+    // Rotate each idea's starting point through the pool, so two ideas that happen to share
+    // their first places still top up from different photos instead of looking like copies.
+    const ordered = [...onTheme, ...pool];
+    const offset = ordered.length ? (hashStr(idea.id + idea.key) % ordered.length) : 0;
+    ordered.slice(offset).concat(ordered.slice(0, offset))
+           .forEach(p=>add(p.image, photoQuery(p.name, dest.name)));
+  }
+  add(destHeroSrc(dest), destPhotoQuery(dest));
   const budgetLabel = idea.budgetStyle.charAt(0).toUpperCase()+idea.budgetStyle.slice(1);
   return `<div class="ideaCard" data-idea="${idea.id}">
     <div class="ideaCoverRow">${imgs.map(i=>`<img src="${i.src}" alt="" loading="lazy" data-photo-q="${esc(i.q)}">`).join('')}</div>
@@ -1715,7 +1799,7 @@ function ideaCardHTML(idea){
       <h3>${idea.emoji} ${esc(idea.title)}</h3>
       <p>${esc(idea.desc)}</p>
       <div class="ideaMeta"><span>📅 ${idea.days} days</span><span>💰 ${budgetLabel}</span><span>🚶 ${esc(idea.pace)} pace</span></div>
-      <div class="ideaActivities">${idea.places.slice(0,5).map(p=>`<span class="actChip">${esc(p.name)}</span>`).join('')}</div>
+      <div class="ideaActivities">${coverOrder.slice(0,5).map(p=>`<span class="actChip">${esc(p.name)}</span>`).join('')}</div>
       <div class="ideaFoot">
         <button class="btn primary" data-viewit="${idea.id}">View Itinerary</button>
         <button class="btn" data-customize="${idea.id}">Customize</button>
@@ -2090,7 +2174,7 @@ function tripCardHTML(t){
   const over = planned>t.budget.total;
   const progress = computeTripProgress(t);
   return `<div class="tripCard2" data-trip="${t.id}">
-    <div class="tripCoverWrap"><img src="${t.cover||dest.hero}" alt="" data-photo-q="${esc(destPhotoQuery(dest))}"><span class="badge2">${dest.flag} ${esc(dest.name)}</span></div>
+    <div class="tripCoverWrap"><img src="${t.cover||destHeroSrc(dest)}" alt="" data-photo-q="${esc(destPhotoQuery(dest))}"><span class="badge2">${dest.flag} ${esc(dest.name)}</span></div>
     <div class="tripCardBody">
       <h3>${esc(t.title)}</h3>
       <div class="tripMetaRow"><span>📅 ${fmtDateShort(t.start)} – ${fmtDateShort(t.end)}</span><span>${t.days.length} days</span></div>
@@ -2250,7 +2334,7 @@ function renderSavedView(collId){
   }).filter(Boolean);
   grid.innerHTML = items.map(p=>{
     if(p.__isDest){
-      return `<div class="placeCard"><div class="placeImgWrap"><img src="${p.hero}" alt="" data-photo-q="${esc(destPhotoQuery(p))}"><span class="placeCatBadge">Destination</span></div><div class="placeBody"><h4>${p.flag} ${esc(p.name)}</h4><p class="placeDesc">${esc(p.tagline)}</p><div class="placeFoot"><button class="btn primary block" data-godest="${p.id}">Explore</button><button class="btn" data-unsavedest="${p.id}">Remove</button></div></div></div>`;
+      return `<div class="placeCard"><div class="placeImgWrap"><img src="${destHeroSrc(p)}" alt="" data-photo-q="${esc(destPhotoQuery(p))}"><span class="placeCatBadge">Destination</span></div><div class="placeBody"><h4>${p.flag} ${esc(p.name)}</h4><p class="placeDesc">${esc(p.tagline)}</p><div class="placeFoot"><button class="btn primary block" data-godest="${p.id}">Explore</button><button class="btn" data-unsavedest="${p.id}">Remove</button></div></div></div>`;
     }
     return placeCardHTML(p,{showDest:true});
   }).join('');

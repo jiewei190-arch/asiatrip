@@ -29,14 +29,16 @@ Then open `http://localhost:8080`.
 
 ## Data
 
-Twelve real destinations ship with rich hand-authored data (attractions, restaurants, hotels, reviews). Type in **any other city worldwide** and TripFlow shows an instant starter page, then upgrades itself in the background using free, keyless public APIs:
+Twelve real destinations ship with rich hand-authored data (attractions, restaurants, hotels, reviews) **and real photography committed to the repo** under `images/` — every destination and every place on it gets a different photograph, none repeated — so the site is photography-first on first paint, with no placeholder flash, and it looks the same with the network blocked, throttled or offline. `photos.js` indexes those files and `CREDITS.md` carries the author and licence for every one; see `tools/README.md` for how each photo is matched and verified.
+
+Type in **any other city worldwide** and TripFlow shows an instant starter page, then upgrades itself in the background using free, keyless public APIs:
 
 - **Nominatim (OpenStreetMap)** geocodes the destination for accurate placement.
 - **Wikipedia's GeoSearch API** finds real nearby landmarks — real names, descriptions and photos — no fictional attractions for real cities.
-- **Wikipedia's REST summary API** fetches a real photo for every named place across the app (falling back to a generated gradient placeholder when no photo is found or the network is unavailable).
+- **Wikipedia's REST summary API** fetches a real photo for every named place across the app.
 - Map tiles come from **CARTO** (light/dark "Voyager"/"Dark Matter" basemaps) and **Esri** (satellite), giving a Google-Maps-style look with a Map/Satellite toggle — no billed API key required.
 
-Every live lookup is cached in `localStorage` and fails gracefully (offline, blocked, or slow networks fall back to the built-in placeholder data/images instantly — nothing ever hangs or breaks).
+Every live lookup is cached in `localStorage` and fails gracefully. Nothing ever shows a broken image: an image that fails walks down its own priority chain to another real photograph — the specific place, then its neighbourhood, then a real category photograph — and only a place with no photograph anywhere falls back to a generated name card.
 
 State (trips, saved collections, settings, theme) also persists to `localStorage` for a working demo without a backend.
 
