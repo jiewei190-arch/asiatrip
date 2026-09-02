@@ -679,3 +679,33 @@ input:checked+.slider:before{transform:translateX(18px)}
   background:rgba(16,37,30,.72);color:#fff;font-size:9.5px;font-weight:800;
   letter-spacing:.05em;text-transform:uppercase;padding:3px 7px;border-radius:99px;
   backdrop-filter:blur(3px)}
+
+/* ---------------- discovered places: honest states ---------------- */
+/* Places load asynchronously from OpenStreetMap, so the UI has to be able to say "still
+   looking" and "found nothing" as clearly as it says "here they are". */
+.discNotice{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  margin:0 0 14px; padding:10px 14px; border-radius:12px;
+  background:var(--surface-2,rgba(255,255,255,.04));
+  border:1px solid var(--border,rgba(255,255,255,.08));
+  font-size:13px; color:var(--text-dim,#9aa4b2);
+}
+.discNotice.discErr{ border-color:rgba(240,120,90,.35); }
+.discSpinner{
+  width:14px; height:14px; flex:0 0 auto; border-radius:50%;
+  border:2px solid var(--border,rgba(255,255,255,.18));
+  border-top-color:var(--accent,#22c55e);
+  animation:discSpin .8s linear infinite;
+}
+@keyframes discSpin{ to{ transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce){
+  .discSpinner{ animation:none; border-top-color:var(--border,rgba(255,255,255,.18)); }
+}
+.showMoreRow{ display:flex; justify-content:center; align-items:center; padding:18px 0 4px; }
+.showMoreRow .btn{ min-width:220px; justify-content:center; }
+
+/* The local price leads and the converted one follows in a lighter weight, because the local
+   price is the one that will actually be charged. */
+.priceLocal{ font-weight:600; }
+.priceConverted{ color:var(--text-dim,#9aa4b2); font-weight:400; }
+.priceStale{ color:var(--warn,#e0a34a); }

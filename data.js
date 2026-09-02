@@ -1505,10 +1505,23 @@ const COUNTRY_TO_CURRENCY = {
   'denmark':'DKK','finland':'EUR','croatia':'EUR','russia':'RUB','israel':'ILS','united arab emirates':'AED',
   'saudi arabia':'SAR','qatar':'QAR','hong kong':'HKD','romania':'RON','bulgaria':'BGN','luxembourg':'EUR',
 };
-function currencyCodeForCountry(country){
+/** The currency a country uses. currency-data.js carries the full ISO 3166 -> ISO 4217 map
+ *  (245 countries), so this no longer answers "USD" for every country missing from a
+ *  hand-written table of 58. The old table is still consulted first for the handful of
+ *  historical spellings the curated destinations use. */
+function currencyCodeForCountry(country, countryCode){
+  const cc = String(countryCode || '').toUpperCase();
+  if(cc && typeof COUNTRY_CURRENCY !== 'undefined' && COUNTRY_CURRENCY[cc]) return COUNTRY_CURRENCY[cc];
   if(!country) return 'USD';
-  const code = COUNTRY_TO_CURRENCY[country.trim().toLowerCase()];
-  return code && CURRENCY_META[code] ? code : 'USD';
+  const key = country.trim().toLowerCase();
+  const legacy = COUNTRY_TO_CURRENCY[key];
+  if(legacy) return legacy;
+  if(typeof COUNTRY_NAMES !== 'undefined' && typeof COUNTRY_CURRENCY !== 'undefined'){
+    for(const code2 in COUNTRY_NAMES){
+      if(String(COUNTRY_NAMES[code2]).toLowerCase() === key && COUNTRY_CURRENCY[code2]) return COUNTRY_CURRENCY[code2];
+    }
+  }
+  return 'USD';
 }
 
 DESTINATIONS_RAW.forEach(d=>{
@@ -1651,21 +1664,94 @@ function recallGenericDestGeo(id){
   return (hit && typeof hit === 'object' && hit.geo) ? hit.geo : null;
 }
 /** Upgrades a destination that was created before its real geography was known. */
+/* ---------------- Geographic integrity ----------------
+ * Rule 1 of the spec: never use a destination name alone; always use canonical ID +
+ * coordinates. These are the guards every map, route and place list has to pass through. */
+
+/** Kilometres between two {lat,lng} points. */
+function geoDistanceKm(a, b){
+  if(!a || !b || a.lat==null || a.lng==null || b.lat==null || b.lng==null) return Infinity;
+  const R = 6371, toRad = d => d*Math.PI/180;
+  const dLat = toRad(b.lat-a.lat), dLng = toRad(b.lng-a.lng);
+  const h = Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** True only when this destination's position came from a verified geocode. Everything that
+ *  draws a map, plots a route or validates a place MUST check this first. */
+function hasVerifiedGeo(dest){
+  return !!(dest && dest.lat != null && dest.lng != null &&
+            isFinite(dest.lat) && isFinite(dest.lng) &&
+            Math.abs(dest.lat) <= 90 && Math.abs(dest.lng) <= 180 &&
+            (dest.geoVerified !== false));
+}
+
+/** How far from the centre a place can plausibly still be "in" this destination. A village and
+ *  a country are both destinations but they are not the same size, so a single radius would
+ *  either exile half of London or accept a restaurant 300 km from a hamlet. */
+const DEST_RADIUS_KM = {
+  continent: 3000, country: 900, state: 350, region: 350, province: 350, county: 90,
+  island: 120, city: 30, municipality: 30, town: 14, village: 8, hamlet: 6,
+  suburb: 6, neighbourhood: 4, district: 10, locality: 8,
+  attraction: 3, landmark: 3, museum: 2, building: 2, station: 3,
+};
+function destinationRadiusKm(dest){
+  const t = String((dest && (dest.placeType || dest.type)) || '').toLowerCase();
+  return DEST_RADIUS_KM[t] || 30;
+}
+
+/** Rule 3: every place must belong to the destination context. Rule 4: if a place is thousands
+ *  of kilometres away, reject it. This is what stops a Seoul itinerary listing Spanish stops.
+ *
+ *  Three tests, strongest first, because no single one is right for every scale of destination:
+ *    1. Country code. Decisive when both sides know theirs — Seoul is not in Japan no matter
+ *       what the geometry says.
+ *    2. Boundary box from the geocoder. Real data and much tighter than a circle for anywhere
+ *       long and thin (Chile, Norway, Japan). Note that country boxes genuinely overlap —
+ *       Seoul sits inside Japan's — which is why the code above it is checked first.
+ *    3. Radius. The fallback when we know nothing but a centre point. */
+function placeWithinDestination(place, dest){
+  if(!hasVerifiedGeo(dest)) return false;
+  if(!place || place.lat == null || place.lng == null) return false;
+
+  const placeCC = String(place.countryCode || '').toUpperCase();
+  const destCC  = String(dest.countryCode || '').toUpperCase();
+  if(placeCC && destCC && placeCC !== destCC) return false;
+
+  const box = dest.bbox;
+  if(box && box.minLat != null){
+    // A small tolerance so a place right on the boundary is not exiled by rounding.
+    const padLat = 0.02, padLng = 0.02;
+    const inBox = place.lat >= box.minLat - padLat && place.lat <= box.maxLat + padLat &&
+                  place.lng >= box.minLng - padLng && place.lng <= box.maxLng + padLng;
+    if(!inBox) return false;
+    // Inside the box AND within a sane distance: for a country the box is the real test, but a
+    // city's box should not let in somewhere 200 km away just because the box is generous.
+    return geoDistanceKm(place, dest) <= destinationRadiusKm(dest) * 3;
+  }
+
+  return geoDistanceKm(place, dest) <= destinationRadiusKm(dest) * 1.25;
+}
+
 function applyGeoToDestination(dest, geo){
   if(!dest || !geo) return dest;
-  if(geo.lat != null && geo.lng != null){ dest.lat = geo.lat; dest.lng = geo.lng; }
+  if(geo.lat != null && geo.lng != null){ dest.lat = geo.lat; dest.lng = geo.lng; dest.geoVerified = true; }
   if(geo.country){
     dest.country = geo.country;
-    dest.currencyCode = currencyCodeForCountry(geo.country);
+    dest.currencyCode = currencyCodeForCountry(geo.country, geo.countryCode);
     dest.currency = `Local currency (${dest.currencyCode})`;
   }
   if(geo.countryCode) dest.countryCode = geo.countryCode;
+  if(geo.bbox) dest.bbox = geo.bbox;
   if(geo.flag) dest.flag = geo.flag;
   if(geo.region) dest.region = geo.region;
   if(geo.type) dest.placeType = geo.type;
   if(geo.displayName) dest.displayName = geo.displayName;
   if(geo.placeId) dest.placeId = geo.placeId;
   dest.__geo = true;
+  // Now that the position is verified, real places can be discovered around it. Before this
+  // point there was nowhere to search, which is exactly why nothing was invented.
+  if(hasVerifiedGeo(dest) && typeof discoverPlacesFor === 'function') discoverPlacesFor(dest);
   return dest;
 }
 /** Builds a destination for anywhere on Earth.
@@ -1686,9 +1772,15 @@ function makeGenericDestination(name, geo){
   }
   rememberGenericDestName(id, clean, geo);
   const rnd = seededRandom(id);
+  // GEOGRAPHIC INTEGRITY (non-negotiable): a destination's position comes from a verified
+  // geocode, or it does not exist. The old fallback seeded lat/lng from a hash of the name,
+  // which put "Seoul Korea" at 36.859,-5.346 — a hillside in Andalusia — and the map, the
+  // route and every generated place then faithfully rendered Spain. An invented coordinate is
+  // worse than an absent one: a missing map says "unverified", a wrong map lies. null means
+  // unverified, and everything downstream is required to check before it draws.
   const base = (geo && geo.lat != null && geo.lng != null)
     ? { lat: geo.lat, lng: geo.lng }
-    : { lat: 20 + (rnd()*40-20), lng: (rnd()*340-170) };
+    : null;
   const dest = {
     id, name:clean,
     placeId: (geo && geo.placeId) || null,   // canonical identity; everything else derives from it
@@ -1697,17 +1789,19 @@ function makeGenericDestination(name, geo){
     region: (geo && geo.region) || '',
     placeType: (geo && geo.type) || '',
     displayName: (geo && geo.displayName) || clean,
+    bbox: (geo && geo.bbox) || null,
     __geo: !!geo,
     flag: (geo && geo.flag) || '🌍',
     tagline: (geo && geo.context)
       ? `${geo.typeLabel || 'Destination'} in ${geo.context} — attractions, food and stays for your trip.`
       : `Discover ${clean} — attractions, food and stays curated for your trip.`,
     description:`${clean} is ready to explore. We've put together a starter set of top-rated attractions, restaurants and places to stay while you fine-tune your plan.`,
-    tags:['trending'], lat:base.lat, lng:base.lng,
+    tags:['trending'], lat: base ? base.lat : null, lng: base ? base.lng : null,
+    geoVerified: !!base,
     weather:"Check seasonal averages closer to your travel dates.",
     bestTime:"Year-round — varies by season",
-    currency: (geo && geo.country) ? `Local currency (${currencyCodeForCountry(geo.country)})` : "Local currency",
-    currencyCode: (geo && geo.country) ? currencyCodeForCountry(geo.country) : 'USD',
+    currency: (geo && geo.country) ? `Local currency (${currencyCodeForCountry(geo.country, geo.countryCode)})` : "Local currency",
+    currencyCode: (geo && geo.country) ? currencyCodeForCountry(geo.country, geo.countryCode) : 'USD',
     language:"Local language",
     avgDailyBudget:{budget:50,moderate:120,luxury:280},
     travelInfo:{ recommendedDays:'3–5 days', timezone:"Check your device's clock once you arrive",
@@ -1722,24 +1816,13 @@ function makeGenericDestination(name, geo){
   // Every generated card gets a DIFFERENT stock photograph. Six restaurants previously shared
   // three images and four hotels shared two, so a typed-in destination looked like a page of
   // repeats — the same claim-once rule the curated destinations use.
-  const usedGeneric = new Set();
-  const claimGeneric = src => (src && !usedGeneric.has(src)) ? (usedGeneric.add(src), src) : null;
-  const GENERIC_FOOD = ['category/restaurant','category/fine-dining','category/bakery',
-                        'cuisine/street-food','cuisine/seafood','cuisine/coffeehouse',
-                        'cuisine/trattoria','cuisine/delicatessen'];
-  const GENERIC_STAY = ['category/hotel-luxury','category/hotel-room','category/hostel',
-                        'category/hotel-lobby','category/guesthouse','category/resort'];
-  const nextGeneric = list => { for(const k of list){ const c = claimGeneric(bundledPhoto(k)); if(c) return c; } return null; };
-  const attrNames = ['Old Town Walking Tour','Central Museum','City Cathedral','Riverside Promenade','Panoramic Viewpoint','Historic Market Square'];
-  const attrCats = ['Culture','Museum','History','Nature','Viewpoint','Market'];
-  const attrTags = [['culture','history'],['culture','art'],['history','photography'],['nature','relax'],['photography'],['shopping','food']];
-  attrNames.forEach((n,i)=>PLACES.push({ id:`${id}-a${i+1}`, destId:id, type:'attraction', name:`${clean} ${n}`, category:attrCats[i], rating:+(4.3+rnd()*0.5).toFixed(1), reviews:800+Math.floor(rnd()*9000), priceLevel:i%3, price:[0,10,18,0,0,5][i], area:clean, lat:base.lat+(rnd()*0.06-0.03), lng:base.lng+(rnd()*0.06-0.03), desc:`A well-loved local favorite for visitors exploring ${clean}.`, tags:attrTags[i], duration:75, image:claimGeneric(categoryPhoto('attraction', attrCats[i])) || img(id+'-attr-'+i,640,480,`${clean} ${n}`) }));
-  const restNames = ['The Local Table','Market Street Kitchen','Grandma\'s Corner Café','The Harborview Grill','Spice & Sea','The Old Bakery'];
-  const cuisines = ['Local Cuisine','Fusion','Café','Seafood','International','Bakery & Café'];
-  restNames.forEach((n,i)=>PLACES.push({ id:`${id}-r${i+1}`, destId:id, type:'restaurant', name:n, cuisine:cuisines[i], rating:+(4.2+rnd()*0.6).toFixed(1), reviews:300+Math.floor(rnd()*4000), priceLevel:1+(i%3), price:[10,18,8,28,15,7][i], area:clean, lat:base.lat+(rnd()*0.05-0.025), lng:base.lng+(rnd()*0.05-0.025), desc:`A favorite spot locals and visitors both recommend in ${clean}.`, tags:['food'], dietary: i%2? ['vegetarian']:[], hours:'11:00 AM – 10:00 PM', image:claimGeneric(bundledCuisinePhoto(cuisines[i])) || claimGeneric(categoryPhoto('restaurant', cuisines[i])) || nextGeneric(GENERIC_FOOD) || img(id+'-food-'+i,640,480,n) }));
-  const hotelNames = [`Grand ${clean} Hotel`,`${clean} Boutique Inn`,`${clean} Central Suites`,`${clean} Budget Stay`];
-  const stars=[5,4,3,2];
-  hotelNames.forEach((n,i)=>PLACES.push({ id:`${id}-h${i+1}`, destId:id, type:'hotel', name:n, stars:stars[i], guestRating:+(7.9+rnd()*1.4).toFixed(1), price:[280,150,95,40][i], area:clean, lat:base.lat+(rnd()*0.04-0.02), lng:base.lng+(rnd()*0.04-0.02), desc:`Comfortable, well-located stay for exploring ${clean}.`, amenities:['Free WiFi','Breakfast'].concat(i<2?['Pool','Bar']:[]), image:claimGeneric(hotelCategoryPhoto(stars[i])) || nextGeneric(GENERIC_STAY) || img(id+'-hotel-'+i,640,480,n) }));
+  // Places are DISCOVERED, not invented. This block used to push six restaurants with made-up
+  // names ("Market Street Kitchen"), made-up ratings (4.2+rnd()*0.6), made-up review counts and
+  // made-up coordinates (base +/- 0.03). None of it was real, and the star ratings in
+  // particular read as genuine review data. Real entities now come from OpenStreetMap through
+  // places.js, keyed to this destination's verified coordinates; until they arrive the
+  // destination simply has no places, which is the honest state.
+  if(typeof discoverPlacesFor === 'function') discoverPlacesFor(dest);
   return dest;
 }
 

@@ -118,6 +118,12 @@ function geoNormalize(props, lat, lng){
     // The canonical identifier for this place. OSM's type+id pair is stable and globally
     // unique — the keyless equivalent of a Google Place ID — and everything downstream keys
     // off it rather than off the name, because names are ambiguous and collide.
+    // Photon returns extent as [minLon, maxLat, maxLon, minLat] — a real boundary box, which is
+    // a far better containment test for a large area than a circle around its centroid.
+    bbox: (Array.isArray(props.extent) && props.extent.length === 4)
+      ? { minLng: Math.min(props.extent[0], props.extent[2]), maxLng: Math.max(props.extent[0], props.extent[2]),
+          minLat: Math.min(props.extent[1], props.extent[3]), maxLat: Math.max(props.extent[1], props.extent[3]) }
+      : null,
     placeId: props.osm_id ? `osm:${props.osm_type || 'x'}${props.osm_id}`
                           : `geo:${(props.name||'').toLowerCase().replace(/\s+/g,'-')}:${cc||'--'}:${(lat||0).toFixed(3)},${(lng||0).toFixed(3)}`,
     source: 'photon',

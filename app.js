@@ -740,6 +740,26 @@ function initSettingsModal(){
 }
 
 /* ---------------- reusable place card ---------------- */
+/** Discovered places arrive from OpenStreetMap without a photograph. Rather than a grey box,
+ *  show a category or cuisine stand-in — clearly marked "Illustrative" — which imagery.js then
+ *  replaces if it can find a photograph of this exact entity. */
+function placeImageSrc(p){
+  if(p.image) return p.image;
+  try{
+    if(p.type === 'restaurant'){
+      return (typeof bundledCuisinePhoto === 'function' && bundledCuisinePhoto(p.cuisine))
+          || (typeof categoryPhoto === 'function' && categoryPhoto('restaurant', p.cuisine))
+          || (typeof bundledPhoto === 'function' && bundledPhoto('category/restaurant')) || '';
+    }
+    if(p.type === 'hotel'){
+      return (typeof hotelCategoryPhoto === 'function' && hotelCategoryPhoto(p.stars || 3))
+          || (typeof bundledPhoto === 'function' && bundledPhoto('category/hotel-room')) || '';
+    }
+    return (typeof categoryPhoto === 'function' && categoryPhoto('attraction', p.category))
+        || (typeof bundledPhoto === 'function' && bundledPhoto('category/attraction')) || '';
+  }catch(e){ return ''; }
+}
+
 function placeCardHTML(p, opts){
   opts = opts||{};
   const dest = DESTINATIONS.find(d=>d.id===p.destId);
@@ -759,15 +779,23 @@ function placeCardHTML(p, opts){
     const open = isOpenNow(p.hours);
     metaHTML = `${ratingHTML}${priceHTML}<span class="openTag ${open?'open':'closed'}">${open?'Open now':'Closed'}</span>`;
   } else if(p.type==='hotel'){
-    metaHTML = `<span class="stars">${'★'.repeat(p.stars)}</span><span>${p.guestRating}/10</span><span class="priceLevel">${fmt$(p.price)}/night</span>`;
+    // Only what OSM actually publishes: an official star classification, and a price only if
+    // one exists. A discovered stay has neither by default, and inventing them is the bug.
+    const starBit  = p.stars ? `<span class="stars">${'★'.repeat(p.stars)}</span>` : '';
+    const guestBit = (p.guestRating != null) ? `<span>${p.guestRating}/10</span>` : '';
+    const priceBit = (p.price != null) ? `<span class="priceLevel">${fmt$(p.price)}/night</span>` : '';
+    metaHTML = `${starBit}${guestBit}${priceBit}` ||
+      `<span class="small">${esc(p.category || 'Place to stay')}</span>`;
   }
-  const catLabel = p.type==='attraction'? p.category : (p.type==='restaurant'? p.cuisine : `${p.stars}★ Hotel`);
+  const catLabel = p.type==='attraction' ? (p.category || 'Attraction')
+    : p.type==='restaurant' ? (p.cuisine || p.category || 'Place to eat')
+    : (p.stars ? `${p.stars}★ ${p.category || 'Hotel'}` : (p.category || 'Place to stay'));
   return `
   <div class="placeCard" data-place="${p.id}">
     <div class="placeImgWrap">
-      <img src="${p.image}" alt="${esc(p.name)}" loading="lazy" data-photo-place="${esc(p.id)}" data-photo-q="${esc(photoQuery(p.name, dest&&dest.name))}">
+      <img src="${placeImageSrc(p)}" alt="${esc(p.name)}" loading="lazy" data-photo-place="${esc(p.id)}" data-photo-q="${esc(photoQuery(p.name, dest&&dest.name))}">
       <span class="placeCatBadge">${esc(catLabel)}</span>
-      ${isIllustrativeImage(p.image) ? `<span class="illusBadge" title="No photograph of this place is available; this shows the kind of food or stay it is">Illustrative</span>` : ''}
+      ${isIllustrativeImage(placeImageSrc(p)) ? `<span class="illusBadge" title="No photograph of this place is available; this shows the kind of food or stay it is">Illustrative</span>` : ''}
       <button class="placeSaveBtn" data-save="${p.id}" title="Save">${isSaved?'♥':'♡'}</button>
     </div>
     <div class="placeBody">
@@ -868,7 +896,7 @@ function openPlaceDetail(placeId){
       </div>
       <button class="xbtn" data-close="modal-placeDetail">×</button>
     </div>
-    <div class="pdHero"><img src="${p.image}" alt="" data-photo-place="${esc(p.id)}" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
+    <div class="pdHero"><img src="${placeImageSrc(p)}" alt="" data-photo-place="${esc(p.id)}" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
     <div class="pdGrid">
       <div>
         <p>${esc(displayDesc(p, dest))}</p>
@@ -1393,6 +1421,103 @@ function initCurrencyConverter(dest){
 }
 
 /* ---------------- Things To Do tab ---------------- */
+/* ---------------- discovered places in the UI ----------------
+ * Places arrive asynchronously from OpenStreetMap, so a tab has three honest states: still
+ * looking, found some, or found none. The old code had only one — a grid that was always full,
+ * because the contents were invented. */
+
+const destPageShown = {};   // `${destId}:${kind}` -> how many are on screen
+
+function destPageKey(destId, kind){ return destId + ':' + kind; }
+
+function discoveryNounFor(kind){
+  return kind === 'restaurant' ? 'places to eat'
+       : kind === 'hotel' ? 'places to stay' : 'things to do';
+}
+
+/** The message above a grid: what we are doing, or why the grid is empty. Never silent. */
+function discoveryNoticeHTML(dest, kind, shownCount){
+  const status = (typeof placesStatus === 'function') ? placesStatus(dest.id, kind) : 'idle';
+  const noun = discoveryNounFor(kind);
+  if(status === 'loading'){
+    return `<div class="discNotice" role="status"><span class="discSpinner" aria-hidden="true"></span>
+      Finding real ${noun} in ${esc(dest.name)}…</div>`;
+  }
+  if(status === 'error'){
+    return `<div class="discNotice discErr">Couldn't reach the OpenStreetMap service just now, so this list may be short.
+      <button class="btn sm" data-rediscover="${esc(kind)}">Try again</button></div>`;
+  }
+  if(status === 'done' && !shownCount){
+    const km = (typeof discoveryRadiusKm === 'function') ? discoveryRadiusKm(dest) : 8;
+    return `<div class="empty">OpenStreetMap has no ${noun} mapped within ${km} km of ${esc(dest.name)}.
+      That is a gap in the map data rather than a fault here — you can still add your own stops to a trip.</div>`;
+  }
+  return '';
+}
+
+/** Renders one page of a place grid, with a "Show more" that appends rather than replaces.
+ *  A dense city returns several hundred entities and putting them all in the DOM at once is a
+ *  visible freeze on a phone. */
+function renderPagedPlaceGrid(gridId, arr, dest, kind, cardFn){
+  const grid = $(gridId);
+  if(!grid) return;
+  const key = destPageKey(dest.id, kind);
+  const size = (typeof PLACES_PAGE_SIZE !== 'undefined') ? PLACES_PAGE_SIZE : 24;
+  const shown = Math.min(destPageShown[key] || size, arr.length);
+  const page = arr.slice(0, shown);
+  const notice = discoveryNoticeHTML(dest, kind, arr.length);
+  const more = arr.length > shown
+    ? `<div class="showMoreRow"><button class="btn" data-showmore="${esc(kind)}">Show more — ${arr.length - shown} more ${discoveryNounFor(kind)}</button></div>`
+    : (arr.length > size ? `<div class="showMoreRow"><span class="small">Showing all ${arr.length}.</span></div>` : '');
+
+  grid.innerHTML = notice + (page.length
+    ? `<div class="placeGrid">${page.map(cardFn).join('')}</div>${more}`
+    : (notice ? '' : '<div class="empty">Nothing matches those filters. Try clearing one.</div>'));
+
+  const moreBtn = grid.querySelector('[data-showmore]');
+  if(moreBtn) moreBtn.onclick = () => {
+    destPageShown[key] = shown + size;
+    renderPagedPlaceGrid(gridId, arr, dest, kind, cardFn);
+  };
+  const retry = grid.querySelector('[data-rediscover]');
+  if(retry) retry.onclick = () => {
+    if(typeof discoverPlacesFor === 'function'){
+      const st = (typeof placesDiscoveryState !== 'undefined') ? placesDiscoveryState.get(dest.id) : null;
+      if(st) delete st[kind];
+      discoverPlacesFor(dest, [kind]);
+    }
+  };
+  wirePlaceCards(grid);
+  hydratePhotos(grid);
+}
+
+/** Ranking for the "Recommended" sort. The old one ordered by review count, which was a random
+ *  number, so "Recommended" was literally meaningless. This uses how completely the place is
+ *  described and how close it is — both real, neither pretending to be a quality score. */
+function recommendedOrder(arr, dest){
+  return arr.slice().sort((a, b) => {
+    const ca = (typeof placeCompleteness === 'function') ? placeCompleteness(a) : 0;
+    const cb = (typeof placeCompleteness === 'function') ? placeCompleteness(b) : 0;
+    // Curated destinations carry real, hand-checked ratings; discovered ones have none. Where a
+    // rating genuinely exists it is the better signal.
+    const ra = a.rating || 0, rb = b.rating || 0;
+    if(ra && rb && ra !== rb) return rb - ra;
+    if(cb !== ca) return cb - ca;
+    return (haversine(dest, a) || 0) - (haversine(dest, b) || 0);
+  });
+}
+
+/** Re-render the open destination tab when discovery lands. */
+window.addEventListener('tripflow:places', function(ev){
+  const d = ev && ev.detail;
+  if(!d || !destState || destState.id !== d.destId) return;
+  if(!location.hash.includes('/destination/')) return;
+  const tabForKind = {restaurant:'restaurants', hotel:'hotels', attraction:'things'};
+  if(destState.tab === tabForKind[d.kind] || destState.tab === 'overview' || destState.tab === 'map'){
+    renderDestinationView(destState.id, destState.tab);
+  }
+});
+
 function renderDestThings(dest, body){
   const all = placesFor(dest.id,'attraction');
   const cats = [...new Set(all.map(p=>p.category))];
@@ -1420,14 +1545,13 @@ function renderDestThings(dest, body){
     if(f.sort==='rating') arr.sort((a,b)=>(b.rating||0)-(a.rating||0));
     else if(f.sort==='price_low') arr.sort((a,b)=>(a.price||0)-(b.price||0));
     else if(f.sort==='price_high') arr.sort((a,b)=>(b.price||0)-(a.price||0));
-    else arr.sort((a,b)=>(b.reviews||0)-(a.reviews||0));
+    else arr = recommendedOrder(arr, dest);
     const chips = [];
     if(f.cat!=='all') chips.push({label:`Category: ${f.cat}`, onRemove:()=>{ f.cat='all'; $('tCat').value='all'; apply(); }});
     if(f.price!=='any') chips.push({label:`Price: ${PRICE_LABELS[f.price]||f.price}`, onRemove:()=>{ f.price='any'; $('tPrice').value='any'; apply(); }});
     if(f.rating!=='any') chips.push({label:`Rating: ${f.rating}+`, onRemove:()=>{ f.rating='any'; $('tRating').value='any'; apply(); }});
     renderActiveFilterChips('thingsActiveFilters', chips, clearAllThings);
-    $('thingsGrid').innerHTML = arr.length? arr.map(p=>placeCardHTML(p)).join('') : '<div class="empty">No attractions match those filters.</div>';
-    wirePlaceCards($('thingsGrid'));
+    renderPagedPlaceGrid('thingsGrid', arr, dest, 'attraction', p=>placeCardHTML(p));
   }
   ['tCat','tPrice','tRating','tSort'].forEach(id=>$(id).onchange=apply);
   apply();
@@ -1472,7 +1596,7 @@ function renderDestRestaurants(dest, body){
     });
     if(f.sort==='rating') arr.sort((a,b)=>(b.rating||0)-(a.rating||0));
     else if(f.sort==='distance') arr.sort((a,b)=>haversine(dest,a)-haversine(dest,b));
-    else arr.sort((a,b)=>(b.reviews||0)-(a.reviews||0));
+    else arr = recommendedOrder(arr, dest);
     const chips = [];
     if(f.cuisine!=='all') chips.push({label:`Cuisine: ${f.cuisine}`, onRemove:()=>{ f.cuisine='all'; $('rCuisine').value='all'; apply(); }});
     if(f.price!=='any') chips.push({label:`Price: ${REST_PRICE_LABELS[f.price]||f.price}`, onRemove:()=>{ f.price='any'; $('rPrice').value='any'; apply(); }});
@@ -1480,12 +1604,11 @@ function renderDestRestaurants(dest, body){
     if(f.open) chips.push({label:'Open now', onRemove:()=>{ f.open=false; $('rOpen').classList.remove('active'); apply(); }});
     f.dietary.forEach(d=>chips.push({label:d.replace(/-/g,' '), onRemove:()=>{ f.dietary.delete(d); $('rDietary').querySelectorAll('[data-diet]').forEach(b=>b.classList.toggle('active', f.dietary.has(b.dataset.diet))); apply(); }}));
     renderActiveFilterChips('restActiveFilters', chips, clearAllRest);
-    $('restGrid').innerHTML = arr.length? arr.map(p=>{
+    renderPagedPlaceGrid('restGrid', arr, dest, 'restaurant', p=>{
       const distKm = haversine(dest,p).toFixed(1);
       const card = placeCardHTML(p);
       return card.replace('</div>\n      <div class="placeFoot">', `</div><div class="small">🚶 ${distKm} km from center</div>\n      <div class="placeFoot">`);
-    }).join('') : '<div class="empty">No restaurants match those filters. Try clearing a filter.</div>';
-    wirePlaceCards($('restGrid'));
+    });
   }
   ['rCuisine','rPrice','rRating','rSort'].forEach(id=>$(id).onchange=apply);
   $('rOpen').onclick=()=>{ f.open=!f.open; $('rOpen').classList.toggle('active',f.open); apply(); };
@@ -1569,28 +1692,35 @@ function renderDestHotels(dest, body){
   function apply(){
     f.price=$('hPrice').value; f.stars=$('hStars').value; f.guest=$('hGuest').value; f.amenity=$('hAmenity').value; f.sort=$('hSort').value;
     let arr = all.filter(p=>{
-      if(f.price!=='any'){ const [lo,hi]=f.price.split('-').map(Number); if(p.price<lo||p.price>hi) return false; }
-      if(f.stars!=='any'){ if(f.stars==='2'){ if(p.stars>2) return false; } else if(p.stars!==Number(f.stars)) return false; }
-      if(f.guest!=='any' && p.guestRating < Number(f.guest)) return false;
+      // A place with no published price cannot satisfy a price filter. Without this guard a
+      // null price slips through every bracket, because null<lo and null>hi are both false.
+      if(f.price!=='any'){
+        if(p.price == null) return false;
+        const [lo,hi]=f.price.split('-').map(Number); if(p.price<lo||p.price>hi) return false;
+      }
+      if(f.stars!=='any'){
+        if(p.stars == null) return false;
+        if(f.stars==='2'){ if(p.stars>2) return false; } else if(p.stars!==Number(f.stars)) return false;
+      }
+      if(f.guest!=='any' && !(p.guestRating >= Number(f.guest))) return false;
       if(f.amenity!=='all' && !(p.amenities||[]).includes(f.amenity)) return false;
       return true;
     });
-    if(f.sort==='price_low') arr.sort((a,b)=>(a.price||0)-(b.price||0));
-    else if(f.sort==='rating') arr.sort((a,b)=>b.guestRating-a.guestRating);
+    if(f.sort==='price_low') arr.sort((a,b)=>(a.price==null?Infinity:a.price)-(b.price==null?Infinity:b.price));
+    else if(f.sort==='rating') arr.sort((a,b)=>(b.guestRating||0)-(a.guestRating||0));
     else if(f.sort==='distance') arr.sort((a,b)=>haversine(dest,a)-haversine(dest,b));
-    else arr.sort((a,b)=>b.guestRating-a.guestRating);
+    else arr = recommendedOrder(arr, dest);
     const chips = [];
     if(f.price!=='any') chips.push({label:`Price: ${HOTEL_PRICE_LABELS[f.price]||f.price}`, onRemove:()=>{ f.price='any'; $('hPrice').value='any'; apply(); }});
     if(f.stars!=='any') chips.push({label:`Stars: ${f.stars==='2'?'2 & under':f.stars+' star'}`, onRemove:()=>{ f.stars='any'; $('hStars').value='any'; apply(); }});
     if(f.guest!=='any') chips.push({label:`Guest rating: ${f.guest}.0+`, onRemove:()=>{ f.guest='any'; $('hGuest').value='any'; apply(); }});
     if(f.amenity!=='all') chips.push({label:`Amenity: ${f.amenity}`, onRemove:()=>{ f.amenity='all'; $('hAmenity').value='all'; apply(); }});
     renderActiveFilterChips('hotelActiveFilters', chips, clearAllHotels);
-    $('hotelGrid').innerHTML = arr.length? arr.map(p=>{
+    renderPagedPlaceGrid('hotelGrid', arr, dest, 'hotel', p=>{
       const distKm = haversine(dest,p).toFixed(1);
       const card = placeCardHTML(p);
       return card.replace('</div>\n      <div class="placeFoot">', `</div><div class="small">🚶 ${distKm} km from center</div>\n      <div class="placeFoot">`);
-    }).join('') : '<div class="empty">No hotels match those filters.</div>';
-    wirePlaceCards($('hotelGrid'));
+    });
   }
   ['hPrice','hStars','hGuest','hAmenity','hSort'].forEach(id=>$(id).onchange=apply);
   apply();
@@ -1652,7 +1782,9 @@ function renderDestMap(dest, body){
       <div class="mapLegend" id="destMapLegend"></div>
       <div class="mapSplit">
         <div class="map" id="destMap" style="min-height:420px">
-          ${navigator.onLine===false ? mapUnavailableHTML() : `<iframe id="destMapFrame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen src="${gmapsSearchEmbedUrl(dest.name+(dest.country?', '+dest.country:''),13)}"></iframe>`}
+          ${navigator.onLine===false ? mapUnavailableHTML()
+            : !hasVerifiedGeo(dest) ? mapUnverifiedHTML(dest.name)
+            : `<iframe id="destMapFrame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen src="${gmapsCoordEmbedUrl(dest.lat, dest.lng, 13)}"></iframe>`}
         </div>
         <div class="mapPlaceList" id="destMapList"></div>
       </div>
@@ -1690,7 +1822,7 @@ function renderDestMap(dest, body){
   $('destMapCenter').onclick = ()=>{
     window.__destMapPlaceId = null;
     const frame = $('destMapFrame');
-    if(frame) frame.src = gmapsSearchEmbedUrl(dest.name+(dest.country?', '+dest.country:''),13);
+    if(frame && hasVerifiedGeo(dest)) frame.src = gmapsCoordEmbedUrl(dest.lat, dest.lng, 13);
     draw();
   };
 }
@@ -1698,7 +1830,12 @@ function focusDestMapPlace(p){
   const dest = window.__destMapDest || DESTINATIONS.find(d=>d.id===p.destId);
   window.__destMapPlaceId = p.id;
   const frame = $('destMapFrame');
-  if(frame) frame.src = gmapsSearchEmbedUrl(p.name+(dest?', '+dest.name:''),16);
+  // A discovered place carries its own OSM coordinates; prefer them over a name search, which
+  // can land on a same-named business in another country.
+  if(frame){
+    if(p.lat!=null && p.lng!=null && isFinite(p.lat)) frame.src = gmapsCoordEmbedUrl(p.lat, p.lng, 16);
+    else if(dest && hasVerifiedGeo(dest)) frame.src = gmapsCoordEmbedUrl(dest.lat, dest.lng, 14);
+  }
   const open = $('destMapOpen');
   if(open) open.href = gmapsExternalLink(p.name+(dest?', '+dest.name:''));
   $$('#destMapList .mapPlaceRow').forEach(row=>row.classList.toggle('active', row.dataset.mapplace===p.id));
@@ -2567,6 +2704,11 @@ function wireSavedViewToggle(collection, items){
 function renderSavedMap(collection, places, unmappable){
   const frame = $('savedMapFrame'), list = $('savedMapList');
   if(!frame || !list) return;
+  // Only plot pins whose coordinates are real. An unverified saved place would otherwise drag
+  // the map's centre — the average of the pins — somewhere nobody saved.
+  const withCoords = places.filter(p=>p && p.lat!=null && p.lng!=null && isFinite(p.lat) && isFinite(p.lng));
+  unmappable = (unmappable || 0) + (places.length - withCoords.length);
+  places = withCoords;
   if(!places.length){
     list.innerHTML = `<div class="empty">Nothing in this collection has a location to plot yet.</div>`;
     frame.src = gmapsSearchEmbedUrl('world', 1);
@@ -3967,6 +4109,17 @@ function openAddPlaceSearch(trip){
   setTimeout(()=>$('addPlaceSearchInput') && $('addPlaceSearchInput').focus(), 50);
 }
 
+/** Fail-safe for the case the spec calls out: geographic data could not be verified. Showing
+ *  no map is the correct outcome — a random map or a route between invented points is a
+ *  confident lie, and a traveller cannot tell it from the truth. */
+function mapUnverifiedHTML(what){
+  return `<div class="empty" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:0;padding:20px;text-align:center">
+    <div style="font-size:26px;margin-bottom:8px">📍</div>
+    <div>Unable to verify map location for ${esc(what || 'this destination')}.</div>
+    <div class="small" style="margin-top:4px">We only show a map once the coordinates are confirmed, so you never get sent to the wrong place.</div>
+  </div>`;
+}
+
 function mapUnavailableHTML(){
   return `<div class="empty" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:0">
     <div style="font-size:26px;margin-bottom:8px">🗺️</div>
@@ -4002,14 +4155,25 @@ function renderPlannerMapInner(trip, day){
   const dest = destForTrip(trip);
   const stops = day.stops;
   let src, note = '';
-  if(stops.length===0){
+  // Rule 2: the map must centre on the verified destination. Rule 5: routes are only ever
+  // calculated between validated points. A stop that fails placeWithinDestination is not
+  // plotted at all rather than dragging the route across a continent.
+  if(!hasVerifiedGeo(dest)){
+    $('map2').innerHTML = mapUnverifiedHTML(dest && dest.name);
+    $('mapLegend2').innerHTML = '';
+    return;
+  }
+  const plottable = stops.filter(s=>placeWithinDestination(s, dest));
+  const dropped = stops.length - plottable.length;
+  if(dropped) note = `${dropped} stop${dropped===1?'':'s'} had no verified location and ${dropped===1?'is':'are'} not plotted.`;
+  if(plottable.length===0){
     src = gmapsCoordEmbedUrl(dest.lat, dest.lng, 13);
-  } else if(stops.length===1){
-    src = gmapsSearchEmbedUrl(stops[0].name+', '+dest.name, 15);
+  } else if(plottable.length===1){
+    src = gmapsCoordEmbedUrl(plottable[0].lat, plottable[0].lng, 15);
   } else {
-    const routed = stops.length>GMAPS_MAX_WAYPOINTS ? stops.slice(0,GMAPS_MAX_WAYPOINTS) : stops;
+    const routed = plottable.length>GMAPS_MAX_WAYPOINTS ? plottable.slice(0,GMAPS_MAX_WAYPOINTS) : plottable;
     src = gmapsDirectionsEmbedUrl(routed);
-    if(stops.length>GMAPS_MAX_WAYPOINTS) note = `Showing route for the first ${GMAPS_MAX_WAYPOINTS} of ${stops.length} stops.`;
+    if(plottable.length>GMAPS_MAX_WAYPOINTS) note = `Showing route for the first ${GMAPS_MAX_WAYPOINTS} of ${plottable.length} stops.`;
   }
   $('map2').innerHTML = navigator.onLine===false ? mapUnavailableHTML()
     : `<iframe id="map2Frame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen src="${src}"></iframe>`;

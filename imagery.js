@@ -429,5 +429,12 @@ function applyResolvedImage(imgEl, entity, opts){
     imgEl.src = res.url;
     imgEl.dataset.imageSource = res.source;
     imgEl.dataset.imageConfidence = String(res.confidence);
+    // A real photograph of this exact entity has arrived, so the "Illustrative" mark on the
+    // stand-in is no longer true and must come off with it.
+    try{
+      const wrap = imgEl.closest && imgEl.closest('.placeImgWrap');
+      const badge = wrap && wrap.querySelector('.illusBadge');
+      if(badge) badge.remove();
+    }catch(e){ /* non-critical */ }
   }).catch(()=>{});
 }
