@@ -1584,33 +1584,32 @@ DESTINATIONS_RAW.forEach(d=>{
      sits inside the La Mamounia hotel and both legitimately match the same building, but the
      photo of the building belongs to the hotel, and the restaurant is better served by a plate
      of what it cooks anyway. */
+  /* A photo of the place, or nothing.
+   *
+   * This used to be a four-deep fallback: the place's own photograph, then a plate of the
+   * cuisine it serves, then a street scene from the same city, then a stock photo of its
+   * category, and finally a coloured card with the name printed on it. Every rung below the
+   * first is a picture of something else, and on a card headed "Trattoria da Enzo" a plate of
+   * cacio e pepe reads as a photograph of that restaurant. The discovered-places path had
+   * those stand-ins removed already; the twelve curated destinations kept them, which is why
+   * a curated page could look fully illustrated while a discovered one honestly did not.
+   *
+   * Now only images/place/<id> is used, which is a licence-cleared photograph of that exact
+   * place. Anything without one falls through to the live resolver, which must prove identity
+   * and recency, and then to the card's empty state.
+   *
+   * Known exception, stated rather than hidden: these bundled photographs carry no capture
+   * date. Optimisation stripped their EXIF, so they cannot be checked against the 2019-2026
+   * window the way a Commons file can. They are kept because they are verified photographs of
+   * the exact place, which is the primary rule — but they are the one imagery path whose age
+   * is unknown. */
   const attrs = d.attractions || [], rests = d.restaurants || [], hotels = d.hotels || [];
   const used = new Set();
   const claim = src => (src && !used.has(src)) ? (used.add(src), src) : null;
-  const claimedCuisines = new Set();
-  const dealScene = makeSceneDealer(d.id);
-  const nextScene = () => { let src; while((src = dealScene())) { const c = claim(src); if(c) return c; } return null; };
 
-  const attrImg = new Array(attrs.length).fill(null);
-  const restImg = new Array(rests.length).fill(null);
-  const hotelImg = new Array(hotels.length).fill(null);
-
-  // Pass 1 — a photo of the actual place, for the places that own it.
-  attrs.forEach((p,i)=>{ attrImg[i] = claim(bundledPhotoExact(`place/${d.id}-a${i+1}`)); });
-  hotels.forEach((p,i)=>{ hotelImg[i] = claim(bundledPhotoExact(`place/${d.id}-h${i+1}`)); });
-  // Pass 2 — restaurants: their own photo if still free, otherwise the food they serve.
-  rests.forEach((p,i)=>{
-    restImg[i] = claim(bundledPhotoExact(`place/${d.id}-r${i+1}`))
-              || claim(bundledCuisinePhoto(p.cuisine, claimedCuisines));
-  });
-  // Pass 3 — everything still unresolved gets a distinct real photo of somewhere in this
-  // destination, then its own neighbourhood, then a category photo, then the name card.
-  attrs.forEach((p,i)=>{ attrImg[i] = attrImg[i] || nextScene() || claim(bundledPhoto(`place/${d.id}-a${i+1}`))
-                                   || claim(categoryPhoto('attraction', p.category)) || img(d.id+'-attr-'+i,640,480,p.name); });
-  rests.forEach((p,i)=>{ restImg[i] = restImg[i] || nextScene() || claim(bundledPhoto(`place/${d.id}-r${i+1}`))
-                                   || claim(bundledPhoto('category/restaurant')) || img(d.id+'-food-'+i,640,480,p.name); });
-  hotels.forEach((p,i)=>{ hotelImg[i] = hotelImg[i] || nextScene() || claim(bundledPhoto(`place/${d.id}-h${i+1}`))
-                                     || claim(hotelCategoryPhoto(p.stars)) || img(d.id+'-hotel-'+i,640,480,p.name); });
+  const attrImg = attrs.map((p, i) => claim(bundledPhotoExact(`place/${d.id}-a${i+1}`)));
+  const restImg = rests.map((p, i) => claim(bundledPhotoExact(`place/${d.id}-r${i+1}`)));
+  const hotelImg = hotels.map((p, i) => claim(bundledPhotoExact(`place/${d.id}-h${i+1}`)));
 
   attrs.forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-a${i+1}`, destId:d.id, type:'attraction', source:'curated', image:attrImg[i]}, p)));
   rests.forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-r${i+1}`, destId:d.id, type:'restaurant', source:'curated', image:restImg[i]}, p)));
