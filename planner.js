@@ -234,7 +234,23 @@ function planTrip(opts){
     .sort((a, b) => b.s - a.s);
 
   const attractions = scored.filter(x => x.p.type === 'attraction').map(x => x.p);
-  const restaurants = scored.filter(x => x.p.type === 'restaurant').map(x => x.p);
+  const allFood     = scored.filter(x => x.p.type === 'restaurant').map(x => x.p);
+
+  /* A day is not six museums. It is a coffee, a couple of sights, somewhere to eat, a market or
+   * a street worth walking, dinner, and maybe a view at the end — so the pool is split by the
+   * ROLE a place can play, and the day is assembled from those roles rather than from one
+   * undifferentiated list. Every one of these is a real discovered place; none is filler. */
+  const CAFE_KINDS = ['cafe', 'bakery', 'ice_cream', 'deli'];
+  const EVENING_KINDS = ['bar', 'pub', 'biergarten', 'nightclub', 'theatre', 'viewpoint'];
+  const BROWSE_KINDS = ['marketplace', 'market', 'mall', 'department_store', 'artwork',
+                        'park', 'garden', 'viewpoint', 'attraction'];
+
+  const isKind = (p, list) => list.includes(String(p.subtype || '').toLowerCase());
+  const cafes       = allFood.filter(p => isKind(p, CAFE_KINDS));
+  const restaurants = allFood.filter(p => !isKind(p, CAFE_KINDS) && !isKind(p, EVENING_KINDS));
+  const evening     = allFood.filter(p => isKind(p, EVENING_KINDS))
+                        .concat(attractions.filter(p => isKind(p, ['viewpoint', 'theatre'])));
+  const browsable   = attractions.filter(p => isKind(p, BROWSE_KINDS));
 
   // Must-sees are pinned before anything else competes for the space.
   const pinned = attractions.filter(p => typeof isMustSee === 'function' && isMustSee(p, prefs));
@@ -247,11 +263,11 @@ function planTrip(opts){
 
   // How many activities the trip can hold, at this pace, without padding.
   const wantPerDay = pace.activities;
-  const capacity = nDays * pace.max;
+  const capacity = nDays * pace.max;   // the ceiling, never a quota to fill
   const chosen = [];
   for(const p of pinned) if(chosen.length < capacity) chosen.push(p);
   for(const p of attractions){
-    if(chosen.length >= Math.min(capacity, nDays * wantPerDay + nDays)) break;
+    if(chosen.length >= capacity) break;
     if(!chosen.includes(p)) chosen.push(p);
   }
 
@@ -262,7 +278,7 @@ function planTrip(opts){
   clusters.length = nDays;
 
   const days = [];
-  const usedRestaurants = new Set();
+  const usedPlaces = new Set();   // nothing is used twice across the whole trip
 
   for(let i = 0; i < nDays; i++){
     const date = (typeof addDays === 'function') ? addDays(startDate, i) : startDate;
@@ -277,6 +293,15 @@ function planTrip(opts){
       : (dest && dest.lat != null ? {lat:dest.lat, lng:dest.lng} : null);
 
     const pushStop = (place, kind) => {
+      // The ceiling is a ceiling. Meals and cafes used to be added outside the cluster loop's
+      // check, so a RELAXED day — chosen by someone who explicitly asked for fewer stops —
+      // came out at eight against a limit of seven. Enforced in one place so no caller can
+      // sidestep it.
+      if(stops.length >= pace.max) return false;
+      // Every stop is registered here, wherever it came from. The fill step draws from the same
+      // attraction pool the cluster does, so without one central place to record this a park
+      // could be scheduled as the morning sight and again as the afternoon walk.
+      usedPlaces.add(keyOf(place));
       const prev = stops.length ? stops[stops.length-1] : null;
       let travel = null;
       if(prev && prev.place && place.lat != null){
@@ -300,17 +325,24 @@ function planTrip(opts){
         openStatus: openNow === null ? 'unknown' : (openNow ? 'open' : 'closed'),
       });
       clock += mins / 60;
+      return true;
     };
+
+    /* Open the day with somewhere to have coffee, near where the day actually starts. It is a
+     * real stop that people really make, and it anchors the morning in the right neighbourhood. */
+    let cafesPlaced = 0;
+    if(pace.cafesPerDay > 0){
+      const c = pickNearby(cafes, cluster[0] || centre, usedPlaces, prefs, date, dayStart.hour, 2.5);
+      if(c && pushStop(c, 'cafe')) cafesPlaced++;
+    }
 
     for(const place of cluster){
       // Slot a meal in when a meal time arrives and we are near somewhere to eat.
       for(const slot of MEAL_SLOTS){
         if(mealsPlaced >= pace.mealsPerDay) break;
         if(clock >= slot.hour - 0.75 && !stops.some(s => s.mealSlot === slot.key)){
-          const near = pickRestaurantNear(restaurants, centre, usedRestaurants, prefs, date, slot.hour);
-          if(near){
-            usedRestaurants.add(near.placeId || near.id || near.name);
-            pushStop(near, 'meal');
+          const near = pickNearby(restaurants, lastPoint(stops, centre), usedPlaces, prefs, date, slot.hour, 3);
+          if(near && pushStop(near, 'meal')){
             stops[stops.length-1].mealSlot = slot.key;
             stops[stops.length-1].mealLabel = slot.label;
             mealsPlaced++;
@@ -318,21 +350,43 @@ function planTrip(opts){
         }
       }
       if(clock > dayStart.lastHour) break;      // the day is full; the rest moves to other days
+      if(stops.length >= pace.max) break;
+      if(usedPlaces.has(keyOf(place))) continue;   // already placed, on this day or an earlier one
       pushStop(place, 'activity');
+    }
+
+    /* Fill toward the target from what is genuinely nearby — a market, a park, a viewpoint, a
+     * second coffee — but only while there is time and the day has not wandered too far. This is
+     * what turns four stops into a full day without inventing anything or crossing the city. */
+    let guard = 0;
+    while(stops.length < pace.targetStops && clock < dayStart.lastHour - 0.5 &&
+          dayKm < pace.maxTravelKmPerDay && guard++ < 12){
+      const here = lastPoint(stops, centre);
+      const wantEvening = clock >= 18.5;
+      const pool = wantEvening ? evening : browsable;
+      const extra = pickNearby(pool, here, usedPlaces, prefs, date, clock, wantEvening ? 3 : 2);
+      if(!extra) break;                          // nothing suitable nearby: stop rather than pad
+      if(!pushStop(extra, wantEvening ? 'evening' : 'activity')) break;
+    }
+
+    // A second coffee or a snack, for a pace that wants one and a day with room.
+    if(cafesPlaced < pace.cafesPerDay && stops.length < pace.max && clock < dayStart.lastHour - 1){
+      const c = pickNearby(cafes, lastPoint(stops, centre), usedPlaces, prefs, date, clock, 2);
+      if(c && pushStop(c, 'cafe')) cafesPlaced++;
     }
 
     // Dinner, if the day's sights ended before it.
     for(const slot of MEAL_SLOTS){
       if(mealsPlaced >= pace.mealsPerDay) break;
       if(stops.some(s => s.mealSlot === slot.key)) continue;
-      const near = pickRestaurantNear(restaurants, centre, usedRestaurants, prefs, date, slot.hour);
+      const near = pickNearby(restaurants, lastPoint(stops, centre), usedPlaces, prefs, date, slot.hour, 3);
       if(near){
-        usedRestaurants.add(near.placeId || near.id || near.name);
         clock = Math.max(clock, slot.hour);
-        pushStop(near, 'meal');
-        stops[stops.length-1].mealSlot = slot.key;
-        stops[stops.length-1].mealLabel = slot.label;
-        mealsPlaced++;
+        if(pushStop(near, 'meal')){
+          stops[stops.length-1].mealSlot = slot.key;
+          stops[stops.length-1].mealLabel = slot.label;
+          mealsPlaced++;
+        }
       }
     }
 
@@ -355,6 +409,39 @@ function planTrip(opts){
   }
 
   return {days, warnings, pace:prefs.pace, unusedAttractions: attractions.filter(p => !chosen.includes(p))};
+}
+
+/** A stable key for "we have already used this place", so nothing appears twice in a trip. */
+function keyOf(place){ return (place && (place.placeId || place.id || place.name)) || ''; }
+
+/** Where the traveller currently is: the last stop placed, or the day's centre before any. */
+function lastPoint(stops, centre){
+  for(let i = stops.length - 1; i >= 0; i--){
+    const p = stops[i] && stops[i].place;
+    if(p && p.lat != null) return p;
+  }
+  return centre;
+}
+
+/** The best unused place from `pool` within `maxKm` of where the traveller is, open at that
+ *  hour, ranked by what they said they like and then by how close it is.
+ *
+ *  Distance is a hard limit rather than a preference: filling a day is only worth doing with
+ *  places that are genuinely on the way. Nothing within reach means the day ends there. */
+function pickNearby(pool, here, used, prefs, date, hour, maxKm){
+  if(!pool || !pool.length || !here) return null;
+  const near = pool
+    .filter(p => p && p.lat != null && !used.has(keyOf(p)))
+    .map(p => ({p, km: geoDistanceKm(here, p), open: isOpenAt(p.hours, date, hour)}))
+    .filter(x => x.open !== false)              // never send anyone somewhere shut
+    .filter(x => x.km <= (maxKm || 2))
+    .sort((a, b) => a.km - b.km)
+    .slice(0, 10);
+  if(!near.length) return null;
+  if(typeof preferenceScore === 'function'){
+    near.sort((a, b) => preferenceScore(b.p, prefs) - preferenceScore(a.p, prefs) || a.km - b.km);
+  }
+  return near[0].p;
 }
 
 /** The best place to eat near where the traveller already is, that they have not eaten at
@@ -380,6 +467,7 @@ function pickRestaurantNear(restaurants, centre, used, prefs, date, hour){
 if(typeof module !== 'undefined' && module.exports){
   module.exports = {
     TRAVEL_MODES, VISIT_MINUTES, travelBetween, visitMinutes, isOpenAt, dayListIncludes,
-    clusterByArea, orderByProximity, planTrip, pickRestaurantNear, fmtClock, MEAL_SLOTS,
+    clusterByArea, orderByProximity, planTrip, pickRestaurantNear, pickNearby, keyOf,
+    lastPoint, fmtClock, MEAL_SLOTS,
   };
 }

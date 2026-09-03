@@ -225,5 +225,59 @@ console.log('\n10. Structure holds for any trip length');
         empty.days.length === 2 && empty.days.every(d => d.stops.length === 0));
 }
 
+
+/* ---------------- density: a day should feel like a day out ---------------- */
+console.log('\n11. Days are full enough to be useful');
+{
+  // A realistic city pool: sights, cafes, restaurants, markets and evening places, all within
+  // walking distance of each other, as a real neighbourhood is.
+  const POOL = [];
+  let n = 0;
+  const mk = (type, subtype) => {
+    const i = n++;
+    return {placeId:'osm:D'+i, name:`${subtype} ${i}`, type, subtype,
+            lat: 48.856 + (i % 7) * 0.003, lng: 2.35 + Math.floor(i / 7) * 0.003,
+            hours:'Mo-Su 08:00-23:00', tags:['culture']};
+  };
+  for(let i = 0; i < 40; i++) POOL.push(mk('attraction', 'attraction'));
+  for(let i = 0; i < 12; i++) POOL.push(mk('attraction', 'park'));
+  for(let i = 0; i < 10; i++) POOL.push(mk('attraction', 'marketplace'));
+  for(let i = 0; i < 10; i++) POOL.push(mk('attraction', 'viewpoint'));
+  for(let i = 0; i < 30; i++) POOL.push(mk('restaurant', 'restaurant'));
+  for(let i = 0; i < 20; i++) POOL.push(mk('restaurant', 'cafe'));
+  for(let i = 0; i < 12; i++) POOL.push(mk('restaurant', 'bar'));
+
+  const run = (paceKey, days) => PL.planTrip({
+    dest: DEST, places: POOL, days, start: '2026-09-24',
+    preferences: normalizeTripPreferences({pace: paceKey}),
+  });
+
+  for(const [paceKey, floor] of [['relaxed', 5], ['balanced', 6], ['packed', 7]]){
+    const t = run(paceKey, 5);
+    const counts = t.days.map(d => d.stops.length);
+    const min = Math.min(...counts), avg = counts.reduce((a,b)=>a+b,0) / counts.length;
+    check(`${paceKey}: every day reaches at least ${floor} stops`, min >= floor,
+          `days: ${counts.join(', ')}`);
+    console.log(`        ${paceKey}: ${counts.join(', ')} (avg ${avg.toFixed(1)})`);
+  }
+
+  const long = run('balanced', 10);
+  const counts = long.days.map(d => d.stops.length);
+  check('a 10-day trip stays dense to the last day', Math.min(...counts) >= 5,
+        `days: ${counts.join(', ')}`);
+  check('no day is a single stop', counts.every(c => c > 1), counts.join(', '));
+  console.log(`        10-day: ${counts.join(', ')}`);
+
+  const day = run('balanced', 3).days[0];
+  const kinds = new Set(day.stops.map(s => s.kind));
+  check('a day mixes activities, meals and cafes', kinds.size >= 3, [...kinds].join(', '));
+
+  const walk = run('packed', 3);
+  const worst = Math.max(...walk.days.map(d => d.travelKm));
+  check('a packed day stays within its travel budget', worst <= TRIP_PACE.packed.maxTravelKmPerDay,
+        `worst day ${worst} km`);
+  console.log(`        worst packed day: ${worst} km`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

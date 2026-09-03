@@ -157,7 +157,15 @@ console.log('\n8. Pace and day start carry real numbers');
   check('relaxed schedules fewer activities than balanced', r.activities < b.activities);
   check('balanced schedules fewer than packed', b.activities < k.activities);
   check('relaxed allows longer at each stop', r.minutesPerStop > k.minutesPerStop);
-  check('a packed day still has a ceiling', k.max <= 6, `max ${k.max}`);
+  // The brief asks for fuller days — relaxed 5+, balanced 6-8, packed 8+ — so the old ceiling of
+  // six is gone. What must still hold is that a ceiling EXISTS and stays humane: a day of twelve
+  // stops is a route march, not a holiday.
+  check('a packed day still has a ceiling', k.max >= k.targetStops && k.max <= 12, `max ${k.max}`);
+  check('targets rise with pace',
+        r.targetStops < b.targetStops && b.targetStops < k.targetStops,
+        `${r.targetStops} / ${b.targetStops} / ${k.targetStops}`);
+  check('every pace aims for a genuinely full day', r.targetStops >= 5,
+        `relaxed aims for ${r.targetStops}`);
   check('an early bird starts before a late starter', P.DAY_START.early.hour < P.DAY_START.late.hour);
   check('a late starter is never given a 7am stop', P.DAY_START.late.hour >= 10,
         `starts at ${P.DAY_START.late.hour}`);

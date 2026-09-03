@@ -85,13 +85,20 @@ const TRIP_INTEREST_KEYS = TRIP_INTERESTS.map(i => i.key);
 
 /* Activities per day, excluding meals. These are what "Relaxed" and "Packed" actually mean.
  * `max` is a ceiling, never a quota: a day is not padded with weak places to reach it. */
+/* `targetStops` counts EVERYTHING on the day — a coffee, a market, a viewpoint and dinner are
+ * each a real part of a day out, not filler. A day of six that a person could actually walk is
+ * worth more than ten scattered across a city, so `max` and the travel budget are the brakes:
+ * the target is aimed for, never forced. */
 const TRIP_PACE = {
   relaxed:  {key:'relaxed',  emoji:'🐢', label:'Relaxed',  sub:'Fewer stops, more time at each',
-             activities:2, max:3, mealsPerDay:2, minutesPerStop:110, maxTravelKmPerDay:12},
+             targetStops:5, activities:3, max:7,  mealsPerDay:2, cafesPerDay:1,
+             minutesPerStop:110, maxTravelKmPerDay:14},
   balanced: {key:'balanced', emoji:'🚶', label:'Balanced', sub:'A comfortable mix of sights and rest',
-             activities:3, max:4, mealsPerDay:2, minutesPerStop:90,  maxTravelKmPerDay:20},
+             targetStops:7, activities:4, max:9,  mealsPerDay:2, cafesPerDay:1,
+             minutesPerStop:85,  maxTravelKmPerDay:22},
   packed:   {key:'packed',   emoji:'⚡', label:'Packed',   sub:'More to see, still realistic',
-             activities:5, max:6, mealsPerDay:2, minutesPerStop:70,  maxTravelKmPerDay:30},
+             targetStops:9, activities:6, max:11, mealsPerDay:2, cafesPerDay:2,
+             minutesPerStop:65,  maxTravelKmPerDay:32},
 };
 
 const TRIP_BUDGET = {
