@@ -765,6 +765,9 @@ function closeDropdowns(){
 function initTopbar(){
   $$('[data-route]').forEach(b=>b.onclick=()=>navigate(b.dataset.route));
   $('brandBtn').onclick = ()=>navigate('#/');
+  const acctBtn = $('accountBtn');
+  if(acctBtn) acctBtn.onclick = ()=>{ closeDropdowns(); openAccountModal(); };
+  renderAccountMenu();
   const backupBtn = $('backupBtn');
   if(backupBtn) backupBtn.onclick = ()=>{ closeDropdowns(); downloadStateBackup(); };
   const restoreBtn = $('restoreBtn'), restoreInput = $('restoreFileInput');
@@ -3968,6 +3971,177 @@ function renderDashboardTab(trip){
     toast('Trip notes saved.');
   };
   hydratePhotos(body);
+}
+
+/* ---------------- The account screen ----------------
+   One modal, three states, because they are three genuinely different questions:
+
+     no project    "where should trips be kept?"   — paste the Supabase details
+     signed out    "who are you?"                  — sign in, sign up, reset
+     signed in     "what is happening with it?"    — sync, sign out, disconnect
+
+   Nothing here is required. The app worked without an account before and still does; this is
+   the answer to "I cleared my browser and lost a trip", not a gate in front of the product. */
+let __accountBusy = false;
+
+function openAccountModal(){ renderAccountModal(); openModal('modal-account'); }
+
+async function renderAccountModal(){
+  const body = $('accountBody'), title = $('accountTitle'), sub = $('accountSub');
+  if(!body) return;
+
+  if(!cloudConfigured()){
+    title.textContent = 'Keep your trips beyond this browser';
+    sub.textContent = 'Optional. Everything already works without this — an account adds a second copy, so a cleared browser or a new phone is no longer a lost trip.';
+    body.innerHTML = `
+      <div class="card" style="margin-bottom:14px">
+        <p class="small" style="margin:0 0 8px"><b>One-time setup, about three minutes.</b></p>
+        <ol class="small" style="margin:0;padding-left:18px;line-height:1.7">
+          <li>Create a free project at <a href="https://supabase.com" target="_blank" rel="noopener">supabase.com</a>.</li>
+          <li>Open <b>SQL Editor → New query</b>, paste the contents of <code>supabase/schema.sql</code> from this repository, and press Run.</li>
+          <li>Open <b>Project Settings → API</b> and copy the two values below.</li>
+        </ol>
+      </div>
+      <div class="field" style="margin-bottom:10px"><label>Project URL</label>
+        <input id="acctUrl" placeholder="https://yourproject.supabase.co" autocomplete="off"></div>
+      <div class="field" style="margin-bottom:10px"><label>Anon public key</label>
+        <input id="acctKey" placeholder="eyJhbGciOi…" autocomplete="off"></div>
+      <p class="small" style="margin:0 0 12px">Both are safe to share: the key identifies the project, it does not grant access. What anyone can read or write is decided by the security policies in the schema you ran. Do not paste the <b>service_role</b> key — that one is a master key.</p>
+      <div class="rowgap"><button class="btn primary" id="acctSaveCfg">Connect</button>
+        <button class="btn" data-close="modal-account">Not now</button></div>
+      <div class="small" id="acctCfgMsg" style="margin-top:10px"></div>`;
+    $('acctSaveCfg').onclick = () => {
+      const res = saveCloudConfig($('acctUrl').value, $('acctKey').value);
+      if(!res.ok){ $('acctCfgMsg').textContent = res.reason; return; }
+      toast('Project connected. Sign in or create an account next.');
+      renderAccountModal();
+      renderAccountMenu();      // the menu still said "Connect an account" after connecting
+    };
+    return;
+  }
+
+  const user = await cloudCurrentUser();
+  if(!user){
+    title.textContent = 'Sign in';
+    sub.textContent = 'Your trips stay on this device either way. Signing in adds a copy you can reach from anywhere.';
+    body.innerHTML = `
+      <div class="field" style="margin-bottom:10px"><label>Email</label>
+        <input id="acctEmail" type="email" autocomplete="username"></div>
+      <div class="field" style="margin-bottom:10px"><label>Password</label>
+        <input id="acctPass" type="password" autocomplete="current-password"></div>
+      <div class="rowgap">
+        <button class="btn primary" id="acctSignIn">Sign in</button>
+        <button class="btn" id="acctSignUp">Create account</button>
+        <button class="linklike" id="acctReset">Forgot password</button>
+      </div>
+      <div class="small" id="acctMsg" style="margin-top:12px"></div>
+      <div class="small" style="margin-top:14px;opacity:.75">Connected to a different project by mistake?
+        <button class="linklike" id="acctForget">Disconnect it</button></div>`;
+
+    const msg = t => { $('acctMsg').textContent = t; };
+    const creds = () => [$('acctEmail').value.trim(), $('acctPass').value];
+    const guard = async (fn) => {
+      if(__accountBusy) return;
+      __accountBusy = true; msg('Working…');
+      try { await fn(); } finally { __accountBusy = false; }
+    };
+    $('acctSignIn').onclick = () => guard(async () => {
+      const r = await cloudSignIn(...creds());
+      if(!r.ok) return msg(r.reason);
+      msg('');
+      await afterSignIn();
+      renderAccountModal();
+    });
+    $('acctSignUp').onclick = () => guard(async () => {
+      const r = await cloudSignUp(...creds());
+      if(!r.ok) return msg(r.reason);
+      if(r.needsConfirmation) return msg('Account created. Check your email for a confirmation link, then sign in.');
+      msg('');
+      await afterSignIn();
+      renderAccountModal();
+    });
+    $('acctReset').onclick = () => guard(async () => {
+      const email = $('acctEmail').value.trim();
+      if(!email) return msg('Enter your email address first.');
+      const r = await cloudResetPassword(email);
+      msg(r.ok ? 'If that address has an account, a reset link is on its way.' : r.reason);
+    });
+    $('acctForget').onclick = () => { forgetCloudConfig(); renderAccountModal(); renderAccountMenu(); };
+    return;
+  }
+
+  title.textContent = 'Signed in';
+  sub.textContent = esc(user.email || '');
+  const state = __syncState;
+  body.innerHTML = `
+    <div class="card" style="margin-bottom:14px">
+      <div class="small"><b>Trips on this device:</b> ${STATE.trips.length}</div>
+      <div class="small" style="margin-top:4px">${state.at ? 'Last synced ' + esc(timeAgo(state.at)) : 'Not synced yet this session.'}</div>
+      ${state.error ? `<div class="small" style="margin-top:6px;color:#c4622d">${esc(state.error)}</div>` : ''}
+    </div>
+    <div class="rowgap">
+      <button class="btn primary" id="acctSync">Sync now</button>
+      <button class="btn" id="acctSignOut">Sign out</button>
+    </div>
+    <div class="small" id="acctMsg2" style="margin-top:12px"></div>`;
+  $('acctSync').onclick = async () => {
+    $('acctMsg2').textContent = 'Syncing…';
+    const r = await syncNow();
+    $('acctMsg2').textContent = r.ok
+      ? `Synced. ${r.pulled} from the cloud, ${r.pushed} sent up.` : r.reason;
+    renderAccountModal();
+  };
+  $('acctSignOut').onclick = async () => {
+    await cloudSignOut();
+    toast('Signed out. Your trips are still on this device.');
+    renderAccountModal(); renderAccountMenu();
+  };
+}
+
+function renderAccountMenu(){
+  const label = $('accountMenuLabel');
+  if(!label) return;
+  if(!cloudConfigured()){ label.textContent = 'Connect an account'; return; }
+  const u = __cloud && __cloud.user;
+  label.textContent = u ? (u.email || 'Account') : 'Sign in';
+}
+
+/* ---------------- sync ----------------
+   Local first, then the cloud, and the traveller is told which copy won when they disagree. */
+let __syncState = { at: 0, error: null, running: false };
+
+async function afterSignIn(){
+  renderAccountMenu();
+  const r = await syncNow();
+  if(r.ok) toast(`Signed in. ${r.pulled} trip${r.pulled===1?'':'s'} from your account.`);
+}
+
+async function syncNow(){
+  if(__syncState.running) return { ok: false, reason: 'A sync is already running.' };
+  __syncState.running = true;
+  try {
+    const pulled = await cloudPullTrips();
+    if(!pulled.ok){ __syncState.error = pulled.reason; return { ok: false, reason: pulled.reason }; }
+
+    const { keep, push, conflicts } = mergeTrips(STATE.trips, pulled.rows);
+    STATE.trips = keep;
+    saveState();                                   // local first, before anything is sent
+
+    const pushed = await cloudPushTrips(push);
+    __syncState.at = Date.now();
+    __syncState.error = pushed.ok ? null : pushed.reason;
+
+    /* When the cloud copy won, say so. A trip quietly changing under somebody because another
+     * device was newer is exactly the sort of thing that makes sync feel untrustworthy, even
+     * when it did the right thing. */
+    if(conflicts.length){
+      const names = conflicts.slice(0, 2).map(c => c.title).filter(Boolean).join(', ');
+      addNotification(`Updated ${conflicts.length} trip${conflicts.length===1?'':'s'} from a newer copy in your account${names ? ': ' + names : ''}.`, '☁️');
+    }
+    refreshCurrentView();
+    return { ok: true, pulled: pulled.rows.filter(r => !r.deleted).length,
+             pushed: pushed.pushed || 0, conflicts: conflicts.length };
+  } finally { __syncState.running = false; }
 }
 
 /* ---------------- Search inside a trip ----------------
