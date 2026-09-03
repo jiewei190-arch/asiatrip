@@ -316,22 +316,57 @@ async function fetchWikiThumbnailChain(queries){
  *  requests were refused, which measured as 67% coverage instead of the real 96%. One retry
  *  after a short pause recovers nearly all of it, and a refusal is still never cached as a
  *  miss — only a real answer is. */
+/* Wikimedia request gate.
+ *
+ * Every place card resolves its own photograph, and each resolution makes several Commons and
+ * Wikipedia calls. A page of 24 cards therefore fired around a hundred requests at once, and
+ * Wikimedia answered with 36 Commons 429s and 21 Wikipedia 429s in a single live page load —
+ * so cards that had a perfectly good photograph available kept their stand-in instead. Retrying
+ * harder makes it worse, because the retries collide too.
+ *
+ * Three or four in flight is enough to keep a page filling steadily without tripping the limit.
+ * Everything else waits its turn, which costs a little latency on a dense page and gains the
+ * photographs that were previously being thrown away. */
+const WIKI_MAX_CONCURRENT = 3;
+let wikiInFlight = 0;
+const wikiWaiting = [];
+
+function wikiAcquire(){
+  if(wikiInFlight < WIKI_MAX_CONCURRENT){ wikiInFlight++; return Promise.resolve(); }
+  return new Promise(resolve => wikiWaiting.push(resolve));
+}
+function wikiRelease(){
+  const next = wikiWaiting.shift();
+  if(next) next();            // hand the slot straight over
+  else wikiInFlight = Math.max(0, wikiInFlight - 1);
+}
+
 async function fetchWikiJSON(url){
-  for(let attempt = 0; attempt < 2; attempt++){
-    try {
-      const res = await fetchWithTimeout(url, 8000, {headers:{'Accept':'application/json'}});
-      if(res && res.ok) return await res.json();
-      if(res && (res.status === 429 || res.status === 503)){
-        await new Promise(r => setTimeout(r, 700 + attempt * 900));
-        continue;
+  await wikiAcquire();
+  try{
+    for(let attempt = 0; attempt < 3; attempt++){
+      try {
+        const res = await fetchWithTimeout(url, 8000, {headers:{'Accept':'application/json'}});
+        if(res && res.ok) return await res.json();
+        if(res && (res.status === 429 || res.status === 503)){
+          // Honour Retry-After when the server sends one; otherwise back off with jitter so a
+          // batch of throttled requests does not all come back at the same instant.
+          const after = res.headers && res.headers.get && Number(res.headers.get('retry-after'));
+          const wait = (after > 0 && after < 30) ? after * 1000
+                     : (800 * Math.pow(2, attempt)) + Math.random() * 400;
+          await new Promise(r => setTimeout(r, wait));
+          continue;
+        }
+        return null;                        // a real error, not worth retrying
+      } catch(e){
+        if(attempt >= 1) return null;
+        await new Promise(r => setTimeout(r, 500));
       }
-      return null;                        // a real error, not worth retrying
-    } catch(e){
-      if(attempt) return null;
-      await new Promise(r => setTimeout(r, 500));
     }
+    return null;
+  } finally {
+    wikiRelease();
   }
-  return null;
 }
 
 /** Filenames that are graphics rather than photographs of a place. The bundled-image importer

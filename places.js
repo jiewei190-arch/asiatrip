@@ -91,7 +91,11 @@ function prettyCuisine(raw){
 
 /* ---------------- fetch plumbing ---------------- */
 
-const PLACES_TIMEOUT_MS = 30000;
+const PLACES_TIMEOUT_MS = 25000;
+/* How long to let Overpass work before Photon is allowed to answer instead. Measured healthy
+ * Overpass responses in this project run 4-16s, so this waits out a normal slow one and gives up
+ * on a stuck mirror rather than on the query. */
+const OVERPASS_PATIENCE_MS = 12000;
 
 async function fetchWithTimeout(url, opts, ms){
   const ctl = new AbortController();
@@ -419,14 +423,22 @@ async function discoverPlaces(dest, kind, opts){
       spec.overpass.map(sel => `${sel}(around:${radiusM},${dest.lat},${dest.lng});`).join('') +
       `);out tags center 400;`;
 
+    /* Overpass carries far richer tags, so it is preferred — but it is also the flakier source,
+     * and rotating through three mirrors at 30s each meant a bad day for Overpass cost 66
+     * seconds before the page showed anything. Photon answers in about a second.
+     *
+     * So: ask Overpass, and if it has not answered within OVERPASS_PATIENCE_MS, let Photon serve
+     * the page instead of waiting the mirrors out. Overpass still wins whenever it is healthy,
+     * which is most of the time; this only bounds the bad case. */
+    const delay = ms => new Promise(r => setTimeout(r, ms));
     let elements = [];
     try{
-      elements = await overpassQuery(ql, opts.signal);
-    }catch(e){
-      // Overpass is the richer source but the flakier one. Falling back keeps the page useful.
-      try{ elements = await photonNearby(dest, kind, radiusKm, opts.signal); }
-      catch(e2){ elements = []; }
-    }
+      elements = await Promise.race([
+        overpassQuery(ql, opts.signal).catch(() => []),
+        delay(OVERPASS_PATIENCE_MS).then(() =>
+          photonNearby(dest, kind, radiusKm, opts.signal).catch(() => [])),
+      ]);
+    }catch(e){ elements = []; }
     if(!elements.length && !(opts.signal && opts.signal.aborted)){
       try{ elements = await photonNearby(dest, kind, radiusKm, opts.signal); }catch(e){ /* nothing available */ }
     }
@@ -551,5 +563,6 @@ if(typeof module !== 'undefined' && module.exports){
     PLACE_KINDS, OSM_SUBTYPE_LABEL, prettyCuisine, osmToPlace, dedupePlaces, rankPlaces,
     placeCompleteness, discoverPlaces, discoverPlacesFor, pagePlaces, normName,
     discoveryRadiusKm, overpassQuery, photonNearby, DISCOVERY_RADIUS_KM, cancelDiscoveryExcept,
+    OVERPASS_PATIENCE_MS,
   };
 }

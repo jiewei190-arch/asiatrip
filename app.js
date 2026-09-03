@@ -181,6 +181,28 @@ function photoQuery(name, destName){
   const specific = destName ? `${name} ${destName}` : name;
   return destName ? `${specific}||${destName}` : specific;
 }
+/** Runs `fn` when the image is at or near the viewport. Falls back to running immediately where
+ *  IntersectionObserver is unavailable, so nothing is lost on an older browser — it just goes
+ *  back to resolving eagerly. */
+let __placeImageObserver = null;
+const __placeImageJobs = new WeakMap();
+function whenPlaceImageVisible(imgEl, fn){
+  if(typeof IntersectionObserver !== 'function'){ fn(); return; }
+  if(!__placeImageObserver){
+    __placeImageObserver = new IntersectionObserver(entries => {
+      for(const entry of entries){
+        if(!entry.isIntersecting) continue;
+        const job = __placeImageJobs.get(entry.target);
+        __placeImageObserver.unobserve(entry.target);
+        __placeImageJobs.delete(entry.target);
+        if(job) job();
+      }
+    }, {rootMargin: '400px'});   // start a little before it scrolls in, so it is ready on arrival
+  }
+  __placeImageJobs.set(imgEl, fn);
+  __placeImageObserver.observe(imgEl);
+}
+
 function hydratePhotos(container){
   if(!container) return;
   container.querySelectorAll('img[data-photo-q]').forEach(imgEl=>{
@@ -249,15 +271,22 @@ function hydratePhotos(container){
     // after this paint, never blocking it — Overpass takes tens of seconds.
     const placeId = imgEl.dataset.photoPlace;
     if(placeId && typeof applyResolvedImage === 'function'){
-      const p = placeById(placeId);
-      const pd = p && DESTINATIONS.find(d => d.id === p.destId);
-      if(p && p.lat != null){
-        applyResolvedImage(imgEl, {
-          placeId: 'place:' + p.id, name: p.name, kind: p.type,
-          country: pd && pd.country, countryCode: pd && pd.countryCode,
-          lat: p.lat, lng: p.lng,
-        });
-      }
+      // Resolve only what the reader can actually see. Every card's photo lookup costs several
+      // Commons and Wikipedia calls, so resolving a whole page at once produced a burst that
+      // Wikimedia throttled — and a throttled card keeps its stand-in even though a real
+      // photograph of the place existed. Deferring the off-screen ones removes the burst at
+      // source rather than coping with it afterwards.
+      whenPlaceImageVisible(imgEl, () => {
+        const p = placeById(placeId);
+        const pd = p && DESTINATIONS.find(d => d.id === p.destId);
+        if(p && p.lat != null){
+          applyResolvedImage(imgEl, {
+            placeId: 'place:' + p.id, name: p.name, kind: p.type,
+            country: pd && pd.country, countryCode: pd && pd.countryCode,
+            lat: p.lat, lng: p.lng,
+          });
+        }
+      });
     }
     const destId = imgEl.dataset.photoDest;
     const resolver = destId
@@ -1537,6 +1566,9 @@ function discoveryNoticeHTML(dest, kind, shownCount){
  *  A dense city returns several hundred entities and putting them all in the DOM at once is a
  *  visible freeze on a phone. */
 function renderPagedPlaceGrid(gridId, arr, dest, kind, cardFn){
+  // The container is a plain wrapper, NOT .placeGrid — this function renders its own .placeGrid
+  // inside it, and nesting one grid in another made every card a third of a third of the width
+  // and pushed the row off the side of a phone.
   const grid = $(gridId);
   if(!grid) return;
   const key = destPageKey(dest.id, kind);
@@ -1623,7 +1655,7 @@ function renderDestThings(dest, body){
       <div class="filterGroup"><label>Sort</label><select id="tSort"><option value="rec">Recommended</option><option value="rating">Highest rated</option><option value="price_low">Price: low to high</option><option value="price_high">Price: high to low</option></select></div>
     </div>
     <div class="activeFilters hidden" id="thingsActiveFilters"></div>
-    <div class="placeGrid" id="thingsGrid"></div>`;
+    <div id="thingsGrid"></div>`;
   $('tCat').value=f.cat; $('tPrice').value=f.price; $('tRating').value=f.rating; $('tSort').value=f.sort;
   const PRICE_LABELS = {0:'Free',1:'$',2:'$$',3:'$$$'};
   function clearAllThings(){ f.cat='all'; f.price='any'; f.rating='any'; $('tCat').value='all'; $('tPrice').value='any'; $('tRating').value='any'; apply(); }
@@ -1666,7 +1698,7 @@ function renderDestRestaurants(dest, body){
       <div class="pillRow" id="rDietary">${DIETARY_OPTIONS.map(d=>`<button class="pill" data-diet="${d}">${d.replace(/-/g,' ')}</button>`).join('')}</div>
     </div>
     <div class="activeFilters hidden" id="restActiveFilters"></div>
-    <div class="placeGrid" id="restGrid"></div>`;
+    <div id="restGrid"></div>`;
   $('rCuisine').value=f.cuisine; $('rPrice').value=f.price; $('rRating').value=f.rating; $('rSort').value=f.sort;
   $('rOpen').classList.toggle('active', f.open);
   $('rDietary').querySelectorAll('[data-diet]').forEach(b=>b.classList.toggle('active', f.dietary.has(b.dataset.diet)));
@@ -1774,7 +1806,7 @@ function renderDestHotels(dest, body){
       <div class="filterGroup"><label>Sort</label><select id="hSort"><option value="rec">Recommended</option><option value="price_low">Lowest price</option><option value="rating">Highest rated</option><option value="distance">Distance from center</option></select></div>
     </div>
     <div class="activeFilters hidden" id="hotelActiveFilters"></div>
-    <div class="placeGrid" id="hotelGrid"></div>`;
+    <div id="hotelGrid"></div>`;
   $('hPrice').value=f.price; $('hStars').value=f.stars; $('hGuest').value=f.guest; $('hAmenity').value=f.amenity; $('hSort').value=f.sort;
   const HOTEL_PRICE_LABELS = {'0-100':'Under $100','100-250':'$100–250','250-500':'$250–500','500-99999':'$500+'};
   function clearAllHotels(){
