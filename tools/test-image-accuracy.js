@@ -156,6 +156,30 @@ console.log('\n6. Live: real venues of each category resolve to photographs of t
       console.log('        (no verified photograph; the card shows its empty state)');
     }
   }
+  console.log('\n9. Recency: a photograph must be as current as the rule demands');
+  {
+    const I = require(require('path').join(require('path').dirname(__dirname), 'imagery.js'));
+
+    // The capture date must come from Commons metadata, not from a guess at the filename.
+    // Reading the year out of the name meant almost every file counted as undated.
+    check('a capture date is read from Commons metadata',
+          I.captureYearOf({extmetadata:{DateTimeOriginal:{value:'2026-04-11 10:22:03'}}}) === 2026);
+    check('the date survives the HTML Commons wraps it in',
+          I.captureYearOf({extmetadata:{DateTimeOriginal:{value:'<span class="dtstart">11 April 2019</span>'}}}) === 2019);
+    check('a file with no date reports none, rather than a number',
+          I.captureYearOf({}) === null && I.captureYearOf(null) === null);
+    check('a nonsense year is not believed', I.captureYearOf({extmetadata:{DateTimeOriginal:{value:'3999'}}}) === null);
+
+    // Upload date is not capture date, and the difference is the whole point: the newest uploads
+    // matching "Eiffel Tower" are 2026 uploads of 2017 photographs.
+    check('the rule admits a photograph from the cutoff year', I.meetsRecencyPolicy(I.IMAGE_MIN_CAPTURE_YEAR) === true);
+    check('the rule rejects the year before the cutoff', I.meetsRecencyPolicy(I.IMAGE_MIN_CAPTURE_YEAR - 1) === false);
+    check('an undated photograph cannot pass as current', I.meetsRecencyPolicy(null) === false,
+          'undated is unknown, and unknown is not this year');
+    check('the cutoff is a single named setting, not scattered literals',
+          typeof I.IMAGE_MIN_CAPTURE_YEAR === 'number' || I.IMAGE_MIN_CAPTURE_YEAR === null);
+  }
+
 
   console.log(`\n${pass} passed, ${fail} failed\n`);
   /* process.exitCode rather than process.exit(): when stdout is redirected to a file or a pipe,

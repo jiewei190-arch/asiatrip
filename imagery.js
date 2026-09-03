@@ -200,7 +200,8 @@ async function commonsGeoPhoto(entity, opts){
   const url = `${COMMONS_API}?action=query&format=json&origin=*` +
     `&generator=geosearch&ggsnamespace=6&ggsradius=${radius}` +
     `&ggscoord=${entity.lat}%7C${entity.lng}&ggslimit=30` +
-    `&prop=imageinfo&iiprop=url&iiurlwidth=${o.width || 720}`;
+    `&prop=imageinfo&iiprop=url|extmetadata&iiextmetadatafilter=DateTimeOriginal` +
+    `&iiurlwidth=${o.width || 720}`;
   const data = await fetchWikiJSON(url);
   if(!data) return null;
 
@@ -214,7 +215,8 @@ async function commonsGeoPhoto(entity, opts){
     if(!isTravelAppropriate(title) || !isTravelAppropriate(thumb)) continue;
     const score = commonsTitleScore(title, want);
     if(score <= 0) continue;               // names the entity but does not depict it
-    if(!best || score > best.score) best = { url: thumb, score, named: score >= 85, title };
+    if(!best || score > best.score) best = { url: thumb, score, named: score >= 85, title,
+                                            captureYear: captureYearOf(info) };
     if(score >= 90) break;                 // as good as this rung gets
   }
   return best;
@@ -412,10 +414,106 @@ const HISTORICAL_MARKERS = ['engraving','gravure','lithograph','postcard','carte
   'ansichtskarte','woodcut','etching','illustration','drawing','painting','plan of','map of',
   'archive','historical','historique','vintage','collection des'];
 
+/* ---------------- How current a photograph is ----------------
+   The brief is 2026 photographs only. Two things had to change before that could mean anything.
+
+   First, the app was reading the year out of the FILENAME, which is a guess: most Commons files
+   carry no year in their name at all, so almost every photograph counted as undated and the
+   recency rule barely applied. Commons records the real answer in extmetadata.DateTimeOriginal
+   — when the shutter fired — and it rides along free on a request already being made.
+
+   Second, and the reason an earlier measurement here was wrong: searching Commons by relevance
+   returns the long-established files and hides this year's completely. The top fifty results
+   for the Eiffel Tower, the Colosseum, Sensoji and Cafe de Flore contained no photograph taken
+   this year, which read as "current photographs do not exist". Sorted by creation date instead,
+   Hallstatt, Tokyo Tower, the Colosseum and Funchal all return photographs taken this year. The
+   fix was to ask for them, not to loosen the rule.
+
+   Upload date is not capture date and must never stand in for it: the newest uploads matching
+   "Eiffel Tower" are 2026 uploads of 2017 photographs, and the newest matching "Cafe de Flore"
+   were taken in 2019. */
+
+/** The year a photograph was TAKEN, from Commons' own metadata. Null when Commons does not
+ *  say — which is not the same as old, and is never treated as though it were. */
+function captureYearOf(imageinfo){
+  const em = (imageinfo && imageinfo.extmetadata) || {};
+  const raw = (em.DateTimeOriginal && em.DateTimeOriginal.value) || '';
+  // The field is free text and holds everything from "2026-04-11" to a full HTML citation.
+  const m = String(raw).replace(/<[^>]*>/g, ' ').match(/\b(1[6-9]\d{2}|20\d{2})\b/);
+  if(!m) return null;
+  const y = parseInt(m[1], 10);
+  return (y >= 1600 && y <= new Date().getUTCFullYear() + 1) ? y : null;
+}
+
+/* The recency rule, in one place so it is one line to change.
+ *
+ * IMAGE_MIN_CAPTURE_YEAR is the oldest year a photograph may have been taken in. Set to the
+ * current year it means "this year only", which is what was asked for. Set to null it falls
+ * back to the graded preference below, where recent photographs win but an older one is
+ * shown rather than nothing.
+ *
+ * IMAGE_ALLOW_UNDATED decides what happens to a photograph Commons has no date for. Under a
+ * strict year rule it must be false: an undated file cannot be shown as this year's when
+ * nobody knows what year it is. That is the expensive half of the rule — most Commons files
+ * carry no DateTimeOriginal at all. */
+function imageRecencyOverride(){
+  // A switch you can reach without editing code, because the right cutoff is a judgement about
+  // the product and not about the data: ?photos=2026 (or 2023, or any) on the URL, or
+  // localStorage['tf:photos']. "any" turns the rule off and restores graded recency, where the
+  // most recent photograph still wins but an older one is shown rather than nothing.
+  let raw = null;
+  try {
+    const q = new URLSearchParams(location.search).get('photos');
+    raw = q || localStorage.getItem('tf:photos');
+  } catch(e){ /* not a browser, or storage is blocked */ }
+  if(!raw) return undefined;
+  if(/^any$/i.test(raw)) return null;
+  const y = parseInt(raw, 10);
+  return (y >= 1900 && y <= 2100) ? y : undefined;
+}
+const __recencyOverride = imageRecencyOverride();
+const IMAGE_MIN_CAPTURE_YEAR = __recencyOverride === undefined
+  ? new Date().getUTCFullYear()      // the brief: photographs taken this year only
+  : __recencyOverride;
+const IMAGE_ALLOW_UNDATED = false;
+
+/** Does this photograph meet the recency rule? Kept separate from scoring because it is a
+ *  rule, not a preference: a candidate that fails is not shown at all, however well it
+ *  matches the place. */
+function meetsRecencyPolicy(captureYear){
+  if(IMAGE_MIN_CAPTURE_YEAR == null) return true;         // graded mode: nothing is excluded
+  if(captureYear == null) return IMAGE_ALLOW_UNDATED;
+  return captureYear >= IMAGE_MIN_CAPTURE_YEAR;
+}
+
 /** The year a Commons title claims, when it claims one. */
 function titleYear(title){
   const m = String(title).match(/\b(1[6-9]\d{2}|20[0-4]\d)\b/);
   return m ? parseInt(m[1], 10) : null;
+}
+
+/** The capture year of a single Commons file, for candidates that did not arrive from a search
+ *  (an `image=` or `wikimedia_commons=` tag names a file directly). Cached, because the same
+ *  file is often the answer for several cards and its date never changes. */
+const __captureYearCache = new Map();
+async function commonsCaptureYear(fileRef){
+  // Accept a bare title, a "File:" title, or a thumbnail URL, which is what the tag sources give.
+  let name = String(fileRef || '').replace(/^File:/i, '');
+  if(/^https?:\/\//i.test(name)){
+    const m = /\/commons\/(?:thumb\/)?[0-9a-f]\/[0-9a-f]{2}\/([^/]+)/i.exec(name);
+    if(!m) return null;
+    name = decodeURIComponent(m[1]);
+  }
+  if(!name) return null;
+  if(__captureYearCache.has(name)) return __captureYearCache.get(name);
+  const url = `${COMMONS_API}?action=query&format=json&origin=*&prop=imageinfo` +
+    `&iiprop=extmetadata&iiextmetadatafilter=DateTimeOriginal` +
+    `&titles=${encodeURIComponent('File:' + name)}`;
+  const data = await fetchWikiJSON(url);
+  const page = Object.values((data && data.query && data.query.pages) || {})[0];
+  const year = captureYearOf((page && (page.imageinfo || [])[0]) || null);
+  __captureYearCache.set(name, year);
+  return year;
 }
 
 /** Scores one candidate against the entity. Returns a number and the reasons behind it, so a
@@ -514,14 +612,43 @@ async function commonsTextCandidates(entity, opts){
    * first and then fetched thumbnails for the survivors, which doubled the Wikimedia traffic per
    * card — and with a page of 24 cards each making several calls, rate limiting is the binding
    * constraint on how many places can show a photograph at all. */
-  const url = `${COMMONS_API}?action=query&format=json&origin=*` +
-    `&generator=search&gsrnamespace=6&gsrlimit=10&gsrsearch=${encodeURIComponent(query)}` +
-    `&prop=imageinfo&iiprop=url&iiurlwidth=${o.width || 720}`;
-  const data = await fetchWikiJSON(url);
-  const pages = (data && data.query && data.query.pages) || {};
+  /* TWO passes, because relevance order hides recent photographs completely.
+   *
+   * Commons ranks search results by relevance, which means the long-established, heavily-used
+   * files come back and this year's do not — the top fifty results for the Eiffel Tower,
+   * Hallstatt, the Colosseum and Sensoji contained not one photograph taken this year. Sorted
+   * by creation date instead, Hallstatt, Tokyo Tower, the Colosseum and Funchal all return
+   * current ones. The recent photographs were there the whole time; nothing was asking for them.
+   *
+   * Both passes are scored identically against the entity's identity, so ordering by date buys
+   * recency without buying a photograph of somewhere else. */
+  const ask = async (sort) => {
+    const url = `${COMMONS_API}?action=query&format=json&origin=*` +
+      `&generator=search&gsrnamespace=6&gsrlimit=10&gsrsearch=${encodeURIComponent(query)}` +
+      (sort ? `&gsrsort=${sort}` : '') +
+      // extmetadata rides along on the request that was being made anyway, so a real capture
+      // date costs nothing extra. DateTimeOriginal is when the shutter fired; the file's own
+      // timestamp is when it was uploaded, and the two are routinely years apart — the newest
+      // uploads matching "Eiffel Tower" are 2026 uploads of 2017 photographs.
+      `&prop=imageinfo&iiprop=url|extmetadata&iiextmetadatafilter=DateTimeOriginal` +
+      `&iiurlwidth=${o.width || 720}`;
+    const data = await fetchWikiJSON(url);
+    return Object.values((data && data.query && data.query.pages) || {});
+  };
+
+  const pages = [];
+  const seenPage = new Set();
+  for(const sort of [null, 'create_timestamp_desc']){
+    let batch = [];
+    try { batch = await ask(sort); } catch(err){ if(err.name === 'AbortError') throw err; }
+    for(const p of batch){
+      const k = String(p.title || '');
+      if(k && !seenPage.has(k)){ seenPage.add(k); pages.push(p); }
+    }
+  }
 
   const out = [];
-  for(const page of Object.values(pages)){
+  for(const page of pages){
     const ii = (page.imageinfo || [])[0];
     const thumb = ii && ii.thumburl;
     if(!thumb || !looksLikePhoto(thumb)) continue;
@@ -529,9 +656,10 @@ async function commonsTextCandidates(entity, opts){
     if(!isTravelAppropriate(title) || !isTravelAppropriate(thumb)) continue;
     const s = scoreImageCandidate(title, entity, 'commons_text');
     if(s.score < 55) continue;              // scored on its own title, before anything is shown
-    out.push({url: thumb, title, source: 'commons_text', confidence: s.score, reasons: s.reasons});
+    out.push({url: thumb, title, source: 'commons_text', confidence: s.score, reasons: s.reasons,
+              captureYear: captureYearOf(ii)});
   }
-  return out.sort((a, b) => b.confidence - a.confidence).slice(0, 4);
+  return out.sort((a, b) => b.confidence - a.confidence).slice(0, 8);
 }
 
 async function resolveEntityImage(entity, opts){
@@ -632,21 +760,56 @@ async function resolveEntityImage(entity, opts){
           const rescored = scoreImageCandidate(geo.title || geo.url, entity, src);
           candidates.push({ url: geo.url, source: src, title: geo.title,
                             confidence: Math.min(geo.score, rescored.score),
-                            reasons: rescored.reasons });
+                            reasons: rescored.reasons, captureYear: geo.captureYear });
         }
       } catch(err){ if(err.name === 'AbortError') throw err; }
     }
 
-    result = best();
+    /* The recency rule is applied HERE rather than inside scoring, because it is a rule and not
+     * a preference: a photograph that fails it is not shown at all, however perfectly it matches
+     * the place. Candidates are taken best-first and the first one that also meets the rule wins.
+     *
+     * The OSM-tag sources arrive without a date — they are a file name a mapper wrote on the
+     * place, not a search result — so they are dated on demand. Exempting them would have been
+     * the quiet way to keep coverage up while claiming a strict rule, and it would have meant
+     * the highest-confidence source was the one nobody checked. */
+    const ranked = candidates.sort((a, b) => b.confidence - a.confidence);
+    result = null;
+    for(const cand of ranked){
+      if(cand.captureYear === undefined && IMAGE_MIN_CAPTURE_YEAR != null){
+        try { cand.captureYear = await commonsCaptureYear(cand.title || cand.url); }
+        catch(err){ if(err.name === 'AbortError') throw err; cand.captureYear = null; }
+      }
+      if(meetsRecencyPolicy(cand.captureYear)){
+        result = cand;
+        if(cand.captureYear) result.reasons = (result.reasons || []).concat(`taken ${cand.captureYear}`);
+        break;
+      }
+    }
   }
+
+  /* Destination heroes are held to the same rule. "Every image current" has to include the
+   * picture at the top of the page, and these arrive as a bare file reference from a Wikipedia
+   * lead image or a Wikidata property, so each is dated before it is accepted. Leaving them out
+   * would have been the easy way to keep the app looking full while claiming the rule applied. */
+  const datedOk = async (url) => {
+    if(IMAGE_MIN_CAPTURE_YEAR == null) return { ok: true, year: null };
+    let year = null;
+    try { year = await commonsCaptureYear(url); }
+    catch(err){ if(err.name === 'AbortError') throw err; }
+    return { ok: meetsRecencyPolicy(year), year };
+  };
 
   // Rung 3: the destination's own representative image, verified by name and coordinates.
   if(!result && isDestination){
     const url = await resolveDestinationPhoto(entity);
     if(url){
-      const tier = destPhotoTierFor(entity.placeId || entity.id);
-      const source = tier === 'article' ? 'wikipedia_verified' : 'landmark_inside';
-      result = { url, source, confidence: IMAGE_CONFIDENCE[source] };
+      const when = await datedOk(url);
+      if(when.ok){
+        const tier = destPhotoTierFor(entity.placeId || entity.id);
+        const source = tier === 'article' ? 'wikipedia_verified' : 'landmark_inside';
+        result = { url, source, confidence: IMAGE_CONFIDENCE[source], captureYear: when.year };
+      }
     }
   }
 
@@ -656,8 +819,11 @@ async function resolveEntityImage(entity, opts){
     try {
       const img = await destinationWikidataImage(entity, o.width || 720);
       if(img){
-        const source = img.prop === 'P948' ? 'wikivoyage_banner' : 'wikidata_p18';
-        result = { url: img.url, source, confidence: IMAGE_CONFIDENCE[source] };
+        const when = await datedOk(img.url);
+        if(when.ok){
+          const source = img.prop === 'P948' ? 'wikivoyage_banner' : 'wikidata_p18';
+          result = { url: img.url, source, confidence: IMAGE_CONFIDENCE[source], captureYear: when.year };
+        }
       }
     } catch(err){ if(err.name === 'AbortError') throw err; }
   }
@@ -718,6 +884,8 @@ if(typeof module !== 'undefined' && module.exports){
     IMAGE_CONFIDENCE, IMAGE_MIN_CONFIDENCE_ENTITY, IMAGE_HIGH_CONFIDENCE,
     scoreImageCandidate, entityIdentity, commonsTextCandidates, commonsGeoPhoto,
     commonsTitleScore, resolveEntityImage, foldPunct, hasWholeWordFolded, titleYear,
+    captureYearOf, meetsRecencyPolicy, commonsCaptureYear,
+    IMAGE_MIN_CAPTURE_YEAR, IMAGE_ALLOW_UNDATED,
     SHOWS_THE_PLACE, SHOWS_SOMETHING_ELSE, HISTORICAL_MARKERS,
   };
 }

@@ -1023,10 +1023,16 @@ function placeImagePlaceholderHTML(p){
   const kind = p.category || p.cuisine || (p.type === 'hotel' ? 'Place to stay'
              : p.type === 'restaurant' ? 'Place to eat' : 'Place');
   const icon = p.type === 'restaurant' ? '🍽️' : p.type === 'hotel' ? '🛏️' : '📍';
+  /* Say which rule left this card empty. "No verified photo" was true when the only bar was
+   * identity; with a year cutoff in force it is usually not the reason — the photograph exists
+   * and depicts the place, it was simply taken before the cutoff. Telling someone the wrong
+   * reason for an empty space is worse than telling them nothing. */
+  const cutoff = (typeof IMAGE_MIN_CAPTURE_YEAR !== 'undefined') ? IMAGE_MIN_CAPTURE_YEAR : null;
+  const note = cutoff ? `No ${cutoff} photo` : 'No verified photo';
   return `<div class="noPhoto" aria-hidden="true">
     <span class="noPhotoIcon">${icon}</span>
     <span class="noPhotoKind">${esc(kind)}</span>
-    <span class="noPhotoNote">No verified photo</span>
+    <span class="noPhotoNote">${esc(note)}</span>
   </div>`;
 }
 
