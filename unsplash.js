@@ -170,7 +170,19 @@ function unsplashPhoto(key){
   }
   return hit;
 }
-function unsplashUrl(key){ const p = unsplashPhoto(key); return p ? p.url : null; }
+/** The same photograph at the size it will actually be drawn.
+ *
+ *  Every pinned URL is stored at w=1080, which is right for a full-width hero and wasteful
+ *  everywhere else: the destination cards on the home page render at 284px and were downloading
+ *  1080px files, several times the bytes for pixels nobody sees. Unsplash resizes on their CDN
+ *  from the same URL, so asking for the right width costs nothing and changes no other
+ *  behaviour — the cached entry, the credit and the date are all untouched. */
+function unsplashUrl(key, width){
+  const p = unsplashPhoto(key);
+  if(!p) return null;
+  if(!width) return p.url;
+  return p.url.replace(/([?&])w=\d+/, '$1w=' + Math.round(width));
+}
 
 if(typeof module !== 'undefined' && module.exports){
   module.exports = { unsplashPhoto, unsplashUrl,

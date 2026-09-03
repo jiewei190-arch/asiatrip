@@ -177,14 +177,16 @@ function photoCreditHTML(key){
     target="_blank" rel="noopener noreferrer">Unsplash</a></div>`;
 }
 
-function destHeroSrc(dest){
+/** `width` is the size the picture will actually be drawn at, so the CDN can send that rather
+ *  than a full-width hero to a 284px card. Omitted means full size. */
+function destHeroSrc(dest, width){
   /* A pinned, checked landmark photograph first. This sits here rather than only inside
    * resolveEntityImage because the hero is painted from this function directly, and the credit
    * line beneath it is rendered from the same table: without this the page showed a Wikimedia
    * photograph while crediting an Unsplash photographer for it, which is a worse failure than
    * having no credit at all. */
   if(typeof unsplashUrl === 'function'){
-    const pinned = unsplashUrl('dest/' + (dest.id || ''));
+    const pinned = unsplashUrl('dest/' + (dest.id || ''), width);
     if(pinned) return pinned;
   }
   if(dest.hero && dest.hero.indexOf('data:image/svg') !== 0) return dest.hero;
@@ -866,7 +868,7 @@ function runGlobalSearch(q){
     if(trending.length){
       html += `<div class="gsearch-group">Trending Destinations</div>`;
       trending.forEach(d=>{
-        html += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${destHeroSrc(d)}" alt="" data-photo-dest="${esc(d.id)}" data-photo-q="${esc(destPhotoQuery(d))}"><div><div>${d.flag} ${esc(d.name)}</div><div class="small">${esc(d.tagline)}</div></div></button>`;
+        html += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${destHeroSrc(d, 640)}" alt="" data-photo-dest="${esc(d.id)}" data-photo-q="${esc(destPhotoQuery(d))}"><div><div>${d.flag} ${esc(d.name)}</div><div class="small">${esc(d.tagline)}</div></div></button>`;
       });
     }
     if(!html) html = '<div class="empty" style="padding:26px">Search for a city, attraction, restaurant or hotel.</div>';
@@ -885,7 +887,7 @@ function runGlobalSearch(q){
     if(!matches.length) return '';
     let h = `<div class="gsearch-group">${esc(label)}</div>`;
     matches.forEach(d=>{
-      h += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${destHeroSrc(d)}" alt="" data-photo-dest="${esc(d.id)}" data-photo-q="${esc(destPhotoQuery(d))}"><div><div>${d.flag} ${esc(d.name)}, ${esc(d.country)}</div><div class="small">Explore destination</div></div></button>`;
+      h += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${destHeroSrc(d, 640)}" alt="" data-photo-dest="${esc(d.id)}" data-photo-q="${esc(destPhotoQuery(d))}"><div><div>${d.flag} ${esc(d.name)}, ${esc(d.country)}</div><div class="small">Explore destination</div></div></button>`;
     });
     return h;
   };
@@ -1540,7 +1542,7 @@ function renderHomeView(){
 function destCardHTML(d, tagLabel){
   return `<button class="destCard" data-dest="${d.id}">
     ${tagLabel?`<span class="destCardTag">${esc(tagLabel)}</span>`:''}
-    <img src="${destHeroSrc(d)}" alt="${esc(d.name)}" loading="lazy" data-photo-dest="${esc(d.id)}" data-photo-q="${esc(destPhotoQuery(d))}">
+    <img src="${destHeroSrc(d, 640)}" alt="${esc(d.name)}" loading="lazy" data-photo-dest="${esc(d.id)}" data-photo-q="${esc(destPhotoQuery(d))}">
     <div class="destCardBody"><h4>${d.flag} ${esc(d.name)}</h4><span>${esc(d.country)}</span></div>
   </button>`;
 }
@@ -1901,7 +1903,7 @@ function renderDestinationView(idOrName, tab){
   if(typeof discoverPlacesFor === 'function' && hasVerifiedGeo(dest)) discoverPlacesFor(dest);
 
   $('destHero').innerHTML = `
-    <img src="${destHeroSrc(dest)}" alt="${esc(dest.name)}" data-photo-dest="${esc(dest.id)}" data-photo-q="${esc(destPhotoQuery(dest))}">
+    <img src="${destHeroSrc(dest, 1600)}" alt="${esc(dest.name)}" data-photo-dest="${esc(dest.id)}" data-photo-q="${esc(destPhotoQuery(dest))}">
     <div class="destHeroActions">
       <button class="btn" id="destSaveBtn"><i class="fa-solid fa-heart"></i> Save destination</button>
     </div>
@@ -3495,6 +3497,17 @@ function buildPrintableHTML(trip){
       `).join('')}
       <h2>Budget</h2>
       <div class="printRow">Planned ${fmt$(tripPlannedTotal(trip))} of ${fmt$(trip.budget.total)}</div>
+      ${((trip.budget && trip.budget.expenses) || []).length ? ((trip.budget.expenses).map(e =>
+        `<div class="printRow">${esc(e.label || e.category || 'Expense')}${e.category && e.label ? ' · ' + esc(e.category) : ''} — ${fmt$(e.amount || 0)}</div>`
+      ).join('')) : ''}
+      ${(trip.packing || []).length ? `<h2>Packing</h2>${
+        (trip.packing).map(item => {
+          const label = item && (item.label || item.name || item.text);
+          if(!label) return '';
+          // A printed list is something you tick off on paper, so it carries the box rather
+          // than the app's idea of what is already packed.
+          return `<div class="printRow">☐ ${esc(label)}${item.category ? ' · ' + esc(item.category) : ''}</div>`;
+        }).join('')}` : ''}
       <p class="printFoot">Made with TripFlow</p>
     </div>`;
 }
