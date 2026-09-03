@@ -84,6 +84,10 @@ function imageryCacheSet(entity, value){
    A number the caller can threshold on, so "we are sure" and "this is a stand-in" are
    distinguishable rather than both being "an image". */
 const IMAGE_CONFIDENCE = {
+  // A landmark photograph chosen and checked by name during development, not guessed at
+  // runtime. Ranked with the OSM-tagged sources because it carries the same kind of evidence:
+  // somebody looked at this picture and confirmed it is this place.
+  unsplash_landmark: 96,
   commons_named: 92,     // a Commons photo whose own title names the entity
   commons_text: 60,      // found by searching Commons for the name AND the place; scored further
   commons_nearby: 55,    // geotagged at the entity but not titled for it
@@ -680,6 +684,25 @@ async function commonsTextCandidates(entity, opts){
 async function resolveEntityImage(entity, opts){
   const o = opts || {};
   if(!entity || !entity.name) return null;
+
+  /* A landmark photograph pinned and checked by name during development outranks everything,
+   * including the cache. Commons is thorough about obscure places and thin about famous ones —
+   * eight of twelve destination heroes had nothing taken since 2019, and Paris led with a 2014
+   * photograph — so where a checked, current shot exists it is simply the better picture.
+   *
+   * It sits ABOVE the cache on purpose: a cache holds whatever the older ladder happened to
+   * resolve earlier, and a pinned, checked photograph should not lose to a stale fallback
+   * simply because something else ran first. It still has to pass the same recency window as
+   * every other source — a 2014 landmark shot is no more current here than anywhere else. */
+  if(typeof unsplashPhoto === 'function'){
+    const pinKey = (entity.kind === 'destination' ? 'dest/' : 'place/') + (entity.id || '');
+    const pin = unsplashPhoto(pinKey);
+    if(pin) return { url: pin.url, source: 'unsplash_landmark',
+                     confidence: IMAGE_CONFIDENCE.unsplash_landmark,
+                     captureYear: parseInt(String(pin.taken).slice(0, 4), 10) || null,
+                     credit: { by: pin.by, byUrl: pin.byUrl, source: 'Unsplash' },
+                     reasons: ['landmark photograph checked by name'] };
+  }
 
   const cached = imageryCacheGet(entity);
   if(cached) return cached.url ? cached : null;

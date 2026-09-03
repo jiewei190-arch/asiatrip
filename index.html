@@ -711,7 +711,7 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
  * index) and geo.js run before data.js; imagery.js needs data.js's helpers so it follows it,
  * and app.js runs last — and being at the end of <body>, the DOM is already parsed. */
 (function(){
-  ['photos.js','geo.js','currency-data.js','currency.js','data.js','preferences.js','planner.js','places.js','imagery.js','assistant.js','app.js'].forEach(function(src){
+  ['photos.js','unsplash.js','geo.js','currency-data.js','currency.js','data.js','preferences.js','planner.js','places.js','imagery.js','assistant.js','app.js'].forEach(function(src){
     var s = document.createElement('script');
     s.src = src + '?v=' + window.ASSET_VERSION;
     s.async = false;

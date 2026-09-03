@@ -156,6 +156,39 @@ console.log('\n6. Live: real venues of each category resolve to photographs of t
       console.log('        (no verified photograph; the card shows its empty state)');
     }
   }
+  console.log('\n10. Pinned landmark photography');
+  {
+    const path = require('path');
+    global.window = global.window || {};
+    require(path.join(path.dirname(__dirname), 'unsplash.js'));
+    const table = global.window.UNSPLASH_PHOTOS || {};
+    const keys = Object.keys(table);
+
+    check('the landmark table is populated', keys.length >= 10, `${keys.length} entries`);
+    check('every entry names the place it depicts',
+          keys.every(k => table[k].alt && table[k].alt.length > 8),
+          keys.filter(k => !table[k].alt).join(', '));
+    check('every entry credits a photographer, as the licence asks',
+          keys.every(k => table[k].by && /^https:\/\/unsplash\.com\/@/.test(table[k].byUrl || '')),
+          keys.filter(k => !table[k].by).join(', '));
+    check('every entry carries the date the photograph was taken',
+          keys.every(k => /^\d{4}-\d{2}-\d{2}$/.test(table[k].taken || '')),
+          keys.filter(k => !/^\d{4}-\d{2}-\d{2}$/.test(table[k].taken || '')).join(', '));
+    check('every entry points at the Unsplash CDN, which needs no key to load',
+          keys.every(k => String(table[k].url).startsWith('https://images.unsplash.com/')));
+    check('no two places share a photograph',
+          new Set(keys.map(k => table[k].id)).size === keys.length,
+          'a repeated picture across destinations reads as a bug');
+    // The point of the table is currency: this is the whole reason it exists.
+    const recent = keys.filter(k => Number(String(table[k].taken).slice(0, 4)) >= 2025).length;
+    check('most pinned photographs are from the last two years', recent >= keys.length * 0.7,
+          `${recent} of ${keys.length}`);
+    // Queenstown is absent on purpose. If somebody adds it, they must have checked it names
+    // the place — two searches returned only unnamed lakes.
+    check('nothing was added on a guess', !table['dest/queenstown'],
+          'Queenstown had no candidate naming the place');
+  }
+
   console.log('\n9. Recency: a photograph must be as current as the rule demands');
   {
     const I = require(require('path').join(require('path').dirname(__dirname), 'imagery.js'));

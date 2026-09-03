@@ -162,6 +162,21 @@ function destPhotoQuery(dest){
  * subsequent render should start from the real photo instead of painting the grey frame
  * again and re-resolving it; a card scrolled into view a second time was still flashing the
  * placeholder purely because it re-read the stale field. */
+/** Credits the photographer, which the Unsplash API guidelines ask for in return for letting
+ *  anyone use the picture. Rendered only when the photograph on screen actually came from
+ *  there — crediting a photographer for a Wikimedia file would be worse than not crediting one
+ *  at all. Silent when the entry was refused by the recency window, because then it is not the
+ *  picture being shown. */
+function photoCreditHTML(key){
+  if(typeof unsplashPhoto !== 'function') return '';
+  const p = unsplashPhoto(key);
+  if(!p || !p.by) return '';
+  return `<div class="photoCredit">Photo: <a href="${esc(p.byUrl || '#')}?utm_source=TripFlow&utm_medium=referral"
+    target="_blank" rel="noopener noreferrer">${esc(p.by)}</a> ·
+    <a href="https://unsplash.com/?utm_source=TripFlow&utm_medium=referral"
+    target="_blank" rel="noopener noreferrer">Unsplash</a></div>`;
+}
+
 function destHeroSrc(dest){
   if(dest.hero && dest.hero.indexOf('data:image/svg') !== 0) return dest.hero;
   return cachedWikiThumbnail([dest.name, dest.country].filter(Boolean)) || dest.hero;
@@ -1739,7 +1754,8 @@ function renderDestinationView(idOrName, tab){
       <div class="flag">${dest.flag} ${esc(dest.country||'')}</div>
       <h1>${esc(dest.name)}</h1>
       <p>${esc(dest.tagline)}</p>
-    </div>`;
+    </div>
+    ${photoCreditHTML('dest/' + dest.id)}`;
   hydratePhotos($('destHero'));
   if(dest.id.startsWith('gen-')){
     enrichDestinationInBackground(dest, ()=>{
