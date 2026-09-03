@@ -365,3 +365,19 @@ for an answer that usually was not there; the same photograph now resolves in 43
 photograph of itself or an honest empty state naming what kind of place it is. A plate of pasta
 on a card headed "Trattoria da Enzo" is indistinguishable from a real photograph of the place,
 and that is the problem with it.
+
+### On image coverage, honestly
+
+There is no single coverage percentage worth quoting, and measuring one taught me why. Two runs
+against Paris gave 100% and 25%, because discovery returned different place sets and the samples
+were different places: the first happened to catch landmarks, the second caught Ben's Cookies
+and Crêperie Elo. Coverage is a property of how notable a place is, not of this code.
+
+What holds regardless: a place with a photograph on Commons gets it, verified against its own
+name, street, city and category. A place without one shows an honest empty state. Two misses
+worth understanding, both correct decisions rather than bugs:
+
+- **Bouillon Julien** — Commons holds "Brasserie Julien" for the same venue. A similar-but-not-
+  equal name is explicitly on the reject list, and being wrong here would put a different
+  restaurant on the card.
+- **Le Buci** — Commons genuinely holds nothing.

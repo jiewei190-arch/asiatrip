@@ -144,16 +144,6 @@ function catEmoji(type){ return {attraction:'📍',restaurant:'🍜',hotel:'🏨
  *  country (there are many "Tuscany"s), a country by itself. The old version only ever tried
  *  the bare name then the country, which for a park or a region often found the wrong thing
  *  or nothing at all. */
-/** True when an image is a category or cuisine stand-in rather than a photograph of the
- * place named on the card. Only about 4% of restaurants carry any image reference in the
- * free data, so most food cards necessarily show a dish rather than the premises. Showing
- * one is fine; letting it be MISTAKEN for the restaurant is not, so cards that use one say
- * so. That satisfies both instructions: the card stays appetising, and nobody is misled
- * into thinking they are looking at the actual place. */
-function isIllustrativeImage(src){
-  const v = String(src || '');
-  return v.indexOf('images/category/') >= 0 || v.indexOf('images/cuisine/') >= 0;
-}
 
 function destPhotoQuery(dest){
   const type = dest.placeType || '';
@@ -297,10 +287,18 @@ function hydratePhotos(container){
         const p = placeById(placeId);
         const pd = p && DESTINATIONS.find(d => d.id === p.destId);
         if(p && p.lat != null){
+          // Hand over the WHOLE identity. Discovery already read this place's OSM tags —
+          // wikidata, wikipedia, image, wikimedia_commons — and its address; dropping them here
+          // meant the resolver had to ask Overpass for tags it had been given minutes earlier,
+          // over a slow and heavily throttled service, to learn what it already knew.
           applyResolvedImage(imgEl, {
-            placeId: 'place:' + p.id, name: p.name, kind: p.type,
+            placeId: 'place:' + p.id, name: p.name, localName: p.localName, kind: p.type,
+            subtype: p.subtype, category: p.category, cuisine: p.cuisine,
+            address: p.address, city: pd && pd.name, destName: pd && pd.name,
             country: pd && pd.country, countryCode: pd && pd.countryCode,
             lat: p.lat, lng: p.lng,
+            wikidata: p.wikidata, wikipedia: p.wikipedia,
+            osmImage: p.osmImage, osmCommons: p.osmCommons,
           });
         }
       });
@@ -977,8 +975,7 @@ const __standinUse = new Map();
  *  picture across re-renders. Five photographs shared evenly over forty cards is a wallpaper;
  *  five photographs where one appears thirty times is the bug being fixed here.
  *
- *  Every one of these is marked "Illustrative" on the card, and imagery.js replaces it the
- *  moment it finds a real photograph of the place itself. */
+ *  Kept only for curated places, which ship with a real hand-checked photograph of themselves. */
 function claimFirstFreeImage(candidates, placeId){
   const pool = candidates.filter(Boolean);
   if(!pool.length) return '';
@@ -996,8 +993,7 @@ function claimFirstFreeImage(candidates, placeId){
 }
 
 /** Discovered places arrive from OpenStreetMap without a photograph. Rather than a grey box,
- *  show a category or cuisine stand-in — clearly marked "Illustrative" — which imagery.js then
- *  replaces if it can find a photograph of this exact entity. */
+ *  show nothing until a photograph of this exact entity is verified. */
 /* No generic stand-in pool any more.
  *
  * There used to be one: 41 food photographs, 6 accommodation, 5 sights, handed out so every card

@@ -98,6 +98,7 @@ const IMAGE_CONFIDENCE = {
 };
 const IMAGE_MIN_CONFIDENCE_ENTITY = 60;   // a NAMED entity needs a photo of itself
 const IMAGE_HIGH_CONFIDENCE = 90;         // good enough that looking further cannot improve it
+const IMAGERY_OVERPASS_BUDGET_MS = 8000;  // a photograph is worth seconds, never minutes
 
 /* ---------------- Media helpers ---------------- */
 
@@ -487,36 +488,30 @@ async function commonsTextCandidates(entity, opts){
   if(!name) return [];
   const place = [entity.city || entity.destName, entity.country].filter(Boolean).join(' ');
   const query = `"${name}" ${place}`.trim() + ' filetype:bitmap';
-  const url = `${COMMONS_API}?action=query&format=json&origin=*&list=search&srnamespace=6` +
-    `&srlimit=10&srsearch=${encodeURIComponent(query)}`;
-  const data = await fetchWikiJSON(url);
-  const hits = (data && data.query && data.query.search) || [];
-  if(!hits.length) return [];
 
-  // Resolve the ones worth resolving: score on the title first, fetch thumbnails after, so a
-  // search that returns ten irrelevant files costs one request rather than eleven.
-  const scored = hits
-    .map(h => ({title: h.title, ...scoreImageCandidate(h.title, entity, 'commons_text')}))
-    .filter(c => c.score >= 55)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3);
-  if(!scored.length) return [];
-
-  const titles = scored.map(c => c.title).join('|');
-  const infoUrl = `${COMMONS_API}?action=query&format=json&origin=*&titles=${encodeURIComponent(titles)}` +
+  /* One request, not two. `generator=search` feeds the search results straight into the
+   * imageinfo query, so titles and thumbnails come back together. The previous version searched
+   * first and then fetched thumbnails for the survivors, which doubled the Wikimedia traffic per
+   * card — and with a page of 24 cards each making several calls, rate limiting is the binding
+   * constraint on how many places can show a photograph at all. */
+  const url = `${COMMONS_API}?action=query&format=json&origin=*` +
+    `&generator=search&gsrnamespace=6&gsrlimit=10&gsrsearch=${encodeURIComponent(query)}` +
     `&prop=imageinfo&iiprop=url&iiurlwidth=${o.width || 720}`;
-  const info = await fetchWikiJSON(infoUrl);
+  const data = await fetchWikiJSON(url);
+  const pages = (data && data.query && data.query.pages) || {};
+
   const out = [];
-  for(const page of Object.values((info && info.query && info.query.pages) || {})){
+  for(const page of Object.values(pages)){
     const ii = (page.imageinfo || [])[0];
     const thumb = ii && ii.thumburl;
     if(!thumb || !looksLikePhoto(thumb)) continue;
     const title = String(page.title || '').replace(/^File:/i, '');
     if(!isTravelAppropriate(title) || !isTravelAppropriate(thumb)) continue;
     const s = scoreImageCandidate(title, entity, 'commons_text');
+    if(s.score < 55) continue;              // scored on its own title, before anything is shown
     out.push({url: thumb, title, source: 'commons_text', confidence: s.score, reasons: s.reasons});
   }
-  return out;
+  return out.sort((a, b) => b.confidence - a.confidence).slice(0, 4);
 }
 
 async function resolveEntityImage(entity, opts){
@@ -561,6 +556,24 @@ async function resolveEntityImage(entity, opts){
      * expensive ones are never called: there is nothing above "a photograph that names this
      * place, its street and its city" worth waiting for. */
 
+    // 0. Tags the place already carries. Discovery read these from OSM when it found the place,
+    //    so they cost nothing here — no Overpass round trip to re-learn them. A wikidata or
+    //    wikimedia_commons tag is a mapper's statement that this photograph IS this place, which
+    //    is the strongest evidence available anywhere.
+    if(entity.osmImage || entity.osmCommons || entity.wikidata || entity.wikipedia){
+      try{
+        const found = await imageFromOsmTags({
+          image: entity.osmImage, wikimedia_commons: entity.osmCommons,
+          wikidata: entity.wikidata, wikipedia: entity.wikipedia,
+        }, o.width || 720);
+        if(found && isTravelAppropriate(found.url)){
+          candidates.push({ url: found.url, source: found.source, title: found.url,
+                            confidence: IMAGE_CONFIDENCE[found.source] || 80,
+                            reasons: ['tagged on the place itself'] });
+        }
+      }catch(err){ if(err.name === 'AbortError') throw err; }
+    }
+
     // 1. Commons, searched by name AND place. This is what finds a named business at all.
     try {
       const found = await commonsTextCandidates(entity, {width: o.width, signal: o.signal});
@@ -568,9 +581,18 @@ async function resolveEntityImage(entity, opts){
     } catch(err){ if(err.name === 'AbortError') throw err; }
 
     // 2. The entity's own OSM tags: the mapper's statement that this photograph IS this place.
-    if(!best() || best().confidence < IMAGE_HIGH_CONFIDENCE){
+    //
+    // Bounded hard. Overpass rotates three mirrors at up to 25s each, so a throttled service can
+    // hold a card for over a minute — and a photograph is worth waiting seconds for, not
+    // minutes. Measured: one entity hung for 540 seconds here before this cap existed. When it
+    // does not answer in time the card keeps whatever Commons found, or stays honestly empty.
+    const alreadyHaveTags = !!(entity.osmImage || entity.osmCommons || entity.wikidata || entity.wikipedia);
+    if(!alreadyHaveTags && (!best() || best().confidence < IMAGE_HIGH_CONFIDENCE)){
       try {
-        const tags = await overpassEntityTags(entity, { signal: o.signal, radius: o.radius });
+        const tags = await Promise.race([
+          overpassEntityTags(entity, { signal: o.signal, radius: o.radius }),
+          new Promise(resolve => setTimeout(() => resolve(null), IMAGERY_OVERPASS_BUDGET_MS)),
+        ]);
         const found = await imageFromOsmTags(tags, o.width || 720);
         if(found && isTravelAppropriate(found.url)){
           candidates.push({ url: found.url, source: found.source, title: found.url,
@@ -666,13 +688,6 @@ function applyResolvedImage(imgEl, entity, opts){
       const wrap = imgEl.closest && imgEl.closest('.placeImgWrap');
       const empty = wrap && wrap.querySelector('.noPhoto');
       if(empty) empty.remove();
-    }catch(e){ /* non-critical */ }
-    // A real photograph of this exact entity has arrived, so the "Illustrative" mark on the
-    // stand-in is no longer true and must come off with it.
-    try{
-      const wrap = imgEl.closest && imgEl.closest('.placeImgWrap');
-      const badge = wrap && wrap.querySelector('.illusBadge');
-      if(badge) badge.remove();
     }catch(e){ /* non-critical */ }
   }).catch(()=>{});
 }
