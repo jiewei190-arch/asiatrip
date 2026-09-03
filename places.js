@@ -97,7 +97,13 @@ const PLACES_TIMEOUT_MS = 25000;
  * on a stuck mirror rather than on the query. */
 const OVERPASS_PATIENCE_MS = 12000;
 
-async function fetchWithTimeout(url, opts, ms){
+/* Named distinctly on purpose. data.js already had an `async function fetch` helper with the
+ * arguments the OTHER way round (url, ms, opts). Both are top-level declarations in one shared
+ * global scope, so the later file simply replaced the earlier one — and every Wikimedia call in
+ * data.js and imagery.js then passed 8000 as `opts` and a headers object as the timeout, making
+ * setTimeout fire on NaN and abort the request instantly. Image resolution was dead app-wide and
+ * silent about it, because an aborted fetch looks exactly like "no photo found". */
+async function placesFetch(url, opts, ms){
   const ctl = new AbortController();
   const timer = setTimeout(()=>ctl.abort(), ms || PLACES_TIMEOUT_MS);
   // An external signal (the user navigated away) must also cancel this request.
@@ -115,7 +121,7 @@ async function overpassQuery(ql, signal){
   for(let attempt = 0; attempt < OVERPASS_ENDPOINTS.length; attempt++){
     const endpoint = OVERPASS_ENDPOINTS[(overpassCursor + attempt) % OVERPASS_ENDPOINTS.length];
     try{
-      const res = await fetchWithTimeout(endpoint, {
+      const res = await placesFetch(endpoint, {
         method: 'POST',
         // Overpass answers 406 without an explicit Accept, and form-encoding is what the
         // public mirrors expect for a POSTed query.
@@ -153,7 +159,7 @@ async function photonNearby(dest, kind, radiusKm, signal){
     const url = `${PHOTON_REVERSE}?lat=${dest.lat}&lon=${dest.lng}` +
                 `&radius=${Math.min(radiusKm, 50)}&limit=50&lang=en&osm_tag=${encodeURIComponent(tag)}`;
     try{
-      const res = await fetchWithTimeout(url, {headers:{'Accept':'application/json'}, signal}, 12000);
+      const res = await placesFetch(url, {headers:{'Accept':'application/json'}, signal}, 12000);
       if(!res.ok) continue;
       const json = await res.json();
       for(const f of (json.features || [])){

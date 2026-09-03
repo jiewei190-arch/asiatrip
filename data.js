@@ -158,12 +158,18 @@ async function fetchWithTimeout(url, ms, opts){
  * to force a larger size therefore manufactures a 404 for every image whose original is narrower
  * than the size we asked for — which silently cost those destinations their photo. Trust the
  * width the API actually returned; only shrink an oversized one, never grow it. */
-function capWikiThumb(url, maxWidth){
-  const m = url.match(/\/(\d+)px-/);
-  if(!m) return url;
-  const actual = parseInt(m[1], 10);
-  if(!actual || actual <= (maxWidth||720)) return url;
-  return url.replace(/\/(\d+)px-/, `/${maxWidth||720}px-`);
+function capWikiThumb(url /*, maxWidth */){
+  // Deliberately a pass-through now. Wikimedia's thumbnailer serves only a DISCRETE set of
+  // widths — probed against a real 5184px file, 960 and 1280 return 200 while 320, 480, 640,
+  // 720, 800 and 1024 all return 400 Bad Request. This function used to rewrite the API's URL
+  // down to 720px whenever the API had picked something larger, which turned a working 960px
+  // thumbnail into a guaranteed 400. Twenty-one images on a single Seoul page load were
+  // failing this way, each one falling back to a category stand-in even though a real
+  // photograph of the place had been found.
+  //
+  // The API already picks a valid width for the iiurlwidth we ask for, so the correct handling
+  // is to use exactly what it returned and never rewrite the size.
+  return url;
 }
 
 /* ---- Real photos via Wikipedia's public REST API (no key, CORS-enabled) ---- */

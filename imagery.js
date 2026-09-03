@@ -160,10 +160,21 @@ async function wikidataImage(qid, width, opts){
  *    "Infant and Skull, Medieval, Louvre"     — an object INSIDE it, not the place
  *  Both would pass a naive substring test and put the wrong picture on the card. Position
  *  carries the signal: a photograph OF something names it first. */
+/** Typographic punctuation differs between an OSM name and a Commons filename for the same
+ *  place — "La Tour d’Argent" against "La Tour d'Argent" — and a plain indexOf then misses,
+ *  dropping a correct photo from 92 to 60. Fold the variants before comparing. */
+function foldPunct(s){
+  return String(s)
+    .replace(/[\u2018\u2019\u02BC\u201B`\u00B4]/g, "'")     // curly and modifier apostrophes
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2010-\u2015\u2212]/g, '-')                 // dashes and minus
+    .replace(/\u00A0/g, ' ');
+}
+
 function commonsTitleScore(title, want){
   if(!want) return 40;                                   // no name to test against
-  const t = String(title).replace(/\.[a-z0-9]+$/i, '').replace(/[_]+/g, ' ').trim();
-  const lt = t.toLowerCase(), lw = String(want).toLowerCase();
+  const t = foldPunct(String(title).replace(/\.[a-z0-9]+$/i, '').replace(/[_]+/g, ' ').trim());
+  const lt = t.toLowerCase(), lw = foldPunct(String(want)).toLowerCase();
   const at = lt.indexOf(lw);
   if(at < 0) return titleNamesPlace(t, want) ? 60 : 40;   // geotagged here, not named
 
