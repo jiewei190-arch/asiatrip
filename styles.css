@@ -797,3 +797,14 @@ input:checked+.slider:before{transform:translateX(18px)}
 }
 .photoCredit a{ color:inherit; text-decoration:underline; text-underline-offset:2px; }
 .photoCredit a:hover{ color:#fff; }
+
+/* Numbered pins on the whole-trip map. Colour carries the day, the number carries the order
+   within it, so a glance answers "which day is over there?" without opening anything. */
+.tripPin span{
+  display:flex; align-items:center; justify-content:center;
+  width:24px; height:24px; border-radius:50%;
+  color:#fff; font-size:11px; font-weight:800; line-height:1;
+  border:2px solid rgba(255,255,255,.9); box-shadow:0 1px 4px rgba(0,0,0,.35);
+}
+#tripMapCanvas{ border-radius:12px; overflow:hidden; }
+#tripMapCanvas .leaflet-popup-content{ font-weight:600; }

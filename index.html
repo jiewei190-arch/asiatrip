@@ -10,6 +10,12 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+<!-- Leaflet, for the whole-trip map. The per-day map is a keyless Google embed, which plots a
+     route and nothing else — it cannot show ten days at once, and it stops at ten waypoints.
+     Leaflet with OpenStreetMap tiles is keyless too and gives real markers. Pinned, and the app
+     degrades to an honest message if it fails to load. -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 /* Cache busting that maintains itself.
  *
@@ -208,6 +214,7 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
       <div class="plannerTabs" id="plannerTabs">
         <button class="ptab active" data-ptab="dashboard">Dashboard</button>
         <button class="ptab" data-ptab="itinerary">Itinerary &amp; Map</button>
+        <button class="ptab" data-ptab="tripmap">Trip map</button>
         <button class="ptab" data-ptab="unscheduled">Unscheduled Places</button>
         <button class="ptab" data-ptab="packing">Packing</button>
         <button class="ptab" data-ptab="bookings">Bookings</button>
@@ -217,6 +224,7 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
 
       <div class="ptabBody active" id="ptab-dashboard"></div>
 
+      <div class="ptabBody" id="ptab-tripmap"></div>
       <div class="ptabBody" id="ptab-unscheduled"></div>
 
       <div class="ptabBody" id="ptab-packing"></div>

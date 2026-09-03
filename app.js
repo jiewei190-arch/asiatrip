@@ -3631,7 +3631,8 @@ function renderPlannerView(tripId, ptab){
   $('mapSearchGo').onclick = ()=>plannerMapSearch(trip);
   $('mapSearchInput').onkeydown = e=>{ if(e.key==='Enter') plannerMapSearch(trip); };
 
-  if(ptab==='budget') renderBudgetTab(trip);
+  if(ptab==='tripmap') renderTripMapTab(trip);
+  else if(ptab==='budget') renderBudgetTab(trip);
   else if(ptab==='collab') renderCollabTab(trip);
   else if(ptab==='unscheduled') renderUnscheduledTab(trip);
   else if(ptab==='packing') renderPackingTab(trip);
@@ -3816,6 +3817,136 @@ function renderDashboardTab(trip){
     toast('Trip notes saved.');
   };
   hydratePhotos(body);
+}
+
+/* ---------------- The whole trip on one map ----------------
+   The itinerary map shows one day, as a Google directions embed. That is the right tool for
+   "how do I walk today" and the wrong one for "what does this trip look like": it plots a
+   single route, stops at ten waypoints, and cannot show ten days at once.
+
+   This is the other view. Every verified stop across every day, coloured by day, numbered in
+   visiting order, joined by a line per day. It answers the question the per-day map cannot —
+   is my week spread sensibly across this city, or have I booked Tuesday on the far side of it? */
+
+/** Distinct, evenly spaced hues, so adjacent days never read as the same colour. Generated
+ *  rather than tabulated because a trip can be any length and a fixed palette of eight would
+ *  silently repeat on day nine. */
+function tripDayColour(i, total){
+  const n = Math.max(1, total);
+  const hue = Math.round((i * 360) / n + (i % 2) * 24) % 360;   // offset alternates to separate neighbours
+  return `hsl(${hue} 72% 46%)`;
+}
+
+/** Every stop worth plotting, flattened across the trip and tagged with its day.
+ *  A stop that fails the destination containment check is NOT plotted and IS counted, because
+ *  silently dropping it is how a map quietly lies about where a trip goes. */
+function tripMapPoints(trip, dest){
+  const points = [], dropped = [];
+  (trip.days || []).forEach((day, di) => {
+    (day.stops || []).forEach((s, si) => {
+      const ok = s.lat != null && s.lng != null &&
+                 (typeof placeWithinDestination !== 'function' || placeWithinDestination(s, dest));
+      if(ok) points.push({ lat: s.lat, lng: s.lng, name: s.name, time: s.time, type: s.type,
+                           day: di, order: si + 1, date: day.date });
+      else dropped.push({ name: s.name, day: di });
+    });
+  });
+  return { points, dropped };
+}
+
+let __tripMap = null, __tripMapLayers = [];
+function renderTripMapTab(trip){
+  const body = $('ptab-tripmap');
+  const dest = destForTrip(trip);
+
+  if(!hasVerifiedGeo(dest)){ body.innerHTML = mapUnverifiedHTML(dest && dest.name); return; }
+  if(navigator.onLine === false){ body.innerHTML = mapUnavailableHTML(); return; }
+  if(typeof L === 'undefined'){
+    // The library is loaded from a CDN and can simply not arrive. Say so plainly rather than
+    // leaving an empty grey box that looks like a broken map.
+    body.innerHTML = `<div class="empty" style="padding:40px;text-align:center">
+      <div style="font-size:26px;margin-bottom:8px">🗺️</div>
+      <div>The map library could not be loaded.</div>
+      <div class="small" style="margin-top:4px">Everything else in this trip still works — the per-day map is on the Itinerary tab.</div></div>`;
+    return;
+  }
+
+  const { points, dropped } = tripMapPoints(trip, dest);
+  const total = trip.days.length;
+
+  body.innerHTML = `
+    <div class="panel mapPanel">
+      <div class="panelHead">
+        <h3>${esc(trip.title)} — every day on one map</h3>
+        <div class="rowgap">
+          <select id="tripMapDayFilter" class="btn sm">
+            <option value="all">All ${total} days</option>
+            ${trip.days.map((d, i) => `<option value="${i}">Day ${i + 1} · ${fmtDateFull(d.date)}</option>`).join('')}
+          </select>
+          <button class="btn sm" id="tripMapFit"><i class="fa-solid fa-crosshairs"></i> Fit</button>
+        </div>
+      </div>
+      <div class="mapLegend" id="tripMapLegend"></div>
+      <div class="map" id="tripMapCanvas" style="min-height:520px"></div>
+      ${points.length ? '' : '<div class="empty">Nothing with a confirmed location is scheduled yet.</div>'}
+      ${dropped.length ? `<div class="small" style="padding:8px 12px">${dropped.length} stop${dropped.length===1?'':'s'} ${dropped.length===1?'has':'have'} no confirmed location and ${dropped.length===1?'is':'are'} not shown: ${esc(dropped.slice(0,3).map(d=>d.name).join(', '))}${dropped.length>3?'…':''}</div>` : ''}
+    </div>`;
+
+  $('tripMapLegend').innerHTML = trip.days.map((d, i) =>
+    `<span class="legend"><span class="legendDot" style="background:${tripDayColour(i, total)}"></span>Day ${i + 1}</span>`).join('');
+
+  // Leaflet needs the container to exist and have a size before it initialises.
+  requestAnimationFrame(() => {
+    try { buildTripMap(trip, dest, points, total); }
+    catch(e){ body.innerHTML = mapUnavailableHTML(); }
+  });
+}
+
+function buildTripMap(trip, dest, points, total){
+  if(__tripMap){ __tripMap.remove(); __tripMap = null; }
+  __tripMapLayers = [];
+  __tripMap = L.map('tripMapCanvas', { scrollWheelZoom: false }).setView([dest.lat, dest.lng], 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    // OpenStreetMap's tiles are free to use and their terms require this credit.
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  }).addTo(__tripMap);
+
+  const byDay = new Map();
+  points.forEach(p => { if(!byDay.has(p.day)) byDay.set(p.day, []); byDay.get(p.day).push(p); });
+
+  const bounds = [];
+  byDay.forEach((list, dayIdx) => {
+    const colour = tripDayColour(dayIdx, total);
+    const group = L.layerGroup().addTo(__tripMap);
+    const line = list.map(p => [p.lat, p.lng]);
+    if(line.length > 1) L.polyline(line, { color: colour, weight: 3, opacity: 0.65 }).addTo(group);
+    list.forEach(p => {
+      bounds.push([p.lat, p.lng]);
+      L.marker([p.lat, p.lng], {
+        icon: L.divIcon({ className: 'tripPin', iconSize: [24, 24], iconAnchor: [12, 12],
+          html: `<span style="background:${colour}">${p.order}</span>` }),
+      }).addTo(group).bindPopup(
+        `<strong>${esc(p.name)}</strong><br>Day ${p.day + 1} · ${esc(fmtTime12(p.time))}`);
+    });
+    __tripMapLayers.push({ dayIdx, group });
+  });
+
+  if(bounds.length) __tripMap.fitBounds(bounds, { padding: [30, 30] });
+
+  const filter = $('tripMapDayFilter');
+  if(filter) filter.onchange = () => {
+    const v = filter.value;
+    const shown = [];
+    __tripMapLayers.forEach(({ dayIdx, group }) => {
+      const on = (v === 'all') || Number(v) === dayIdx;
+      if(on){ group.addTo(__tripMap); (byDay.get(dayIdx) || []).forEach(p => shown.push([p.lat, p.lng])); }
+      else __tripMap.removeLayer(group);
+    });
+    if(shown.length) __tripMap.fitBounds(shown, { padding: [30, 30] });
+  };
+  const fit = $('tripMapFit');
+  if(fit) fit.onclick = () => { if(bounds.length) __tripMap.fitBounds(bounds, { padding: [30, 30] }); };
 }
 
 /* ---------------- Unscheduled Places bucket ---------------- */
