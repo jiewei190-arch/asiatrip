@@ -96,6 +96,58 @@ window.UNSPLASH_PHOTOS = {
     by: "ALEKO KEZEVADZE", byUrl: "https://unsplash.com/@alexanderkez", taken: "2026-03-16",
   },
 
+  /* ---- Landmarks. Most curated attractions already ship a licence-cleared photograph in
+     images/place/, so these are here for the ones where a CURRENT, dated and credited
+     photograph is better than an undated bundled one — the bundled files had their EXIF
+     stripped by optimisation and cannot be checked against the recency window at all. ---- */
+  "place/tokyo-a1": {
+    id: "5EU6S9pf5TU",
+    url: "https://images.unsplash.com/photo-1787761396288-e97a8b38c0c4?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=80&w=1080",
+    alt: "The illuminated Senso-ji temple main hall at night in Tokyo",
+    by: "Pablo Almaguer", byUrl: "https://unsplash.com/@palmaguer", taken: "2026-08-26",
+  },
+  "place/tokyo-a3": {
+    id: "GesWNughm8A",
+    url: "https://images.unsplash.com/photo-1786590590759-4b227edbb0d2?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=80&w=1080",
+    alt: "Decorated sake barrels at Meiji Jingu Shrine, Tokyo",
+    by: "Haci", byUrl: "https://unsplash.com/@e_haci", taken: "2026-08-13",
+  },
+  "place/paris-a2": {
+    id: "9s5MWNVwDXQ",
+    url: "https://images.unsplash.com/photo-1587648415693-4a5362b2ce41?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=80&w=1080",
+    alt: "The illuminated Louvre Pyramid reflecting in a pool at night in Paris",
+    by: "Michael Fousert", byUrl: "https://unsplash.com/@michaelfousert", taken: "2020-04-23",
+  },
+  "place/paris-a3": {
+    id: "CKn6fbGPOpE",
+    url: "https://images.unsplash.com/photo-1623009070764-45002990256e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=80&w=1080",
+    alt: "La Maison Rose, Montmartre, Paris",
+    by: "Bastien Nvs", byUrl: "https://unsplash.com/@bastien_nvs", taken: "2021-06-06",
+  },
+  "place/new-york-a3": {
+    id: "A2CChTZvzTE",
+    url: "https://images.unsplash.com/photo-1568515387631-8b650bbcdb90?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=80&w=1080",
+    alt: "New York Central Park from above",
+    by: "Jermaine Ee", byUrl: "https://unsplash.com/@eejermaine", taken: "2019-09-15",
+  },
+  "place/rome-a3": {
+    id: "ND2yDxpdYHo",
+    url: "https://images.unsplash.com/photo-1787932442749-f413fb522321?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=80&w=1080",
+    alt: "The Trevi Fountain with marble statues and cascading water in Rome",
+    by: "Ana Mudalen", byUrl: "https://unsplash.com/@anamudalen", taken: "2026-08-28",
+  },
+  "place/marrakech-a1": {
+    id: "VXSXRQ3NI_E",
+    url: "https://images.unsplash.com/photo-1779088469713-e81a78846b4c?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=80&w=1080",
+    alt: "Local people gathered at the historic Jemaa el-Fnaa square in Marrakech",
+    by: "Margo Evardson", byUrl: "https://unsplash.com/@stadinstudio", taken: "2026-05-18",
+  },
+  "place/marrakech-a2": {
+    id: "IWXgmHUi6bo",
+    url: "https://images.unsplash.com/photo-1773501934878-104c1e234ba0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixlib=rb-4.1.0&q=80&w=1080",
+    alt: "The Jardin Majorelle lily pond and Majorelle Blue buildings, Marrakech",
+    by: "Val Vesa", byUrl: "https://unsplash.com/@adspedia", taken: "2026-03-14",
+  },
   /* Queenstown, New Zealand is deliberately absent, and this note is the record of why.
      Two searches returned only "a calm lake reflecting mountains" and "people walking on a
      concrete pier extending into a lake" — both by a New Zealand photographer, neither naming

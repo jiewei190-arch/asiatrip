@@ -1607,9 +1607,15 @@ DESTINATIONS_RAW.forEach(d=>{
   const used = new Set();
   const claim = src => (src && !used.has(src)) ? (used.add(src), src) : null;
 
-  const attrImg = attrs.map((p, i) => claim(bundledPhotoExact(`place/${d.id}-a${i+1}`)));
-  const restImg = rests.map((p, i) => claim(bundledPhotoExact(`place/${d.id}-r${i+1}`)));
-  const hotelImg = hotels.map((p, i) => claim(bundledPhotoExact(`place/${d.id}-h${i+1}`)));
+  /* A pinned photograph outranks the bundled one where both exist. Both are real pictures of
+   * the place; the pinned one is dated, credited and current, while optimisation stripped the
+   * EXIF from the bundled files so they cannot be checked against the recency window at all. */
+  const pinned = key => (typeof unsplashUrl === 'function') ? unsplashUrl('place/' + key) : null;
+  const pick = key => claim(pinned(key)) || claim(bundledPhotoExact('place/' + key));
+
+  const attrImg = attrs.map((p, i) => pick(`${d.id}-a${i+1}`));
+  const restImg = rests.map((p, i) => pick(`${d.id}-r${i+1}`));
+  const hotelImg = hotels.map((p, i) => pick(`${d.id}-h${i+1}`));
 
   attrs.forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-a${i+1}`, destId:d.id, type:'attraction', source:'curated', image:attrImg[i]}, p)));
   rests.forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-r${i+1}`, destId:d.id, type:'restaurant', source:'curated', image:restImg[i]}, p)));

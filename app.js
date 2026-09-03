@@ -178,6 +178,15 @@ function photoCreditHTML(key){
 }
 
 function destHeroSrc(dest){
+  /* A pinned, checked landmark photograph first. This sits here rather than only inside
+   * resolveEntityImage because the hero is painted from this function directly, and the credit
+   * line beneath it is rendered from the same table: without this the page showed a Wikimedia
+   * photograph while crediting an Unsplash photographer for it, which is a worse failure than
+   * having no credit at all. */
+  if(typeof unsplashUrl === 'function'){
+    const pinned = unsplashUrl('dest/' + (dest.id || ''));
+    if(pinned) return pinned;
+  }
   if(dest.hero && dest.hero.indexOf('data:image/svg') !== 0) return dest.hero;
   return cachedWikiThumbnail([dest.name, dest.country].filter(Boolean)) || dest.hero;
 }
