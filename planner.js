@@ -619,10 +619,61 @@ function suggestPlacement(trip, place, opts){
   };
 }
 
+/* ---------------- Is this day actually doable? ----------------
+   The planner builds days that fit; a traveller editing by hand can build one that does not.
+   Nothing warned them. The stats strip showed "11 stops · 38.4 km" without ever saying that
+   38 km of zigzagging between eleven places is not a day off, it is a route march.
+
+   Judged against the traveller's own pace rather than a fixed number, because that is the
+   whole point of choosing one: nine stops is a full day at "packed" and an unreasonable one at
+   "relaxed". Every message states the measured figure and the budget it exceeded — a warning
+   that cannot be checked is just nagging. */
+function assessDayLoad(day, prefs){
+  const stops = (day && day.stops) || [];
+  const paceKey = (prefs && prefs.pace) || 'balanced';
+  // TRIP_PACE comes from preferences.js, which the browser loads first and a bare Node import
+  // does not. Falling back to a stated default keeps this usable either way rather than throwing.
+  const table = (typeof TRIP_PACE !== 'undefined') ? TRIP_PACE : null;
+  const pace = (table && (table[paceKey] || table.balanced))
+            || { max: 9, maxTravelKmPerDay: 22, mealsPerDay: 2, cafesPerDay: 1 };
+  const issues = [];
+
+  let km = 0;
+  for(let i = 0; i < stops.length - 1; i++){
+    if(stops[i].lat != null && stops[i+1].lat != null) km += geoDistanceKm(stops[i], stops[i+1]);
+  }
+
+  const mins = t => { const [h, m] = String(t || '09:00').split(':').map(Number); return h * 60 + (m || 0); };
+  const ordered = stops.slice().sort((a, b) => mins(a.time) - mins(b.time));
+  const last = ordered[ordered.length - 1];
+  const endsAt = last ? mins(last.time) + (last.duration || 90) : null;
+
+  if(stops.length > pace.max){
+    issues.push({ kind: 'stops',
+      text: `${stops.length} stops is more than a ${paceKey} day holds comfortably (${pace.max}).` });
+  }
+  if(pace.maxTravelKmPerDay && km > pace.maxTravelKmPerDay){
+    issues.push({ kind: 'distance',
+      text: `${km.toFixed(1)} km of travel between stops, against about ${pace.maxTravelKmPerDay} km for a ${paceKey} day.` });
+  }
+  if(endsAt != null && endsAt > 23 * 60){
+    issues.push({ kind: 'late',
+      text: `The last stop runs past ${fmtClock(endsAt / 60)}.` });
+  }
+  // Two meals is a day; four is a mistake, and usually means meals were added rather than moved.
+  const meals = stops.filter(s => s.type === 'restaurant').length;
+  if(meals > (pace.mealsPerDay || 2) + (pace.cafesPerDay || 1)){
+    issues.push({ kind: 'meals', text: `${meals} places to eat and drink on one day.` });
+  }
+
+  const level = issues.length >= 2 ? 'overloaded' : (issues.length === 1 ? 'busy' : 'ok');
+  return { level, issues, stops: stops.length, km, endsAt };
+}
+
 if(typeof module !== 'undefined' && module.exports){
   module.exports = {
     TRAVEL_MODES, VISIT_MINUTES, travelBetween, visitMinutes, isOpenAt, dayListIncludes,
     clusterByArea, orderByProximity, planTrip, pickRestaurantNear, pickNearby, keyOf,
-    lastPoint, fmtClock, MEAL_SLOTS, suggestIdeasForTrip, suggestPlacement,
+    lastPoint, fmtClock, MEAL_SLOTS, suggestIdeasForTrip, suggestPlacement, assessDayLoad,
   };
 }

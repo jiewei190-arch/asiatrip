@@ -346,6 +346,50 @@ console.log('\nMore ideas, and where they would go');
   check('one category cannot fill the whole list', museums <= 2, `${museums} museums of ${varied.length}`);
 }
 
+console.log('\nA day a person could actually do');
+{
+  const mk = (n, opts) => Array.from({length:n}, (_,i)=>Object.assign(
+    {name:'Stop'+i, type:'attraction', lat:48.86, lng:2.33, time:'09:00', duration:60}, opts && opts(i)));
+
+  // A sensible balanced day raises nothing.
+  const fine = { stops: mk(6, i => ({lat:48.86+i*0.002, lng:2.33+i*0.002, time:['09:00','11:00','13:00','15:00','17:00','19:00'][i]})) };
+  const okDay = PL.assessDayLoad(fine, {pace:'balanced'});
+  check('a reasonable day raises nothing', okDay.level === 'ok',
+        okDay.issues.map(x=>x.kind).join(', '));
+
+  // Too many stops for the chosen pace.
+  const many = { stops: mk(11, i => ({lat:48.86+i*0.001, lng:2.33, time:'09:00'})) };
+  const rel = PL.assessDayLoad(many, {pace:'relaxed'});
+  check('too many stops is flagged against the chosen pace',
+        rel.issues.some(x=>x.kind==='stops'), rel.issues.map(x=>x.kind).join(', '));
+  // The same day at "packed" is a different judgement — that is the point of a pace.
+  const packed = PL.assessDayLoad(many, {pace:'packed'});
+  check('the same day is judged differently at a different pace',
+        !packed.issues.some(x=>x.kind==='stops'), `packed flagged: ${packed.issues.map(x=>x.kind).join(', ')}`);
+
+  // Too much ground covered.
+  const spread = { stops: mk(5, i => ({lat:48.86+i*0.09, lng:2.33+i*0.09, time:'09:00'})) };
+  const far = PL.assessDayLoad(spread, {pace:'relaxed'});
+  check('a day that criss-crosses the city is flagged',
+        far.issues.some(x=>x.kind==='distance'), `${far.km.toFixed(1)} km`);
+
+  // Ending in the small hours.
+  const late = { stops: [{name:'Late', type:'attraction', lat:48.86, lng:2.33, time:'22:30', duration:120}] };
+  check('a day that runs past midnight is flagged',
+        PL.assessDayLoad(late, {pace:'balanced'}).issues.some(x=>x.kind==='late'));
+
+  // Every message must carry the number it is complaining about, or it cannot be checked.
+  check('each warning states the measured figure',
+        rel.issues.concat(far.issues).every(x => /\d/.test(x.text)),
+        rel.issues.concat(far.issues).map(x=>x.text).join(' | '));
+
+  check('two problems read as overloaded, one as busy',
+        PL.assessDayLoad(many, {pace:'relaxed'}).level !== 'ok' &&
+        PL.assessDayLoad(fine, {pace:'balanced'}).level === 'ok');
+  check('an empty day is never a warning', PL.assessDayLoad({stops:[]}, {pace:'balanced'}).level === 'ok');
+  check('a malformed day never throws', typeof PL.assessDayLoad(null, null).level === 'string');
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 /* process.exitCode rather than process.exit(): when stdout is redirected to a file or a pipe,
  * Node writes it asynchronously and process.exit() discards whatever is still buffered. Two

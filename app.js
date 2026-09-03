@@ -4394,6 +4394,7 @@ function renderPlannerItinerary(trip){
 
   renderWeatherForDay(trip, day);
   renderDayNote(trip, day);
+  renderLoadWarning(trip, day);
   renderConflictWarning(trip, day);
   renderRouteWarning(trip, day);
   renderTimeline(trip, day);
@@ -4503,6 +4504,25 @@ function detectTimeConflicts(day){
   }
   return conflicts;
 }
+/** Says when a day has stopped being a holiday. The stats strip has always shown "11 stops ·
+ *  38.4 km" without ever suggesting that is too much, and a traveller reading their own
+ *  itinerary has no way to know what a reasonable day looks like in a city they have not
+ *  visited. Judged against their chosen pace, and every line carries the measured figure. */
+function renderLoadWarning(trip, day){
+  const el = $('loadWarning');
+  if(!el) return;
+  if(typeof assessDayLoad !== 'function'){ el.classList.add('hidden'); el.innerHTML = ''; return; }
+  const prefs = (typeof loadTripPreferences === 'function') ? loadTripPreferences() : null;
+  const load = assessDayLoad(day, prefs);
+  if(load.level === 'ok'){ el.classList.add('hidden'); el.innerHTML = ''; return; }
+  el.classList.remove('hidden');
+  el.innerHTML = `<div><strong>${load.level === 'overloaded' ? 'This day looks overloaded' : 'This day is busy'}</strong>
+    <div class="small">${load.issues.map(i => esc(i.text)).join(' ')}</div></div>
+    <button class="btn sm" id="loadWarnOptimize">Reorder to cut travel</button>`;
+  const btn = $('loadWarnOptimize');
+  if(btn) btn.onclick = ()=>openOptimizeModal(trip, plannerState.day);
+}
+
 function renderConflictWarning(trip, day){
   const el = $('conflictWarning');
   if(!el) return;
@@ -4607,6 +4627,10 @@ function wireStopEvents(trip, day){
       recomputeDayTimes(day);
       saveState();
       renderTimeline(trip, day); renderPlannerMap(trip, day); renderPlannerStats(trip, day);
+      // Reordering is exactly what creates and clears these, and none of them were being
+      // redrawn: a "you are zigzagging" banner survived the drag that fixed it, and a day
+      // dragged into a clash showed nothing at all.
+      renderLoadWarning(trip, day); renderConflictWarning(trip, day); renderRouteWarning(trip, day);
       toast('Reordered — times updated to match.');
     });
   });
