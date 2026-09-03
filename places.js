@@ -23,6 +23,12 @@
 // Measured from this project: private.coffee ~4.4s, kumi ~15s, overpass-api.de refused the
 // connection outright. Ordered by observed reliability, and we rotate on failure rather than
 // giving up — a single mirror being down must not empty a destination page.
+// geo.js loads first in the browser, so geoCapitalOf is already a global there. Under Node
+// each file is its own module, and the test suites exercise this path, so pull it in.
+if(typeof geoCapitalOf === 'undefined' && typeof require === 'function'){
+  try { globalThis.geoCapitalOf = require('./geo.js').geoCapitalOf; } catch(e){}
+}
+
 const PLACES_USER_AGENT = 'TripFlow/1.0 (https://jiewei190-arch.github.io/asiatrip/)';
 const OVERPASS_ENDPOINTS = [
   'https://overpass.private.coffee/api/interpreter',
@@ -456,6 +462,20 @@ async function prominentSettlement(dest, signal){
   if(anchorCache.has(key)) return anchorCache.get(key);
   const stored = readAnchorStore(key);
   if(stored !== undefined){ anchorCache.set(key, stored); return stored; }
+
+  /* The region's own capital, which Wikidata answers in about two tenths of a second, before
+   * falling back to the bounding-box scan below. That scan works — Indonesia anchors on Jakarta
+   * at 10,467,629 — but it takes around two minutes against a healthy mirror and returns
+   * nothing against a busy one; a browser run measured 796 seconds and still came back empty.
+   * A capital is always inside the region and always somewhere with real places mapped around
+   * it, which is the entire job here. */
+  const capital = (typeof geoCapitalOf === 'function') ? await geoCapitalOf(dest) : null;
+  if(capital){
+    anchorCache.set(key, capital);
+    writeAnchorStore(key, capital);
+    return capital;
+  }
+
   const box = dest.bbox;
   if(!box || box.minLat == null) return null;
 

@@ -488,6 +488,54 @@ async function geoDisambiguateByFame(ranked, query){
   return out;
 }
 
+/* ---------------- Anchoring a region on a real place ----------------
+   A country or a province has a centroid, and a centroid is not somewhere anybody goes.
+   Indonesia's is at -2.483, 117.890 — open water in the Makassar Strait — so a country page
+   searched the sea and found nothing.
+
+   The first fix scanned the whole bounding box through Overpass for the largest city by
+   population. It works: Indonesia anchors on Jakarta at 10,467,629. It also takes about two
+   minutes when the mirrors are healthy and returns nothing at all when they are not, which on
+   a public mirror is often; a browser run measured 796 seconds and still came back empty.
+
+   Wikidata already knows the answer. A region's capital is a single direct property, P36, and
+   it comes back in about two tenths of a second: Indonesia gives Jakarta, Madeira gives Funchal,
+   Bali gives Denpasar, Tuscany gives Florence, Scotland gives Edinburgh. It is not always the
+   largest city — Morocco answers Rabat rather than Casablanca, Brazil Brasilia rather than Sao
+   Paulo — and that is fine for what the anchor is for: somewhere inside the region with real
+   restaurants and hotels mapped around it, rather than a point in the sea. The Overpass scan
+   stays as the fallback for regions with no capital recorded. */
+async function geoCapitalOf(dest){
+  // Either identifier: osmId as geoNormalize writes it, or the canonical placeId (`osm:R123`)
+  // that Rule 1 guarantees every verified destination carries.
+  const rel = /^R(\d+)$/.exec((dest && dest.osmId) || '') ||
+              /^osm:R(\d+)$/.exec((dest && dest.placeId) || '');
+  if(!rel) return null;
+  const sparql = `SELECT ?capLabel ?pop ?coord WHERE { ?area wdt:P402 "${rel[1]}" ; wdt:P36 ?cap .` +
+    ` ?cap wdt:P625 ?coord . OPTIONAL { ?cap wdt:P1082 ?pop . }` +
+    ` SERVICE wikibase:label { bd:serviceParam wikibase:language "en". } } LIMIT 1`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GEO_FAME_BUDGET_MS);
+  try {
+    const res = await fetch(`${GEO_WDQS}?format=json&query=${encodeURIComponent(sparql)}`, {
+      signal: controller.signal,
+      headers: { 'Accept': 'application/sparql-results+json', 'User-Agent': GEO_USER_AGENT },
+    });
+    if(!res.ok) return null;
+    const row = ((((await res.json()).results) || {}).bindings || [])[0];
+    if(!row || !row.coord) return null;
+    // Well-Known Text, and it is Point(LONGITUDE LATITUDE) — the opposite order to everything
+    // else in this file. Reading it the other way round puts Jakarta in the Indian Ocean.
+    const m = /Point\(\s*(-?[\d.]+)\s+(-?[\d.]+)\s*\)/.exec(row.coord.value || '');
+    if(!m) return null;
+    const lng = Number(m[1]), lat = Number(m[2]);
+    if(!isFinite(lat) || !isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+    return { lat, lng, name: (row.capLabel && row.capLabel.value) || '',
+             pop: row.pop ? Number(row.pop.value) || null : null };
+  } catch(e){ return null; }
+  finally { clearTimeout(timer); }
+}
+
 /** One best match for a typed string — used when the user commits (presses Enter) rather
  *  than picking a suggestion, so a typed destination still resolves to real coordinates.
  *  This is the path where getting it wrong is silent and expensive: nobody chose from a list,
@@ -535,6 +583,6 @@ if(typeof module !== 'undefined' && module.exports){
     GEO_TYPE_RANK, GEO_TYPE_LABEL, countryFlagEmoji,
     geoNormalize, geoFold, geoRank, geoDedupe, geoStrongMatch,
     geoFameBonus, geoContested, geoDisambiguateByFame,
-    geoSearch, geoResolve, geoValidateDestination,
+    geoSearch, geoResolve, geoValidateDestination, geoCapitalOf,
   };
 }
