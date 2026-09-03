@@ -123,6 +123,30 @@ function check(name, cond, detail){
     check('every one is inside the destination', res.allInBounds);
     check('there are no duplicates', res.dupes === 0, `${res.dupes} duplicates`);
     check('no invented star ratings', res.anyRating === false);
+
+  /* The same rule, applied to EVERY place rather than only the discovered ones. The curated
+   * twelve carried 132 hardcoded ratings and 132 review counts for a long time after the
+   * discovered path was cleaned — every rating between 4.3 and 4.8, which is not a distribution
+   * any real dataset produces — plus generateReviews(), which attached made-up people and
+   * templated review text to real, named businesses. */
+  const wide = await page.evaluate(() => ({
+    total: PLACES.length,
+    withRating: PLACES.filter(p => p.rating != null).length,
+    withReviews: PLACES.filter(p => p.reviews != null).length,
+    withGuestRating: PLACES.filter(p => p.guestRating != null).length,
+    reviewGenerator: typeof generateReviews,
+    reviewNames: typeof REVIEW_NAMES,
+    starsOnScreen: document.querySelectorAll('.stars').length,
+    reviewBlocks: document.querySelectorAll('.pdReview').length,
+  }));
+  check('not one place anywhere carries a rating', wide.withRating === 0,
+        `${wide.withRating} of ${wide.total}`);
+  check('not one carries a review count', wide.withReviews === 0, `${wide.withReviews}`);
+  check('not one carries a guest score', wide.withGuestRating === 0, `${wide.withGuestRating}`);
+  check('the review fabricator is gone from the code', wide.reviewGenerator === 'undefined');
+  check('so is its cast of invented reviewers', wide.reviewNames === 'undefined');
+  check('no star row is rendered anywhere', wide.starsOnScreen === 0, `${wide.starsOnScreen} on screen`);
+  check('no review block is rendered anywhere', wide.reviewBlocks === 0);
     check('no invented review counts', res.anyReviews === false);
     check('no invented prices', res.anyPrice === false);
     console.log('        found: ' + res.names.join(', '));

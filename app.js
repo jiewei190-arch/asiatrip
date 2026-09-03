@@ -1215,8 +1215,12 @@ function placeCardHTML(p, opts){
   // Ratings, review counts and price levels are only known for curated places. A live place
   // carries none, so those chips are omitted rather than rendered as 0/"Free" — showing an
   // invented figure to someone planning a real trip is worse than showing nothing.
-  const ratingHTML = p.rating
-    ? `<span class="stars">${stars(p.rating)}</span><span>${p.rating}</span>${p.reviews?`<span>(${p.reviews.toLocaleString()})</span>`:''}`
+  /* No stars. OpenStreetMap carries no ratings, so a discovered place never had them and a
+   * curated one only ever showed invented numbers — every single one between 4.3 and 4.8, which
+   * is not what a real distribution looks like. A star row is worse than an empty one: it reads
+   * as review data and there is none. */
+  const ratingHTML = false
+    ? ''
     : '';
   const priceHTML = typeof p.priceLevel === 'number'
     ? `<span class="priceLevel">${priceLevelStr(p.priceLevel)}</span>` : '';
@@ -1230,7 +1234,7 @@ function placeCardHTML(p, opts){
     // Only what OSM actually publishes: an official star classification, and a price only if
     // one exists. A discovered stay has neither by default, and inventing them is the bug.
     const starBit  = p.stars ? `<span class="stars">${'★'.repeat(p.stars)}</span>` : '';
-    const guestBit = (p.guestRating != null) ? `<span>${p.guestRating}/10</span>` : '';
+    const guestBit = '';   // no guest scores: nothing here has real ones
     const priceBit = (p.price != null) ? `<span class="priceLevel">${fmtMoneyDual(p.price, dest)}/night</span>` : '';
     metaHTML = `${starBit}${guestBit}${priceBit}` ||
       `<span class="small">${esc(p.category || 'Place to stay')}</span>`;
@@ -1317,7 +1321,6 @@ function openPlaceDetail(placeId){
   const p = placeById(placeId);
   if(!p) return;
   const dest = DESTINATIONS.find(d=>d.id===p.destId);
-  const reviews = generateReviews(p, p.id);
   let infoRows = '';
   if(p.type==='attraction'){
     infoRows = `<div class="ovCard"><div class="k">Category</div><div class="v">${esc(p.category)}</div></div>
@@ -1331,7 +1334,8 @@ function openPlaceDetail(placeId){
       <div class="ovCard"><div class="k">Hours</div><div class="v">${esc(p.hours)} <span class="openTag ${open?'open':'closed'}" style="margin-left:6px">${open?'Open now':'Closed'}</span></div></div>
       <div class="ovCard"><div class="k">Dietary</div><div class="v">${p.dietary&&p.dietary.length?esc(p.dietary.join(', ')):'Standard menu'}</div></div>`;
   } else if(p.type==='hotel'){
-    infoRows = `<div class="ovCard"><div class="k">Rating</div><div class="v">${'★'.repeat(p.stars)} · Guests ${p.guestRating}/10</div></div>
+    // Star CLASS is a real, published property of a hotel. A guest score was not.
+    infoRows = `<div class="ovCard"><div class="k">Class</div><div class="v">${'★'.repeat(p.stars||0)||'Not stated'}</div></div>
       <div class="ovCard"><div class="k">Price</div><div class="v">${fmt$(p.price)} / night</div></div>
       <div class="ovCard"><div class="k">Area</div><div class="v">${esc(p.area)}</div></div>
       <div class="ovCard"><div class="k">Amenities</div><div class="v">${esc((p.amenities||[]).join(', '))}</div></div>`;
@@ -1340,7 +1344,7 @@ function openPlaceDetail(placeId){
   $('placeDetailContent').innerHTML = `
     <div class="modalHeader">
       <div><div class="eyebrow">${esc(dest.flag)} ${esc(dest.name)}</div><h2>${esc(p.name)}</h2>
-        <div class="placeMeta" style="margin-top:6px">${p.rating?`<span class="stars">${stars(p.rating)}</span><span>${p.rating}</span><span>(${(p.reviews||0).toLocaleString()} reviews)</span>`:''}</div>
+        <div class="placeMeta" style="margin-top:6px"></div>
       </div>
       <button class="xbtn" data-close="modal-placeDetail">×</button>
     </div>
@@ -1348,8 +1352,6 @@ function openPlaceDetail(placeId){
     <div class="pdGrid">
       <div>
         <p>${esc(displayDesc(p, dest))}</p>
-        <h3 style="margin-top:18px">Reviews</h3>
-        ${reviews.map(r=>`<div class="pdReview"><div class="pdReviewHead"><span>${esc(r.name)}</span><span class="stars">${stars(r.rating)}</span></div><div class="small">${r.daysAgo} days ago</div><p style="margin:6px 0 0">${esc(r.text)}</p></div>`).join('')}
       </div>
       <div>
         <div class="destOverviewGrid" style="grid-template-columns:1fr;margin-top:0">${infoRows}</div>
@@ -2178,20 +2180,18 @@ function renderDestThings(dest, body){
     <div class="filterBar">
       <div class="filterGroup"><label>Category</label><select id="tCat"><option value="all">All categories</option>${cats.map(c=>`<option value="${esc(c)}" ${f.cat===c?'selected':''}>${esc(c)}</option>`).join('')}</select></div>
       <div class="filterGroup"><label>Price</label><select id="tPrice"><option value="any">Any price</option><option value="0">Free</option><option value="1">$</option><option value="2">$$</option><option value="3">$$$</option></select></div>
-      <div class="filterGroup"><label>Rating</label><select id="tRating"><option value="any">Any rating</option><option value="4.5">4.5+</option><option value="4">4.0+</option><option value="3">3.0+</option></select></div>
-      <div class="filterGroup"><label>Sort</label><select id="tSort"><option value="rec">Recommended</option><option value="rating">Highest rated</option><option value="price_low">Price: low to high</option><option value="price_high">Price: high to low</option></select></div>
+      <div class="filterGroup"><label>Sort</label><select id="tSort"><option value="rec">Recommended</option><option value="price_low">Price: low to high</option><option value="price_high">Price: high to low</option></select></div>
     </div>
     <div class="activeFilters hidden" id="thingsActiveFilters"></div>
     <div id="thingsGrid"></div>`;
-  $('tCat').value=f.cat; $('tPrice').value=f.price; $('tRating').value=f.rating; $('tSort').value=f.sort;
+  $('tCat').value=f.cat; $('tPrice').value=f.price; $('tSort').value=f.sort;
   const PRICE_LABELS = {0:'Free',1:'$',2:'$$',3:'$$$'};
-  function clearAllThings(){ f.cat='all'; f.price='any'; f.rating='any'; $('tCat').value='all'; $('tPrice').value='any'; $('tRating').value='any'; apply(); }
+  function clearAllThings(){ f.cat='all'; f.price='any'; $('tCat').value='all'; $('tPrice').value='any'; apply(); }
   function apply(){
-    f.cat=$('tCat').value; f.price=$('tPrice').value; f.rating=$('tRating').value; f.sort=$('tSort').value;
+    f.cat=$('tCat').value; f.price=$('tPrice').value; f.sort=$('tSort').value;
     let arr = all.filter(p=>{
       if(f.cat!=='all' && p.category!==f.cat) return false;
       if(f.price!=='any' && String(p.priceLevel)!==f.price) return false;
-      if(f.rating!=='any' && p.rating < parseFloat(f.rating)) return false;
       return true;
     });
     if(f.sort==='rating') arr.sort((a,b)=>(b.rating||0)-(a.rating||0));
@@ -2201,11 +2201,10 @@ function renderDestThings(dest, body){
     const chips = [];
     if(f.cat!=='all') chips.push({label:`Category: ${f.cat}`, onRemove:()=>{ f.cat='all'; $('tCat').value='all'; apply(); }});
     if(f.price!=='any') chips.push({label:`Price: ${PRICE_LABELS[f.price]||f.price}`, onRemove:()=>{ f.price='any'; $('tPrice').value='any'; apply(); }});
-    if(f.rating!=='any') chips.push({label:`Rating: ${f.rating}+`, onRemove:()=>{ f.rating='any'; $('tRating').value='any'; apply(); }});
     renderActiveFilterChips('thingsActiveFilters', chips, clearAllThings);
     renderPagedPlaceGrid('thingsGrid', arr, dest, 'attraction', p=>placeCardHTML(p));
   }
-  ['tCat','tPrice','tRating','tSort'].forEach(id=>$(id).onchange=apply);
+  ['tCat','tPrice','tSort'].forEach(id=>$(id).onchange=apply);
   apply();
 }
 
@@ -2219,29 +2218,27 @@ function renderDestRestaurants(dest, body){
     <div class="filterBar">
       <div class="filterGroup"><label>Cuisine</label><select id="rCuisine"><option value="all">All cuisines</option>${cuisines.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select></div>
       <div class="filterGroup"><label>Price</label><select id="rPrice"><option value="any">Any price</option><option value="1">$</option><option value="2">$$</option><option value="3">$$$</option><option value="4">$$$$</option></select></div>
-      <div class="filterGroup"><label>Rating</label><select id="rRating"><option value="any">Any rating</option><option value="4.5">4.5+</option><option value="4">4.0+</option></select></div>
-      <div class="filterGroup"><label>Sort</label><select id="rSort"><option value="rec">Recommended</option><option value="rating">Highest rated</option><option value="distance">Distance</option></select></div>
+      <div class="filterGroup"><label>Sort</label><select id="rSort"><option value="rec">Recommended</option><option value="distance">Distance</option></select></div>
       <button class="toggleChip" id="rOpen">🕒 Open Now</button>
       <div class="pillRow" id="rDietary">${DIETARY_OPTIONS.map(d=>`<button class="pill" data-diet="${d}">${d.replace(/-/g,' ')}</button>`).join('')}</div>
     </div>
     <div class="activeFilters hidden" id="restActiveFilters"></div>
     <div id="restGrid"></div>`;
-  $('rCuisine').value=f.cuisine; $('rPrice').value=f.price; $('rRating').value=f.rating; $('rSort').value=f.sort;
+  $('rCuisine').value=f.cuisine; $('rPrice').value=f.price; $('rSort').value=f.sort;
   $('rOpen').classList.toggle('active', f.open);
   $('rDietary').querySelectorAll('[data-diet]').forEach(b=>b.classList.toggle('active', f.dietary.has(b.dataset.diet)));
   const REST_PRICE_LABELS = {1:'$',2:'$$',3:'$$$',4:'$$$$'};
   function clearAllRest(){
-    f.cuisine='all'; f.price='any'; f.rating='any'; f.open=false; f.dietary.clear();
-    $('rCuisine').value='all'; $('rPrice').value='any'; $('rRating').value='any';
+    f.cuisine='all'; f.price='any'; f.open=false; f.dietary.clear();
+    $('rCuisine').value='all'; $('rPrice').value='any';
     $('rOpen').classList.remove('active'); $('rDietary').querySelectorAll('[data-diet]').forEach(b=>b.classList.remove('active'));
     apply();
   }
   function apply(){
-    f.cuisine=$('rCuisine').value; f.price=$('rPrice').value; f.rating=$('rRating').value; f.sort=$('rSort').value;
+    f.cuisine=$('rCuisine').value; f.price=$('rPrice').value; f.sort=$('rSort').value;
     let arr = all.filter(p=>{
       if(f.cuisine!=='all' && p.cuisine!==f.cuisine) return false;
       if(f.price!=='any' && String(p.priceLevel)!==f.price) return false;
-      if(f.rating!=='any' && p.rating < parseFloat(f.rating)) return false;
       if(f.open && !isOpenNow(p.hours)) return false;
       if(f.dietary.size && ![...f.dietary].every(d=>(p.dietary||[]).includes(d))) return false;
       return true;
@@ -2252,7 +2249,6 @@ function renderDestRestaurants(dest, body){
     const chips = [];
     if(f.cuisine!=='all') chips.push({label:`Cuisine: ${f.cuisine}`, onRemove:()=>{ f.cuisine='all'; $('rCuisine').value='all'; apply(); }});
     if(f.price!=='any') chips.push({label:`Price: ${REST_PRICE_LABELS[f.price]||f.price}`, onRemove:()=>{ f.price='any'; $('rPrice').value='any'; apply(); }});
-    if(f.rating!=='any') chips.push({label:`Rating: ${f.rating}+`, onRemove:()=>{ f.rating='any'; $('rRating').value='any'; apply(); }});
     if(f.open) chips.push({label:'Open now', onRemove:()=>{ f.open=false; $('rOpen').classList.remove('active'); apply(); }});
     f.dietary.forEach(d=>chips.push({label:d.replace(/-/g,' '), onRemove:()=>{ f.dietary.delete(d); $('rDietary').querySelectorAll('[data-diet]').forEach(b=>b.classList.toggle('active', f.dietary.has(b.dataset.diet))); apply(); }}));
     renderActiveFilterChips('restActiveFilters', chips, clearAllRest);
@@ -2262,7 +2258,7 @@ function renderDestRestaurants(dest, body){
       return card.replace('</div>\n      <div class="placeFoot">', `</div><div class="small">🚶 ${distKm} km from center</div>\n      <div class="placeFoot">`);
     });
   }
-  ['rCuisine','rPrice','rRating','rSort'].forEach(id=>$(id).onchange=apply);
+  ['rCuisine','rPrice','rSort'].forEach(id=>$(id).onchange=apply);
   $('rOpen').onclick=()=>{ f.open=!f.open; $('rOpen').classList.toggle('active',f.open); apply(); };
   $('rDietary').querySelectorAll('[data-diet]').forEach(b=>b.onclick=()=>{
     f.dietary.has(b.dataset.diet)? f.dietary.delete(b.dataset.diet) : f.dietary.add(b.dataset.diet);
@@ -2328,21 +2324,20 @@ function renderDestHotels(dest, body){
     <div class="filterBar">
       <div class="filterGroup"><label>Price / night</label><select id="hPrice"><option value="any">Any price</option><option value="0-100">Under $100</option><option value="100-250">$100–250</option><option value="250-500">$250–500</option><option value="500-99999">$500+</option></select></div>
       <div class="filterGroup"><label>Star rating</label><select id="hStars"><option value="any">Any stars</option><option value="5">5 star</option><option value="4">4 star</option><option value="3">3 star</option><option value="2">2 star &amp; under</option></select></div>
-      <div class="filterGroup"><label>Guest rating</label><select id="hGuest"><option value="any">Any rating</option><option value="9">9.0+ Exceptional</option><option value="8">8.0+ Very good</option></select></div>
       <div class="filterGroup"><label>Amenity</label><select id="hAmenity"><option value="all">Any amenity</option>${amenitiesAll.map(a=>`<option value="${esc(a)}">${esc(a)}</option>`).join('')}</select></div>
-      <div class="filterGroup"><label>Sort</label><select id="hSort"><option value="rec">Recommended</option><option value="price_low">Lowest price</option><option value="rating">Highest rated</option><option value="distance">Distance from center</option></select></div>
+      <div class="filterGroup"><label>Sort</label><select id="hSort"><option value="rec">Recommended</option><option value="price_low">Lowest price</option><option value="distance">Distance from center</option></select></div>
     </div>
     <div class="activeFilters hidden" id="hotelActiveFilters"></div>
     <div id="hotelGrid"></div>`;
-  $('hPrice').value=f.price; $('hStars').value=f.stars; $('hGuest').value=f.guest; $('hAmenity').value=f.amenity; $('hSort').value=f.sort;
+  $('hPrice').value=f.price; $('hStars').value=f.stars; $('hAmenity').value=f.amenity; $('hSort').value=f.sort;
   const HOTEL_PRICE_LABELS = {'0-100':'Under $100','100-250':'$100–250','250-500':'$250–500','500-99999':'$500+'};
   function clearAllHotels(){
-    f.price='any'; f.stars='any'; f.guest='any'; f.amenity='all';
-    $('hPrice').value='any'; $('hStars').value='any'; $('hGuest').value='any'; $('hAmenity').value='all';
+    f.price='any'; f.stars='any'; f.amenity='all';
+    $('hPrice').value='any'; $('hStars').value='any'; $('hAmenity').value='all';
     apply();
   }
   function apply(){
-    f.price=$('hPrice').value; f.stars=$('hStars').value; f.guest=$('hGuest').value; f.amenity=$('hAmenity').value; f.sort=$('hSort').value;
+    f.price=$('hPrice').value; f.stars=$('hStars').value; f.amenity=$('hAmenity').value; f.sort=$('hSort').value;
     let arr = all.filter(p=>{
       // A place with no published price cannot satisfy a price filter. Without this guard a
       // null price slips through every bracket, because null<lo and null>hi are both false.
@@ -2354,18 +2349,16 @@ function renderDestHotels(dest, body){
         if(p.stars == null) return false;
         if(f.stars==='2'){ if(p.stars>2) return false; } else if(p.stars!==Number(f.stars)) return false;
       }
-      if(f.guest!=='any' && !(p.guestRating >= Number(f.guest))) return false;
       if(f.amenity!=='all' && !(p.amenities||[]).includes(f.amenity)) return false;
       return true;
     });
     if(f.sort==='price_low') arr.sort((a,b)=>(a.price==null?Infinity:a.price)-(b.price==null?Infinity:b.price));
-    else if(f.sort==='rating') arr.sort((a,b)=>(b.guestRating||0)-(a.guestRating||0));
     else if(f.sort==='distance') arr.sort((a,b)=>haversine(dest,a)-haversine(dest,b));
     else arr = recommendedOrder(arr, dest);
     const chips = [];
     if(f.price!=='any') chips.push({label:`Price: ${HOTEL_PRICE_LABELS[f.price]||f.price}`, onRemove:()=>{ f.price='any'; $('hPrice').value='any'; apply(); }});
     if(f.stars!=='any') chips.push({label:`Stars: ${f.stars==='2'?'2 & under':f.stars+' star'}`, onRemove:()=>{ f.stars='any'; $('hStars').value='any'; apply(); }});
-    if(f.guest!=='any') chips.push({label:`Guest rating: ${f.guest}.0+`, onRemove:()=>{ f.guest='any'; $('hGuest').value='any'; apply(); }});
+    if(f.guest!=='any') chips.push({label:`Guest rating: ${f.guest}.0+`, onRemove:()=>{ apply(); }});
     if(f.amenity!=='all') chips.push({label:`Amenity: ${f.amenity}`, onRemove:()=>{ f.amenity='all'; $('hAmenity').value='all'; apply(); }});
     renderActiveFilterChips('hotelActiveFilters', chips, clearAllHotels);
     renderPagedPlaceGrid('hotelGrid', arr, dest, 'hotel', p=>{
@@ -2374,7 +2367,7 @@ function renderDestHotels(dest, body){
       return card.replace('</div>\n      <div class="placeFoot">', `</div><div class="small">🚶 ${distKm} km from center</div>\n      <div class="placeFoot">`);
     });
   }
-  ['hPrice','hStars','hGuest','hAmenity','hSort'].forEach(id=>$(id).onchange=apply);
+  ['hPrice','hStars','hAmenity','hSort'].forEach(id=>$(id).onchange=apply);
   apply();
 }
 
@@ -2452,7 +2445,7 @@ function renderDestMap(dest, body){
         <div class="stopThumb"><span class="num" style="background:${catColor(p.type)}">${catEmoji(p.type)}</span><img src="${p.image}" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
         <div class="mapPlaceInfo">
           <h4>${esc(p.name)}</h4>
-          <p>${p.rating?('★ '+p.rating+' · '):''}${esc(p.area||'')}</p>
+          <p>${esc(p.area||'')}</p>
         </div>
         <button class="btn sm primary" data-popadd="${p.id}">＋</button>
       </div>`).join('') || `<div class="empty small">No places in this category.</div>`;
@@ -2561,13 +2554,11 @@ function placeQualityScore(p, opts){
   const curated = p.source === 'curated';
   score += curated ? 34 : 10;
 
-  // Popularity only counts where the figures are REAL. A live place has no rating or review
-  // count the app actually knows, so crediting it would be scoring on invented data.
-  if(curated){
-    const reviews = Math.max(0, p.reviews || 0);
-    score += Math.min(22, Math.log10(reviews + 1) * 4.4);
-    score += clamp(((p.rating || 0) - 3.6) * 9, 0, 11);
-  }
+  /* There is no popularity term any more, and there should not be. It used to read a rating and
+   * a review count off curated places, and those numbers were invented — 132 ratings, every one
+   * between 4.3 and 4.8. Ranking on them was ranking on fiction, and it quietly outweighed the
+   * signals that are real. What remains below is all verifiable: what kind of place it is,
+   * whether its description identifies it, whether a human vouched for it. */
 
   const catWeight = categoryWeight(p);
   score += catWeight;
@@ -3393,7 +3384,7 @@ function renderSavedMap(collection, places, unmappable){
     ${unmappable ? `<p class="small" style="margin:0 0 10px">${unmappable} saved ${unmappable===1?'item has':'items have'} no single location to plot (saved destinations), so ${unmappable===1?"it isn't":"they aren't"} shown here.</p>` : ''}
     ${places.map(p=>`<button class="mapPlaceRow" data-savedfocus="${p.id}">
       <div class="stopThumb"><img src="${p.image}" alt="" data-photo-q="${esc(photoQuery(p.name, (findDestination(p.destId)||{}).name))}"></div>
-      <div><div>${esc(p.name)}</div><div class="small">${esc(p.area||'')}${p.rating?` · ★ ${p.rating}`:''}</div></div>
+      <div><div>${esc(p.name)}</div><div class="small">${esc(p.area||'')}</div></div>
     </button>`).join('')}`;
   list.querySelectorAll('[data-savedfocus]').forEach(b=>b.onclick=()=>{
     const p = places.find(x=>x.id===b.dataset.savedfocus);
@@ -4426,7 +4417,7 @@ function renderUnscheduledTab(trip){
         <div class="stopThumb"><img src="${p.image}" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
         <div class="unschedInfo">
           <h4>${esc(p.name)}</h4>
-          <p class="small">${esc(p.category||p.cuisine||p.type)}${p.area?' · '+esc(p.area):''}${p.rating?' · ★ '+p.rating:''}</p>
+          <p class="small">${esc(p.category||p.cuisine||p.type)}${p.area?' · '+esc(p.area):''}</p>
         </div>
         <div class="unschedActions">
           <select class="uDayPick" data-dayfor="${p.id}" aria-label="Add ${esc(p.name)} to day"><option value="">Add to day…</option>${trip.days.map((d,i)=>`<option value="${i}">Day ${i+1}</option>`).join('')}</select>
@@ -5126,11 +5117,16 @@ function openAddPlaceSearch(trip){
   function render(q){
     let arr = PLACES.filter(p=>p.destId===dest.id && !usedIds.has(p.id));
     if(q) arr = arr.filter(p=>p.name.toLowerCase().includes(q.toLowerCase()));
-    arr = arr.slice().sort((a,b)=>(b.rating||b.guestRating||0)-(a.rating||a.guestRating||0)).slice(0,25);
+    // Nothing carries a rating any more, so order by what is actually known: how complete
+    // the record is, then alphabetically, which is at least predictable to search in.
+    arr = arr.slice().sort((a,b)=>
+      ((typeof placeCompleteness === 'function' ? placeCompleteness(b) : 0) -
+       (typeof placeCompleteness === 'function' ? placeCompleteness(a) : 0))
+      || String(a.name).localeCompare(String(b.name))).slice(0,25);
     $('addToTripBody').innerHTML = `
       <input id="addPlaceSearchInput" placeholder="Search attractions, restaurants, hotels…" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:12px;font-weight:600;background:var(--surface2);color:var(--ink)" value="${esc(q||'')}">
       <div class="list" style="max-height:360px;overflow:auto">
-        ${arr.length? arr.map(p=>`<div class="listRow"><div class="left"><img src="${p.image}" style="width:38px;height:38px;border-radius:8px;object-fit:cover;flex-shrink:0" data-photo-q="${esc(photoQuery(p.name, dest.name))}"><div><div>${esc(p.name)}</div><div class="small">${catEmoji(p.type)} ${esc(p.category||p.cuisine||'Hotel')} · ★ ${p.rating||p.guestRating}</div></div></div><button class="btn primary sm" data-quickadd="${p.id}">＋ Add</button></div>`).join('') : '<div class="empty">No matching places.</div>'}
+        ${arr.length? arr.map(p=>`<div class="listRow"><div class="left"><img src="${p.image}" style="width:38px;height:38px;border-radius:8px;object-fit:cover;flex-shrink:0" data-photo-q="${esc(photoQuery(p.name, dest.name))}"><div><div>${esc(p.name)}</div><div class="small">${catEmoji(p.type)} ${esc(p.category||p.cuisine||'Hotel')}${p.area?' · '+esc(p.area):''}</div></div></div><button class="btn primary sm" data-quickadd="${p.id}">＋ Add</button></div>`).join('') : '<div class="empty">No matching places.</div>'}
       </div>`;
     $('addPlaceSearchInput').oninput = debounce(e=>render(e.target.value),150);
     $('addToTripBody').querySelectorAll('[data-quickadd]').forEach(b=>b.onclick=()=>{
