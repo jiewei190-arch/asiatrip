@@ -472,10 +472,25 @@ function imageRecencyOverride(){
   return (y >= 1900 && y <= 2100) ? y : undefined;
 }
 const __recencyOverride = imageRecencyOverride();
-const IMAGE_MIN_CAPTURE_YEAR = __recencyOverride === undefined
-  ? new Date().getUTCFullYear()      // the brief: photographs taken this year only
-  : __recencyOverride;
+/* The brief began as "2026 only" and became "2019-2026 where 2026 does not exist", which is the
+ * same rule with a floor: still current, still verified, but not blank. Measured on 70 real
+ * places, 2026-only left 1 of 70 with a photograph and every one of ten destination heroes
+ * empty — the photographs existed and depicted the right place, they were simply older. */
+const IMAGE_MIN_CAPTURE_YEAR = __recencyOverride === undefined ? 2019 : __recencyOverride;
 const IMAGE_ALLOW_UNDATED = false;
+
+/** How much a photograph's age is worth once it is already admissible. Deliberately small
+ *  against a confidence range that runs past 100: this breaks ties between photographs that
+ *  all genuinely depict the place, and never buys a worse match. */
+function captureRecencyBonus(year){
+  if(!year) return 0;
+  const age = new Date().getUTCFullYear() - year;
+  if(age <= 0) return 12;
+  if(age <= 1) return 9;
+  if(age <= 3) return 6;
+  if(age <= 5) return 3;
+  return 0;
+}
 
 /** Does this photograph meet the recency rule? Kept separate from scoring because it is a
  *  rule, not a preference: a candidate that fails is not shown at all, however well it
@@ -774,17 +789,30 @@ async function resolveEntityImage(entity, opts){
      * the quiet way to keep coverage up while claiming a strict rule, and it would have meant
      * the highest-confidence source was the one nobody checked. */
     const ranked = candidates.sort((a, b) => b.confidence - a.confidence);
-    result = null;
+    const eligible = [];
     for(const cand of ranked){
       if(cand.captureYear === undefined && IMAGE_MIN_CAPTURE_YEAR != null){
         try { cand.captureYear = await commonsCaptureYear(cand.title || cand.url); }
         catch(err){ if(err.name === 'AbortError') throw err; cand.captureYear = null; }
       }
-      if(meetsRecencyPolicy(cand.captureYear)){
-        result = cand;
-        if(cand.captureYear) result.reasons = (result.reasons || []).concat(`taken ${cand.captureYear}`);
-        break;
-      }
+      if(meetsRecencyPolicy(cand.captureYear)) eligible.push(cand);
+      // Nothing above the high bar can be beaten, so stop paying for dates once one is in hand.
+      if(eligible.length && eligible[0].confidence >= IMAGE_HIGH_CONFIDENCE
+         && eligible[0].captureYear === new Date().getUTCFullYear()) break;
+    }
+
+    /* "This year if it exists, otherwise as recent as the window allows."
+     *
+     * The rule above only says which photographs are ADMISSIBLE; without this, a 2019 photograph
+     * with slightly higher confidence would beat a 2026 one every time and the window's whole
+     * purpose — current imagery, with a floor instead of a blank — would be lost. Recency is
+     * worth a few points rather than the decision: a photograph of the wrong place taken
+     * yesterday is still the wrong place, so identity confidence still leads. */
+    result = eligible.sort((a, b) =>
+      (b.confidence + captureRecencyBonus(b.captureYear)) -
+      (a.confidence + captureRecencyBonus(a.captureYear)))[0] || null;
+    if(result && result.captureYear){
+      result.reasons = (result.reasons || []).concat(`taken ${result.captureYear}`);
     }
   }
 
@@ -884,7 +912,7 @@ if(typeof module !== 'undefined' && module.exports){
     IMAGE_CONFIDENCE, IMAGE_MIN_CONFIDENCE_ENTITY, IMAGE_HIGH_CONFIDENCE,
     scoreImageCandidate, entityIdentity, commonsTextCandidates, commonsGeoPhoto,
     commonsTitleScore, resolveEntityImage, foldPunct, hasWholeWordFolded, titleYear,
-    captureYearOf, meetsRecencyPolicy, commonsCaptureYear,
+    captureYearOf, meetsRecencyPolicy, commonsCaptureYear, captureRecencyBonus,
     IMAGE_MIN_CAPTURE_YEAR, IMAGE_ALLOW_UNDATED,
     SHOWS_THE_PLACE, SHOWS_SOMETHING_ELSE, HISTORICAL_MARKERS,
   };
