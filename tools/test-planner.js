@@ -390,6 +390,38 @@ console.log('\nA day a person could actually do');
   check('a malformed day never throws', typeof PL.assessDayLoad(null, null).level === 'string');
 }
 
+console.log('\nDays get a fair share of the city');
+{
+  /* k-means gives tight clusters, not equal ones, and a real city is a dense core with
+   * scattered outskirts. Unbalanced, k=7 produced clusters of 124, 3, 2, 2, 2, 1, 1 — so six
+   * of seven days had nothing to build from, and a "packed" week in Paris returned days of two
+   * stops. This shape is the one that broke it. */
+  const city = [];
+  for(let i = 0; i < 120; i++) city.push({id:'c'+i, name:'Core'+i, type:'attraction', subtype:'attraction',
+    lat: 48.86 + ((i % 11) - 5) * 0.002, lng: 2.34 + ((i % 7) - 3) * 0.003});
+  for(let i = 0; i < 15; i++) city.push({id:'o'+i, name:'Out'+i, type:'attraction', subtype:'attraction',
+    lat: 48.86 + ((i % 5) - 2) * 0.05, lng: 2.34 + ((i % 3) - 1) * 0.06});
+
+  for(const k of [5, 7, 10]){
+    const raw = PL.clusterByArea(city, k);
+    const bal = PL.balanceClusters(raw, k);
+    const sizes = bal.map(c => c.length);
+    const total = sizes.reduce((a, b) => a + b, 0);
+    check(`k=${k}: nothing is lost in balancing`, total === city.length, `${total} of ${city.length}`);
+    check(`k=${k}: no day is left almost empty`,
+          Math.min(...sizes) >= Math.floor(city.length / k / 2),
+          `sizes ${sizes.join(', ')}`);
+    check(`k=${k}: no day hoards the city`,
+          Math.max(...sizes) <= Math.ceil(city.length / k),
+          `sizes ${sizes.join(', ')}`);
+    const dupes = bal.flat().map(p => p.id);
+    check(`k=${k}: no place lands on two days`, new Set(dupes).size === dupes.length);
+  }
+
+  check('balancing an empty set does not throw', PL.balanceClusters([[], [], []], 3).length === 3);
+  check('a single day keeps everything', PL.balanceClusters([city], 1)[0].length === city.length);
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 /* process.exitCode rather than process.exit(): when stdout is redirected to a file or a pipe,
  * Node writes it asynchronously and process.exit() discards whatever is still buffered. Two

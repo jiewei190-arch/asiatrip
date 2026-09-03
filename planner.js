@@ -173,6 +173,68 @@ function clusterByArea(places, k){
 
 /** Orders one day's stops so the route does not double back: nearest-neighbour from whichever
  *  end makes the shortest overall walk. */
+/** Evens out what k-means leaves behind.
+ *
+ *  Clustering by area is the right idea — a day should be walkable — but k-means optimises for
+ *  tight clusters, not for equal ones, and a real city is a dense core with scattered
+ *  outskirts. Measured on that shape: k=7 produced clusters of 124, 3, 2, 2, 2, 1 and 1. Since
+ *  each cluster becomes one day, six of the seven days had almost nothing to build from, which
+ *  is exactly what the scenario suite caught — a "packed" week in Paris with days of two stops.
+ *
+ *  Surplus is moved out of over-full clusters starting with whatever sits furthest from that
+ *  cluster's own centre, since those are the members it holds least tightly, and each goes to
+ *  the nearest cluster with room. Geographic coherence is preserved where it can be, but a day
+ *  with something to do beats a day that is theoretically tidy and actually empty. */
+function balanceClusters(clusters, n){
+  const all = clusters.flat().filter(Boolean);
+  if(!all.length || n <= 1) return clusters;
+  const cap = Math.ceil(all.length / n);
+
+  const out = clusters.map(c => c.slice());
+  while(out.length < n) out.push([]);
+  out.length = n;
+
+  const centreOf = c => {
+    const pts = c.filter(p => p && p.lat != null && p.lng != null);
+    if(!pts.length) return null;
+    return { lat: pts.reduce((a, p) => a + p.lat, 0) / pts.length,
+             lng: pts.reduce((a, p) => a + p.lng, 0) / pts.length };
+  };
+
+  for(let pass = 0; pass < 4; pass++){
+    const centres = out.map(centreOf);
+    let moved = false;
+    for(let i = 0; i < out.length; i++){
+      if(out[i].length <= cap) continue;
+      // Loosest members first: furthest from this cluster's own centre.
+      const centre = centres[i];
+      out[i].sort((a, b) => {
+        if(!centre) return 0;
+        return geoDistanceKm(a, centre) - geoDistanceKm(b, centre);
+      });
+      while(out[i].length > cap){
+        const p = out[i].pop();
+        // Nearest cluster that still has room; failing that, the emptiest one.
+        let target = -1, bestKm = Infinity;
+        for(let j = 0; j < out.length; j++){
+          if(j === i || out[j].length >= cap) continue;
+          const c = centres[j];
+          const km = (c && p.lat != null) ? geoDistanceKm(p, c) : 0;
+          if(km < bestKm){ bestKm = km; target = j; }
+        }
+        if(target < 0){
+          target = out.reduce((best, c, j) => (j !== i && c.length < out[best].length) ? j : best, i === 0 ? 1 : 0);
+        }
+        if(target === i || target < 0 || target >= out.length){ out[i].push(p); break; }
+        out[target].push(p);
+        moved = true;
+      }
+    }
+    if(!moved) break;
+  }
+  return out;
+}
+
 function orderByProximity(places){
   if(places.length <= 2) return places.slice();
   let best = null, bestLen = Infinity;
@@ -273,9 +335,11 @@ function planTrip(opts){
 
   // Group into days by area, then give each day the cluster nearest to the previous day's, so
   // consecutive days are not on opposite sides of the city.
-  const clusters = clusterByArea(chosen, nDays).filter(c => c.length || true);
+  let clusters = clusterByArea(chosen, nDays);
   while(clusters.length < nDays) clusters.push([]);
   clusters.length = nDays;
+  // k-means gives tight clusters, not equal ones. Without this, most days start almost empty.
+  clusters = balanceClusters(clusters, nDays);
 
   const days = [];
   const usedPlaces = new Set();   // nothing is used twice across the whole trip
@@ -673,7 +737,7 @@ function assessDayLoad(day, prefs){
 if(typeof module !== 'undefined' && module.exports){
   module.exports = {
     TRAVEL_MODES, VISIT_MINUTES, travelBetween, visitMinutes, isOpenAt, dayListIncludes,
-    clusterByArea, orderByProximity, planTrip, pickRestaurantNear, pickNearby, keyOf,
+    clusterByArea, balanceClusters, orderByProximity, planTrip, pickRestaurantNear, pickNearby, keyOf,
     lastPoint, fmtClock, MEAL_SLOTS, suggestIdeasForTrip, suggestPlacement, assessDayLoad,
   };
 }
