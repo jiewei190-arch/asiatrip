@@ -85,6 +85,7 @@ function imageryCacheSet(entity, value){
    distinguishable rather than both being "an image". */
 const IMAGE_CONFIDENCE = {
   commons_named: 92,     // a Commons photo whose own title names the entity
+  commons_text: 60,      // found by searching Commons for the name AND the place; scored further
   commons_nearby: 55,    // geotagged at the entity but not titled for it
   osm_image: 100,        // the entity's own photo, tagged on the entity itself
   osm_commons: 95,
@@ -96,6 +97,7 @@ const IMAGE_CONFIDENCE = {
   category: 20,            // an honest stand-in: a cuisine or accommodation photograph
 };
 const IMAGE_MIN_CONFIDENCE_ENTITY = 60;   // a NAMED entity needs a photo of itself
+const IMAGE_HIGH_CONFIDENCE = 90;         // good enough that looking further cannot improve it
 
 /* ---------------- Media helpers ---------------- */
 
@@ -353,6 +355,170 @@ async function destinationWikidataImage(entity, width){
    `entity` is the canonical object: { placeId, name, type, kind, country, countryCode,
    lat, lng }. `kind` is what the card is showing — 'destination', 'attraction',
    'restaurant', 'hotel' — which decides how much is allowed to stand in for it. */
+/* ============================================================================
+ * EXACT-PLACE VERIFICATION
+ *
+ * The question every candidate has to answer is "does this photograph show THIS place", not
+ * "is this vaguely about the destination". Those are different standards and only the first is
+ * useful to somebody trying to recognise a doorway on a street.
+ *
+ * So candidates are gathered from several sources, scored against the entity's full identity —
+ * name, address, city, country, category — and the best one wins only if it clears a bar. When
+ * nothing clears it the card gets an honest empty state. A wrong photograph is worse than none:
+ * it actively misleads, and the traveller has no way to know.
+ * ========================================================================== */
+
+/** Everything known about the entity, folded for comparison. */
+function entityIdentity(entity){
+  // Separators are folded on BOTH sides of every comparison. Normalising only the title meant
+  // "Saint-Germain" in an address never matched "Saint_Germain" in a filename.
+  const fold = s => foldPunct(String(s || '')).toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[_\-.]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const addr = String(entity.address || '');
+  return {
+    name: fold(entity.name),
+    localName: fold(entity.localName),
+    city: fold(entity.city || entity.destName || ''),
+    country: fold(entity.country),
+    street: fold(addr.replace(/^\d+\s*/, '')),
+    houseNumber: (addr.match(/^\d+/) || [''])[0],
+    category: String(entity.subtype || entity.kind || '').toLowerCase(),
+    fold,
+  };
+}
+
+/* Words that mean the picture is of the BUILDING or the VENUE, which is what a traveller needs
+ * to recognise the place when they arrive. */
+const SHOWS_THE_PLACE = ['exterior','facade','façade','storefront','shopfront','shop front',
+  'entrance','frontage','building','interior','dining room','terrace','lobby','courtyard',
+  'street view','from the street','outside','vue','aussenansicht','fassade'];
+
+/* Words that mean the picture is of something else that merely happens to be associated. */
+const SHOWS_SOMETHING_ELSE = {
+  restaurant: ['dish','plate','menu','recipe','cuisine of','food of','close-up','closeup'],
+  cafe:       ['latte art','cup of','coffee bean','close-up','closeup'],
+  hotel:      ['bed','bathroom','towel','minibar','swimming pool'],
+};
+
+/* A photograph from long before the place looked as it does now does not help anyone recognise
+ * it. Engravings, postcards and pre-war photographs are the common shapes on Commons. */
+const HISTORICAL_MARKERS = ['engraving','gravure','lithograph','postcard','carte postale',
+  'ansichtskarte','woodcut','etching','illustration','drawing','painting','plan of','map of',
+  'archive','historical','historique','vintage','collection des'];
+
+/** The year a Commons title claims, when it claims one. */
+function titleYear(title){
+  const m = String(title).match(/\b(1[6-9]\d{2}|20[0-4]\d)\b/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+/** Scores one candidate against the entity. Returns a number and the reasons behind it, so a
+ *  rejection can be explained rather than guessed at. */
+function scoreImageCandidate(title, entity, source){
+  const id = entityIdentity(entity);
+  // Underscores, hyphens and dots are separators in a Commons filename and spaces in its title.
+  // Without folding them the very same photograph scores as a match by title and a miss by
+  // filename, which is how a correct image could be resolved and then rejected on re-check.
+  const t = id.fold(String(title)
+    .replace(/^File:/i, '')
+    .replace(/^\d+px-/, '')
+    .replace(/\.[a-z0-9]+$/i, '')
+    .replace(/[_\-.]+/g, ' '));
+  const reasons = [];
+  let score = IMAGE_CONFIDENCE[source] != null ? IMAGE_CONFIDENCE[source] : 40;
+
+  // Does the title name this exact place?
+  const named = id.name && hasWholeWordFolded(t, id.name);
+  const namedLocal = id.localName && hasWholeWordFolded(t, id.localName);
+  if(named || namedLocal){ score += 30; reasons.push('names the place'); }
+  else if(source === 'commons_text' || source === 'commons_named'){
+    // These sources exist to find the place by name; without the name they prove nothing.
+    score -= 35; reasons.push('does not name the place');
+  }
+
+  // Address and city corroborate that it is the right one of several same-named places.
+  if(id.street && hasWholeWordFolded(t, id.street)){ score += 15; reasons.push('matches the street'); }
+  if(id.houseNumber && t.includes(id.houseNumber)){ score += 6; reasons.push('matches the number'); }
+  if(id.city && hasWholeWordFolded(t, id.city)){ score += 8; reasons.push('matches the city'); }
+  else if(id.city && (named || namedLocal) && /,\s*[a-z]/i.test(String(title))){
+    // The title names the place AND carries a place qualifier that is not this city: "Cafe de
+    // Flore, Buenos Aires" is a different cafe with the same name, which is exactly the failure
+    // the brief calls out. Coordinates settle it where the file has them; where it does not,
+    // this is the evidence available.
+    score -= 40; reasons.push('names a different city');
+  }
+
+  // Is it a picture of the place, or of something merely associated with it?
+  if(SHOWS_THE_PLACE.some(w => t.includes(w))){ score += 12; reasons.push('shows the building'); }
+  const wrongFor = SHOWS_SOMETHING_ELSE[id.category] || SHOWS_SOMETHING_ELSE[entity.kind] || [];
+  if(wrongFor.some(w => t.includes(w)) && !named && !namedLocal){
+    score -= 30; reasons.push('shows a dish or a room rather than the place');
+  }
+
+  // Recency. A place a traveller has to recognise today is not well served by an engraving.
+  if(HISTORICAL_MARKERS.some(w => t.includes(w))){ score -= 45; reasons.push('historical depiction'); }
+  const year = titleYear(t);
+  if(year != null){
+    if(year >= 2015){ score += 10; reasons.push('recent'); }
+    else if(year >= 2005){ score += 4; }
+    else if(year < 1990){ score -= 50; reasons.push('long out of date'); }
+    else { score -= 12; reasons.push('dated'); }
+  }
+
+  return {score, reasons};
+}
+
+/** Whole-word containment on already-folded strings. */
+function hasWholeWordFolded(haystack, needle){
+  const n = String(needle || '').trim();
+  if(!n || n.length < 3) return false;
+  const esc = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  try{ return new RegExp(`(^|[^\\p{L}\\p{N}])${esc}($|[^\\p{L}\\p{N}])`, 'u').test(haystack); }
+  catch(e){ return haystack.indexOf(n) >= 0; }
+}
+
+/** Commons full-text search for the entity by name AND place. This is the source that finds a
+ *  named business at all: geosearch only knows what was photographed near a coordinate, and a
+ *  small cafe is rarely the subject of anything geotagged at its doorway. */
+async function commonsTextCandidates(entity, opts){
+  const o = opts || {};
+  const name = String(entity.name || '').trim();
+  if(!name) return [];
+  const place = [entity.city || entity.destName, entity.country].filter(Boolean).join(' ');
+  const query = `"${name}" ${place}`.trim() + ' filetype:bitmap';
+  const url = `${COMMONS_API}?action=query&format=json&origin=*&list=search&srnamespace=6` +
+    `&srlimit=10&srsearch=${encodeURIComponent(query)}`;
+  const data = await fetchWikiJSON(url);
+  const hits = (data && data.query && data.query.search) || [];
+  if(!hits.length) return [];
+
+  // Resolve the ones worth resolving: score on the title first, fetch thumbnails after, so a
+  // search that returns ten irrelevant files costs one request rather than eleven.
+  const scored = hits
+    .map(h => ({title: h.title, ...scoreImageCandidate(h.title, entity, 'commons_text')}))
+    .filter(c => c.score >= 55)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+  if(!scored.length) return [];
+
+  const titles = scored.map(c => c.title).join('|');
+  const infoUrl = `${COMMONS_API}?action=query&format=json&origin=*&titles=${encodeURIComponent(titles)}` +
+    `&prop=imageinfo&iiprop=url&iiurlwidth=${o.width || 720}`;
+  const info = await fetchWikiJSON(infoUrl);
+  const out = [];
+  for(const page of Object.values((info && info.query && info.query.pages) || {})){
+    const ii = (page.imageinfo || [])[0];
+    const thumb = ii && ii.thumburl;
+    if(!thumb || !looksLikePhoto(thumb)) continue;
+    const title = String(page.title || '').replace(/^File:/i, '');
+    if(!isTravelAppropriate(title) || !isTravelAppropriate(thumb)) continue;
+    const s = scoreImageCandidate(title, entity, 'commons_text');
+    out.push({url: thumb, title, source: 'commons_text', confidence: s.score, reasons: s.reasons});
+  }
+  return out;
+}
+
 async function resolveEntityImage(entity, opts){
   const o = opts || {};
   if(!entity || !entity.name) return null;
@@ -372,29 +538,64 @@ async function resolveEntityImage(entity, opts){
   // that the destination path had already resolved. Destinations therefore skip this rung
   // entirely and keep the representative-image ladder in data.js.
   const isDestination = entity.kind === 'destination';
-  if(!isDestination) try {
-    const geo = await commonsGeoPhoto(entity, { width: o.width, signal: o.signal, radius: 300 });
-    if(geo){
-      result = { url: geo.url,
-                 source: geo.named ? 'commons_named' : 'commons_nearby',
-                 confidence: geo.score };
-    }
-  } catch(err){
-    if(err.name === 'AbortError') throw err;
-  }
 
-  // Rung 2: the entity's own OSM tags — the other way to prove a photo is of THIS place.
-  // Overpass is slow and heavily rate-limited, so it only runs if the rung above found
-  // nothing, and never for a destination.
-  if(!result && !isDestination) try {
-    const tags = await overpassEntityTags(entity, { signal: o.signal, radius: o.radius });
-    const found = await imageFromOsmTags(tags, o.width || 720);
-    if(found && isTravelAppropriate(found.url)){
-      result = { url: found.url, source: found.source,
-                 confidence: IMAGE_CONFIDENCE[found.source] || 80 };
+  /* CANDIDATES, then a choice — not the first thing that passes.
+   *
+   * Each source is asked for what it has, every answer is scored against the entity's full
+   * identity, and the best scoring candidate wins. Sources are consulted in order of how
+   * expensive they are, and the search stops early only when something already clears the high
+   * bar, because there is nothing better to find above it. */
+  if(!isDestination){
+    const candidates = [];
+    const best = () => candidates.sort((a, b) => b.confidence - a.confidence)[0] || null;
+
+    /* Order is by yield per second, not by authority.
+     *
+     * Commons text search answers in a second or two and, measured against real venues, returns
+     * confidence 98-119 for a cafe, a landmark, a museum and a hotel. Overpass is the more
+     * authoritative source — a photo tagged on the place itself cannot be beaten — but it takes
+     * 15 to 30 seconds and only a small minority of places carry an image tag at all. Asking it
+     * first made every card wait half a minute for an answer that usually was not there.
+     *
+     * So the cheap high-yield source goes first, and when it already clears the high bar the
+     * expensive ones are never called: there is nothing above "a photograph that names this
+     * place, its street and its city" worth waiting for. */
+
+    // 1. Commons, searched by name AND place. This is what finds a named business at all.
+    try {
+      const found = await commonsTextCandidates(entity, {width: o.width, signal: o.signal});
+      candidates.push(...found);
+    } catch(err){ if(err.name === 'AbortError') throw err; }
+
+    // 2. The entity's own OSM tags: the mapper's statement that this photograph IS this place.
+    if(!best() || best().confidence < IMAGE_HIGH_CONFIDENCE){
+      try {
+        const tags = await overpassEntityTags(entity, { signal: o.signal, radius: o.radius });
+        const found = await imageFromOsmTags(tags, o.width || 720);
+        if(found && isTravelAppropriate(found.url)){
+          candidates.push({ url: found.url, source: found.source, title: found.url,
+                            confidence: IMAGE_CONFIDENCE[found.source] || 80,
+                            reasons: ['tagged on the place itself'] });
+        }
+      } catch(err){ if(err.name === 'AbortError') throw err; }
     }
-  } catch(err){
-    if(err.name === 'AbortError') throw err;
+
+    // 3. Photographs geotagged at the entity, re-scored against its identity rather than
+    //    trusted for being nearby. A picture taken at these coordinates is evidence, not proof.
+    if(!best() || best().confidence < IMAGE_HIGH_CONFIDENCE){
+      try {
+        const geo = await commonsGeoPhoto(entity, { width: o.width, signal: o.signal, radius: 300 });
+        if(geo){
+          const src = geo.named ? 'commons_named' : 'commons_nearby';
+          const rescored = scoreImageCandidate(geo.title || geo.url, entity, src);
+          candidates.push({ url: geo.url, source: src, title: geo.title,
+                            confidence: Math.min(geo.score, rescored.score),
+                            reasons: rescored.reasons });
+        }
+      } catch(err){ if(err.name === 'AbortError') throw err; }
+    }
+
+    result = best();
   }
 
   // Rung 3: the destination's own representative image, verified by name and coordinates.
@@ -419,10 +620,16 @@ async function resolveEntityImage(entity, opts){
     } catch(err){ if(err.name === 'AbortError') throw err; }
   }
 
-  // A NAMED entity that is not a destination must be depicted, not approximated. Below the
-  // threshold the caller shows a name card or an explicitly labelled category image — never
-  // another business's photograph.
-  if(result && entity.kind !== 'destination' && result.confidence < IMAGE_MIN_CONFIDENCE_ENTITY){
+  /* The bar. A named entity must be DEPICTED, not approximated.
+   *
+   *   high      display it
+   *   medium    only when nothing better was found anywhere, and it still cleared the floor
+   *   below     rejected — the card shows an honest empty state instead
+   *
+   * Showing nothing is the correct outcome when nothing qualifies. A wrong photograph misleads
+   * with total confidence and the traveller has no way to catch it; a blank frame at least
+   * tells the truth. */
+  if(result && !isDestination && result.confidence < IMAGE_MIN_CONFIDENCE_ENTITY){
     result = null;
   }
 
@@ -451,8 +658,15 @@ function applyResolvedImage(imgEl, entity, opts){
     if(typeof claimImage === 'function' && !claimImage(res.url, claimant)) return;
 
     imgEl.src = res.url;
+    imgEl.hidden = false;
     imgEl.dataset.imageSource = res.source;
     imgEl.dataset.imageConfidence = String(res.confidence);
+    // The empty state was telling the truth until now; a verified photograph replaces it.
+    try{
+      const wrap = imgEl.closest && imgEl.closest('.placeImgWrap');
+      const empty = wrap && wrap.querySelector('.noPhoto');
+      if(empty) empty.remove();
+    }catch(e){ /* non-critical */ }
     // A real photograph of this exact entity has arrived, so the "Illustrative" mark on the
     // stand-in is no longer true and must come off with it.
     try{
@@ -461,4 +675,14 @@ function applyResolvedImage(imgEl, entity, opts){
       if(badge) badge.remove();
     }catch(e){ /* non-critical */ }
   }).catch(()=>{});
+}
+
+/* Exported for the test suites; the browser uses these as globals and ignores this block. */
+if(typeof module !== 'undefined' && module.exports){
+  module.exports = {
+    IMAGE_CONFIDENCE, IMAGE_MIN_CONFIDENCE_ENTITY, IMAGE_HIGH_CONFIDENCE,
+    scoreImageCandidate, entityIdentity, commonsTextCandidates, commonsGeoPhoto,
+    commonsTitleScore, resolveEntityImage, foldPunct, hasWholeWordFolded, titleYear,
+    SHOWS_THE_PLACE, SHOWS_SOMETHING_ELSE, HISTORICAL_MARKERS,
+  };
 }

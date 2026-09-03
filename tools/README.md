@@ -347,3 +347,21 @@ are distributed evenly and marked "Illustrative", never clustered — but enlarg
 the honest remaining fix, and matters more than any further code change here.
 
 `test-foundation.js` covers all five, in a browser, against live services.
+
+## Exact-place image verification
+
+The question a candidate must answer is "does this photograph show THIS place", not "is this
+about the destination". `test-image-accuracy.js` pins that down against titles that must be
+accepted and titles that must be rejected, then resolves real venues of each category live.
+
+Candidates are gathered from several sources and scored against the entity's full identity —
+name, local name, street, house number, city, category — then the best clears a bar or nothing
+is shown. Sources run in order of yield per second: Commons text search answers in under a
+second at confidence 98-119, so the authoritative but slow Overpass lookup is only consulted
+when it has not already cleared the high bar. Asking Overpass first cost 8.5 seconds per card
+for an answer that usually was not there; the same photograph now resolves in 434 ms.
+
+**Generic stand-ins are gone.** There is no category or cuisine pool any more. A card shows a
+photograph of itself or an honest empty state naming what kind of place it is. A plate of pasta
+on a card headed "Trattoria da Enzo" is indistinguishable from a real photograph of the place,
+and that is the problem with it.

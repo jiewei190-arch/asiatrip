@@ -225,7 +225,13 @@ function hydratePhotos(container){
     // like a real photograph so the card never shows a grey frame, but it must still be
     // replaced the moment a real photo of THIS place resolves.
     const isGenericStandIn = src.indexOf('images/category/') >= 0;
-    const upgradeable = isPlaceholder || isGenericStandIn;
+    // An EMPTY src is the honest empty state: a card with no verified photograph yet. It is the
+    // single most upgradeable thing on the page, and treating it as "already a real photo of
+    // this place" — which is what happened while the only empty case was a data-URI placeholder
+    // — marked it resolved and returned without ever calling the resolver. Every discovered
+    // place on a page stayed blank for exactly that reason.
+    const isEmpty = !src;
+    const upgradeable = isPlaceholder || isGenericStandIn || isEmpty;
     // Every image gets an onerror safety net, not just ones we're about to upgrade below.
     // Places supplemented/enriched from live Wikipedia data (ensureRealAttractionSupply,
     // enrichGenericDestination) already start with a resolved real photo URL baked in — never
@@ -307,7 +313,16 @@ function hydratePhotos(container){
       // A resolved photograph is claimed like any other. Without this two places whose names
       // both match one Commons file would quietly show the same picture.
       const claimant = imgEl.dataset.photoPlace || imgEl.dataset.photoDest || (queries[0] || '');
-      if(url && (typeof claimImage !== 'function' || claimImage(url, claimant))){ imgEl.src = url; return; }
+      if(url && (typeof claimImage !== 'function' || claimImage(url, claimant))){
+        imgEl.src = url;
+        imgEl.hidden = false;
+        try{
+          const wrap = imgEl.closest && imgEl.closest('.placeImgWrap');
+          const empty = wrap && wrap.querySelector('.noPhoto');
+          if(empty) empty.remove();
+        }catch(e){}
+        return;
+      }
       if(url) return;                       // taken by someone else: keep the distinct stand-in
       if(destId) return fetchWikiThumbnailChain(queries).then(u => { if(u) imgEl.src = u; });
     }).catch(()=>{});
@@ -983,60 +998,40 @@ function claimFirstFreeImage(candidates, placeId){
 /** Discovered places arrive from OpenStreetMap without a photograph. Rather than a grey box,
  *  show a category or cuisine stand-in — clearly marked "Illustrative" — which imagery.js then
  *  replaces if it can find a photograph of this exact entity. */
-/* Every category and cuisine photograph that actually ships in images/ — 52 of them, split by
- * what each one depicts so a stand-in is at least the right kind of thing. The pool used to hold
- * six, which is why a page of thirty restaurants ran out after six and the rest went grey.
+/* No generic stand-in pool any more.
  *
- * These are stand-ins, never claims about the venue: each one renders with the "Illustrative"
- * mark, and a real photograph of the place replaces it the moment imagery.js finds one. */
-const STANDIN_POOLS = {
-  restaurant: [
-    'category/restaurant', 'category/fine-dining', 'category/bakery', 'category/market',
-    'cuisine/balinese-cuisine', 'cuisine/bistro', 'cuisine/cacio-e-pepe',
-    'cuisine/chinese-cuisine', 'cuisine/dakos', 'cuisine/delicatessen', 'cuisine/dessert',
-    'cuisine/eggs-benedict', 'cuisine/falafel', 'cuisine/french-cuisine', 'cuisine/gelato',
-    'cuisine/greek-cuisine', 'cuisine/hamburger', 'cuisine/hot-dog',
-    'cuisine/indonesian-cuisine', 'cuisine/italian-cuisine', 'cuisine/izakaya',
-    'cuisine/moroccan-cuisine', 'cuisine/new-zealand-cuisine', 'cuisine/pad-thai',
-    'cuisine/paella', 'cuisine/pizza', 'cuisine/pizza-al-taglio', 'cuisine/ramen',
-    'cuisine/seafood', 'cuisine/slovenian-cuisine', 'cuisine/smoked-salmon',
-    'cuisine/steakhouse', 'cuisine/street-food', 'cuisine/sushi', 'cuisine/tapas',
-    'cuisine/trattoria', 'cuisine/yakitori', 'cuisine/cocktail', 'cuisine/coffeehouse',
-    'cuisine/nightclub', 'cuisine/pub',
-  ],
-  hotel: [
-    'category/hotel-luxury', 'category/hotel-room', 'category/hotel-lobby', 'category/hostel',
-    'category/guesthouse', 'category/resort',
-  ],
-  attraction: [
-    'category/cathedral', 'category/museum', 'category/old-town', 'category/promenade',
-    'category/viewpoint',
-  ],
-};
+ * There used to be one: 41 food photographs, 6 accommodation, 5 sights, handed out so every card
+ * had something on it. That is exactly the "random stock photography" and "generic food dish
+ * instead of the restaurant" the accuracy standard rules out. A plate of pasta on a card headed
+ * "Trattoria da Enzo" tells a traveller nothing true about Trattoria da Enzo, and they cannot
+ * tell it apart from a real photograph of the place.
+ *
+ * A card now shows a photograph of ITSELF or an honest empty state. Accuracy over decoration. */
 
+/** The image for a place card, before imagery.js has resolved anything.
+ *
+ *  A curated place ships with a real, hand-checked photograph of itself and uses it. Everything
+ *  else starts empty and stays empty until a photograph of THAT place is verified. */
 function placeImageSrc(p){
   const id = p.placeId || p.id || p.name;
   try{
-    // A real photograph of this exact place always wins, and claiming it stops another card
-    // borrowing it.
     if(p.image){ claimImage(p.image, id); return p.image; }
-
-    const specific = [];
-    if(p.type === 'restaurant'){
-      if(typeof bundledCuisinePhoto === 'function') specific.push(bundledCuisinePhoto(p.cuisine));
-      if(typeof categoryPhoto === 'function') specific.push(categoryPhoto('restaurant', p.cuisine));
-    } else if(p.type === 'hotel'){
-      if(typeof hotelCategoryPhoto === 'function') specific.push(hotelCategoryPhoto(p.stars || 3));
-    } else {
-      if(typeof categoryPhoto === 'function') specific.push(categoryPhoto('attraction', p.category));
-    }
-    const pool = (STANDIN_POOLS[p.type] || STANDIN_POOLS.attraction)
-      .map(slug => (typeof bundledPhoto === 'function' ? bundledPhoto(slug) : null));
-
-    // A category photo is a stand-in, and a stand-in shared between two different places is the
-    // repetition being fixed here — so it is claimed like anything else.
-    return claimFirstFreeImage(specific.concat(pool), id);
+    return '';
   }catch(e){ return ''; }
+}
+
+/** What a card shows while it has no verified photograph, and what it keeps if none is found.
+ *  It names the place and says what kind of thing it is — which is honest, and more use than a
+ *  stock photograph of somewhere else. */
+function placeImagePlaceholderHTML(p){
+  const kind = p.category || p.cuisine || (p.type === 'hotel' ? 'Place to stay'
+             : p.type === 'restaurant' ? 'Place to eat' : 'Place');
+  const icon = p.type === 'restaurant' ? '🍽️' : p.type === 'hotel' ? '🛏️' : '📍';
+  return `<div class="noPhoto" aria-hidden="true">
+    <span class="noPhotoIcon">${icon}</span>
+    <span class="noPhotoKind">${esc(kind)}</span>
+    <span class="noPhotoNote">No verified photo</span>
+  </div>`;
 }
 
 function placeCardHTML(p, opts){
@@ -1072,9 +1067,9 @@ function placeCardHTML(p, opts){
   return `
   <div class="placeCard" data-place="${p.id}">
     <div class="placeImgWrap">
-      <img src="${placeImageSrc(p)}" alt="${esc(p.name)}" loading="lazy" data-photo-place="${esc(p.id)}" data-photo-q="${esc(photoQuery(p.name, dest&&dest.name))}">
+      ${placeImageSrc(p) ? '' : placeImagePlaceholderHTML(p)}
+      <img src="${placeImageSrc(p)}" alt="${esc(p.name)}" loading="lazy" ${placeImageSrc(p) ? '' : 'hidden'} data-photo-place="${esc(p.id)}" data-photo-q="${esc(photoQuery(p.name, dest&&dest.name))}">
       <span class="placeCatBadge">${esc(catLabel)}</span>
-      ${isIllustrativeImage(placeImageSrc(p)) ? `<span class="illusBadge" title="No photograph of this place is available; this shows the kind of food or stay it is">Illustrative</span>` : ''}
       <button class="placeSaveBtn" data-save="${p.id}" title="Save">${isSaved?'♥':'♡'}</button>
     </div>
     <div class="placeBody">
