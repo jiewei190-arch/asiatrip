@@ -86,6 +86,9 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
             </div>
             <button class="dropdown-item" data-route="#/trips"><i class="fa-solid fa-suitcase-rolling"></i> My Trips</button>
             <button class="dropdown-item" data-route="#/saved"><i class="fa-solid fa-heart"></i> Saved Places</button>
+            <button class="dropdown-item" id="backupBtn"><i class="fa-solid fa-download"></i> Download backup</button>
+            <button class="dropdown-item" id="restoreBtn"><i class="fa-solid fa-upload"></i> Restore from backup</button>
+            <input type="file" id="restoreFileInput" accept="application/json,.json" hidden>
             <button class="dropdown-item" id="settingsBtn"><i class="fa-solid fa-gear"></i> Settings</button>
             <button class="dropdown-item" id="signOutBtn"><i class="fa-solid fa-right-from-bracket"></i> Sign out</button>
           </div>
@@ -102,7 +105,9 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
     </nav>
   </header>
 
-  <main id="mainRoot">
+  <!-- Storage trouble is app-wide, so this sits above every view rather than inside one. -->
+<div class="storageBanner hidden" id="storageBanner"></div>
+<main id="mainRoot">
 
     <!-- ============ HOME / LANDING ============ -->
     <section class="view" id="view-home">

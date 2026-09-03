@@ -384,20 +384,116 @@ function defaultState(){
   };
 }
 
+/* Declared before STATE, because loadState() runs while STATE is being initialised and
+   records its result here — a `let` further down the file is in the temporal dead zone at
+   that moment and throws on the very first page load. */
+let __storage = { ok: true, at: 0, error: null, loadProblem: null };
 let STATE = loadState();
 saveState(); // ensure a freshly-seeded state (first-ever visit) is persisted immediately
 
+/* ---------------- Storage, and telling the truth about it ----------------
+   Everything a traveller plans lives in localStorage. That is a deliberate choice — no account
+   to create, no server to trust — but it makes the storage layer the single point where this
+   app can lose somebody's work, so it is the one place that must never fail quietly.
+
+   Both halves used to swallow every error:
+
+     saveState()  ...catch(e){}   If the quota is full, or storage is blocked (a private
+       window, cookies disabled, a locked-down browser), every edit after that point was lost
+       while the screen kept showing it. You would plan an entire trip, refresh, and find
+       nothing — with no warning at any point that saving had stopped working.
+
+     loadState()  ...catch(e){}   A corrupted record fell through to seedState(), which
+       REPLACED the traveller's trips with demo data. The next save then overwrote the damaged
+       original, so the one copy that might have been recoverable was destroyed by the recovery.
+
+   Now: a failed save is reported and stays reported, and an unreadable record is preserved
+   under its own key and never overwritten by fabricated data. */
+
 function loadState(){
-  try{
-    const raw = localStorage.getItem(LS_KEY);
-    if(raw){
-      const parsed = JSON.parse(raw);
-      return Object.assign(defaultState(), parsed);
+  let raw = null;
+  try { raw = localStorage.getItem(LS_KEY); }
+  catch(e){
+    // Storage is not merely empty, it is unavailable. Say so rather than starting a session
+    // whose every edit will be lost.
+    __storage.ok = false;
+    __storage.error = 'unavailable';
+    __storage.loadProblem = 'unavailable';
+    return defaultState();
+  }
+  if(raw){
+    try { return Object.assign(defaultState(), JSON.parse(raw)); }
+    catch(e){
+      /* Keep the unreadable copy. It is the traveller's only record, damaged or not, and the
+       * old behaviour destroyed it: seed demo trips, save, original gone. A human can still
+       * recover names and dates from broken JSON; nobody can recover it once overwritten. */
+      try { localStorage.setItem(LS_KEY + ':unreadable:' + Date.now(), raw); } catch(_){}
+      __storage.loadProblem = 'unreadable';
+      return defaultState();       // never seedState() here: demo trips over real ones is worse
     }
-  }catch(e){}
+  }
   return seedState(defaultState());
 }
-function saveState(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(STATE)); }catch(e){} }
+
+function saveState(){
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(STATE));
+    __storage.ok = true; __storage.at = Date.now(); __storage.error = null;
+  } catch(e){
+    __storage.ok = false;
+    // QuotaExceededError is the common one and has its own remedy, so it is named separately.
+    __storage.error = (e && (e.name === 'QuotaExceededError' || e.code === 22)) ? 'full' : 'blocked';
+  }
+  renderStorageBanner();
+}
+
+/** Says, permanently and in place, when saving has stopped working. A toast is wrong for this:
+ *  it disappears, and the condition does not. */
+function renderStorageBanner(){
+  const el = $('storageBanner');
+  if(!el) return;
+  const problem = !__storage.ok ? __storage.error : __storage.loadProblem;
+  if(!problem){ el.classList.add('hidden'); el.innerHTML = ''; return; }
+  const message = {
+    full: 'This browser’s storage is full, so your changes are no longer being saved. Download a backup now, then remove a trip you have finished to make room.',
+    blocked: 'This browser is not allowing TripFlow to save. Changes will be lost when you close the tab — a private window or blocked cookies is the usual cause. Download a backup to keep your work.',
+    unavailable: 'This browser is not allowing TripFlow to save. Nothing from a previous session could be loaded, and nothing from this one will be kept.',
+    unreadable: 'Your previously saved trips could not be read. The damaged copy has been kept and nothing was overwritten — download a backup before making changes.',
+  }[problem];
+  el.classList.remove('hidden');
+  el.innerHTML = `<div><strong>${problem === 'unreadable' ? 'Saved data could not be read' : 'Not saving'}</strong>
+    <div class="small">${esc(message)}</div></div>
+    <button class="btn sm" id="storageBackupBtn">Download backup</button>`;
+  const b = $('storageBackupBtn');
+  if(b) b.onclick = downloadStateBackup;
+}
+
+/** Everything, as one file. The only way to get work out of a browser-only app before there is
+ *  a server to hold it, and the answer to every banner above. */
+function downloadStateBackup(){
+  const payload = { format: 'tripflow-backup', version: 1, exportedAt: new Date().toISOString(), state: STATE };
+  const name = `tripflow-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  try {
+    downloadTextFile(name, JSON.stringify(payload, null, 2));
+    toast('Backup downloaded.');
+  } catch(e){ toast('Could not build the backup file.'); }
+}
+
+/** Reads a backup back in. Validated before anything is replaced: importing a file that is not
+ *  a backup must not empty somebody's trips, which is the obvious way to turn a safety net into
+ *  the accident it was meant to prevent. */
+function restoreStateBackup(text){
+  let parsed;
+  try { parsed = JSON.parse(text); }
+  catch(e){ return { ok: false, reason: 'That file is not readable JSON.' }; }
+  const state = parsed && (parsed.state || (Array.isArray(parsed.trips) ? parsed : null));
+  if(!state || !Array.isArray(state.trips)){
+    return { ok: false, reason: 'That file is not a TripFlow backup — no trips found in it.' };
+  }
+  STATE = Object.assign(defaultState(), state);
+  saveState();
+  return { ok: true, trips: STATE.trips.length };
+}
 
 function seedState(state){
   const tokyo = findDestination('Tokyo, Japan');
@@ -638,6 +734,27 @@ function closeDropdowns(){
 function initTopbar(){
   $$('[data-route]').forEach(b=>b.onclick=()=>navigate(b.dataset.route));
   $('brandBtn').onclick = ()=>navigate('#/');
+  const backupBtn = $('backupBtn');
+  if(backupBtn) backupBtn.onclick = ()=>{ closeDropdowns(); downloadStateBackup(); };
+  const restoreBtn = $('restoreBtn'), restoreInput = $('restoreFileInput');
+  if(restoreBtn && restoreInput){
+    restoreBtn.onclick = ()=>{ closeDropdowns(); restoreInput.click(); };
+    restoreInput.onchange = ()=>{
+      const file = restoreInput.files && restoreInput.files[0];
+      if(!file) return;
+      const reader = new FileReader();
+      reader.onload = ()=>{
+        const res = restoreStateBackup(String(reader.result || ''));
+        restoreInput.value = '';
+        if(!res.ok){ toast(res.reason); return; }
+        toast(`Restored ${res.trips} trip${res.trips===1?'':'s'} from backup.`);
+        renderStorageBanner();
+        route();
+      };
+      reader.onerror = ()=>{ restoreInput.value=''; toast('That file could not be read.'); };
+      reader.readAsText(file);
+    };
+  }
 
   $('searchToggle').onclick = (e)=>{ e.stopPropagation(); const p=$('gsearchPanel'); p.classList.toggle('show'); $('notifDropdown').classList.remove('show'); $('profileDropdown').classList.remove('show'); if(p.classList.contains('show')){ $('globalSearchInput').focus(); runGlobalSearch($('globalSearchInput').value); } };
   // The x next to a search box means "clear what I typed", not "close the search". It was wired
@@ -5658,6 +5775,9 @@ function makeDayRelaxed(day){
    INIT
 ============================================================ */
 function init(){
+  // A load failure happens before any save, so the banner has to be raised here too — otherwise
+  // an unreadable record is silent until the first edit.
+  renderStorageBanner();
   applyTheme();
   initTopbar();
   initHero();
