@@ -36,8 +36,14 @@ const GEO_CACHE_MAX = 400;
    "Beijing", hospitals out of "NYC", and a Sydney footpath out of "Amalfi Coast".
    The number is the ranking weight: what a holiday planner should see first. */
 const GEO_TYPE_RANK = {
-  city:100, town:82, island:88, archipelago:84, country:78, state:70, region:74, province:70,
-  county:60, municipality:62, village:58, borough:56, suburb:44, locality:46, peninsula:66,
+  // Region-scale places are destinations in their own right: people fly to Bali and to
+  // Madeira, and ranking `state` at 70 and `archipelago` at 84 against `city` at 100 handed
+  // both to same-named settlements — a town in Cameroon and a city of 9,000 in Ohio.
+  city:100, town:82, island:92, archipelago:92, country:78, state:86, region:86, province:86,
+  // A municipality is not a lesser thing than a town either. In Brazil, Norway, the
+  // Philippines and much of Latin America it is the administrative form a city takes:
+  // Salvador (2.4m) and Bergen (295k) both carry it, and at 62 both lost to villages abroad.
+  county:60, municipality:80, village:58, borough:56, suburb:44, locality:46, peninsula:66,
   national_park:86, nature_reserve:64, protected_area:62, attraction:72, monument:58,
   castle:58, ruins:56, archaeological_site:58, museum:50, theme_park:52, zoo:46,
   viewpoint:50, peak:64, volcano:64, glacier:58, bay:60, beach:68, fjord:62, lake:56,
@@ -317,12 +323,182 @@ async function geoSearch(query, options){
   return ranked;
 }
 
+/* ---------------- Disambiguation by notability ----------------
+   Everything above ranks on string similarity and what KIND of place something is, and
+   neither knows how well known a place is. That is what put Madeira, Ohio — a city of 9,487 —
+   above the Portuguese archipelago, and what lets Photon's fuzzy matching hand "Hallstatt" to
+   Halmstad in Sweden: a `city` outranks a `village` by 42 points, so a place the user did not
+   type beats one they typed exactly.
+
+   Three cheaper signals were tried first and measured over a bank of ambiguous names:
+
+     - admin_level, free from Photon, is not comparable between countries. India numbers
+       Hyderabad level 8 and Pakistan numbers its Hyderabad level 7, so the smaller city won.
+       It bought Madeira and Bali by breaking Hyderabad, Valencia, Kingston and Bergen.
+     - The area of the boundary box rewards American municipal sprawl: Athens, Georgia beat
+       Athens, Greece and Birmingham, Alabama beat Birmingham.
+     - Population, from the same Wikidata query used below, measures size rather than whether
+       anyone travels there. Toledo, Ohio has three times the population of Toledo, Spain.
+
+   What a travel planner means by "the one people mean" is notability, and Wikidata measures it
+   directly: the number of Wikipedia language editions that carry an article. Rome has 343
+   against Rome, New York's 52; Madeira 151 against Ohio's 36; Bergen, Norway 147 against the
+   Dutch town's 50. It answers in about a fifth of a second and sends CORS headers.
+
+   The one hazard is uneven coverage, and it is handled by construction rather than by tuning.
+   P402 records OSM *relation* ids, and Photon returns a node for some cities and a relation for
+   others — Athens, Greece is node N441183 with no entry at all, while Athens, Georgia is a
+   relation with 80. Reading a missing link as "not notable" would hand Athens to Georgia and
+   Birmingham to Alabama. So notability never compares a place against one it knows nothing
+   about: it reorders the candidates it has measured among themselves and leaves every other
+   position exactly as it found it. See geoDisambiguateByFame for why nothing weaker works. */
+const GEO_USER_AGENT = 'TripFlow/1.0 (https://jiewei190-arch.github.io/asiatrip/)';
+const GEO_FAME_CACHE_KEY = 'tf:geo:fame';
+const GEO_FAME_BUDGET_MS = 4000;
+const GEO_WDQS = 'https://query.wikidata.org/sparql';
+/* Roughly where a place stops being known only to its own country. Anything at or above this
+ * is left alone; below it, a candidate is pushed down in proportion to how far below. */
+const GEO_FAME_ANCHOR = 110;
+const GEO_FAME_WEIGHT = 30;
+const GEO_FAME_FLOOR = -28;
+/** A name typed exactly is strong evidence, and Photon's fuzzy matching is a guess about a
+ *  typo. "Halmstad" is not a spelling of "Hallstatt". */
+const GEO_FUZZY_PENALTY = 22;
+
+function geoFameCache(){
+  try { return JSON.parse(localStorage.getItem(GEO_FAME_CACHE_KEY)) || {}; }
+  catch(e){ return {}; }
+}
+function geoFameCacheSet(map){
+  try { localStorage.setItem(GEO_FAME_CACHE_KEY, JSON.stringify(map)); } catch(e){}
+}
+
+/** Demotion only, and never below the floor: a place nobody writes about in more than a
+ *  handful of languages is unlikely to be the one that was meant, but a place Wikidata has
+ *  nothing on has simply not been measured. */
+function geoFameBonus(links){
+  if(!links) return 0;                                   // unknown is unknown, never a penalty
+  return Math.max(GEO_FAME_FLOOR, Math.min(0,
+    Math.round(GEO_FAME_WEIGHT * Math.log10(links / GEO_FAME_ANCHOR))));
+}
+
+/** Is this name worth spending a request on? Only when several plausible answers sit close
+ *  enough together that notability could change the order. "Reykjavik" and "Kyoto" name one
+ *  place each and never reach Wikidata at all. */
+function geoContested(ranked, query){
+  if(!ranked || ranked.length < 2) return null;
+  const top = ranked[0].score;
+  const near = ranked.filter(r => r.osmId && (top - r.score) <= 45).slice(0, 8);
+  if(near.length < 2) return null;
+  const distinct = new Set(near.map(r => (r.countryCode || '?') + '|' + geoFold(r.name)));
+  return distinct.size >= 2 ? near : null;
+}
+
+/** One SPARQL query for every contested candidate at once, matched on the OSM id Photon
+ *  already gave us rather than on the name — the name is the ambiguous part. P402 holds
+ *  relation ids, so nodes and ways are not asked about: querying them anyway matched Athens
+ *  (node 441183) against a Czech village whose *relation* id is 441183, and reported the
+ *  capital of Greece as a place of 1,085 people. */
+async function geoFetchFame(cands){
+  const ids = cands.map(c => /^R(\d+)$/.exec(c.osmId || '')).filter(Boolean).map(m => m[1]);
+  const found = {};
+  for(const c of cands) found[c.osmId] = 0;   // "asked, nothing known" — not looked up again
+  if(!ids.length) return found;
+  const sparql = `SELECT ?osmid ?links WHERE { VALUES ?osmid { ${
+    ids.map(i => `"${i}"`).join(' ')} } ?item wdt:P402 ?osmid . ?item wikibase:sitelinks ?links . }`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GEO_FAME_BUDGET_MS);
+  try {
+    const res = await fetch(`${GEO_WDQS}?format=json&query=${encodeURIComponent(sparql)}`, {
+      signal: controller.signal,
+      headers: { 'Accept': 'application/sparql-results+json', 'User-Agent': GEO_USER_AGENT },
+    });
+    if(!res.ok) return {};
+    const data = await res.json();
+    for(const row of (((data.results || {}).bindings) || [])){
+      const id = row.osmid && row.osmid.value;
+      const links = Number(row.links && row.links.value);
+      if(!id || !isFinite(links)) continue;
+      // A city and its administrative twin can both claim the relation — Rome answers as both
+      // "Rome" (343) and "Roma Capitale" (6). The better-connected article is the place itself.
+      const key = 'R' + id;
+      if(found[key] == null || links > found[key]) found[key] = links;
+    }
+    return found;
+  } catch(e){ return {}; }
+  finally { clearTimeout(timer); }
+}
+
+/** Re-ranks a contested list by notability, and demotes names that were never typed.
+ *  Returns it untouched when the name is unambiguous, when Wikidata does not answer inside
+ *  the budget, or when fewer than two candidates are known — several genuine ties have no
+ *  article on either side, and an invented tiebreak is worse than the honest original order. */
+async function geoDisambiguateByFame(ranked, query){
+  const contested = geoContested(ranked, query);
+  if(!contested) return ranked;
+
+  const cache = geoFameCache();
+  const missing = contested.filter(c => cache[c.osmId] === undefined);
+  if(missing.length){
+    const found = await geoFetchFame(missing);
+    if(Object.keys(found).length){ Object.assign(cache, found); geoFameCacheSet(cache); }
+  }
+  const fameOf = r => (r.osmId && cache[r.osmId]) || 0;
+
+  /* Stage one: names that were never typed.
+   *
+   * Photon offers near-spellings as well as matches, and the type table can float one above
+   * the word actually typed: `city` outranks `village` by 42 points, so "Hallstatt" resolved
+   * to Halmstad in Sweden. When some candidate matches the query exactly, a differently
+   * spelled one has to earn its place — and it earns it only by being measurably better known
+   * than a *known* exact match, as "Rome" is for the query "Roma" with 343 language editions
+   * against Roma, Texas's 35. Where the exact match's notability is unknown, an alternative
+   * spelling cannot prove itself and is treated as the typo suggestion it probably is; that is
+   * what keeps "Nazare" on Nazaré in Portugal rather than moving it to Nazareth. */
+  const folded = geoFold(String(query || '').trim());
+  const exact = ranked.find(r => geoFold(r.name) === folded);
+  const exactFame = exact ? fameOf(exact) : 0;
+  let out = ranked.map(r => {
+    const beatsExact = exactFame > 0 && fameOf(r) > exactFame;
+    const fuzzy = exact && r !== exact && !geoStrongMatch(r.name, query) && !beatsExact;
+    return Object.assign({}, r, {
+      notability: fameOf(r) || null,
+      score: r.score - (fuzzy ? GEO_FUZZY_PENALTY : 0),
+    });
+  }).sort((a, b) => b.score - a.score);
+
+  /* Stage two: notability, compared only between places it actually knows about.
+   *
+   * P402 records OSM *relation* ids and Photon returns a node for some cities, so coverage is
+   * uneven in a way no weighting can fix: Athens, Greece is node N441183 with no entry, while
+   * Athens, Georgia is a relation with 80. An earlier version demoted the obscure and left
+   * unknowns alone, which sounded safe and was not — demoting a known place past an unknown
+   * one promotes the unknown just the same, and it moved Halifax from Nova Scotia to a town
+   * in West Yorkshire. So notability may only reorder known candidates AMONG THEMSELVES: each
+   * keeps the position it held, and only their order within those positions changes. A place
+   * Wikidata has never heard of cannot win or lose on a measurement nobody took. */
+  const known = [];
+  out.forEach((r, i) => { if(fameOf(r) > 0) known.push(i); });
+  if(known.length >= 2){
+    const byFame = known
+      .map(i => out[i])
+      .sort((a, b) => (b.score + geoFameBonus(fameOf(b))) - (a.score + geoFameBonus(fameOf(a))));
+    known.forEach((pos, k) => { out[pos] = byFame[k]; });
+  }
+  return out;
+}
+
 /** One best match for a typed string — used when the user commits (presses Enter) rather
- *  than picking a suggestion, so a typed destination still resolves to real coordinates. */
+ *  than picking a suggestion, so a typed destination still resolves to real coordinates.
+ *  This is the path where getting it wrong is silent and expensive: nobody chose from a list,
+ *  so a trip is simply built in the wrong country. It therefore looks at several candidates
+ *  and pays for the population tiebreak, which typing never does. */
 async function geoResolve(query){
   try {
-    const results = await geoSearch(query, { limit: 1 });
-    return results[0] || null;
+    const results = await geoSearch(query, { limit: 8 });
+    if(!results.length) return null;
+    const settled = await geoDisambiguateByFame(results, query);
+    return settled[0] || null;
   } catch(e){ return null; }
 }
 
@@ -347,4 +523,18 @@ function geoValidateDestination(dest){
     if(dest.country && !dest.countryCode) problems.push('country without a country code');
   }
   return { ok: problems.length === 0, problems };
+}
+
+/* Node sees this file as a module; the browser sees the same globals it always did.
+ * The test suites import from here so they exercise the product's own ranking. A harness
+ * that reimplements the logic it is checking tests something nobody ships — this suite
+ * reported Medellin resolving to the Philippines for days after the app had been fixed,
+ * because its private copy of the ranker had not been. */
+if(typeof module !== 'undefined' && module.exports){
+  module.exports = {
+    GEO_TYPE_RANK, GEO_TYPE_LABEL, countryFlagEmoji,
+    geoNormalize, geoFold, geoRank, geoDedupe, geoStrongMatch,
+    geoFameBonus, geoContested, geoDisambiguateByFame,
+    geoSearch, geoResolve, geoValidateDestination,
+  };
 }

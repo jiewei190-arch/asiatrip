@@ -44,6 +44,7 @@ for(const fn of ['geoDistanceKm', 'hasVerifiedGeo', 'destinationRadiusKm', 'plac
   global[fn] = eval(fn);
 }
 
+const Geo = require(path.join(ROOT, 'geo.js'));
 const Places = require(path.join(ROOT, 'places.js'));
 const CurrencyData = require(path.join(ROOT, 'currency-data.js'));
 Object.assign(global, CurrencyData);
@@ -85,65 +86,27 @@ const CASES = [
   {q:'Longyearbyen',           kind:'remote town',  country:'Svalbard and Jan Mayen', currency:'NOK'},
 ];
 
-/* ---------------- geocoding (the same keyless source geo.js uses) ---------------- */
-
-/** Photon throttles a long run, and a throttled request looks identical to "this place does not
- *  exist" unless you retry. Six destinations in the first full run reported as ungeocodable and
- *  every one of them resolved first try on its own, so the failures were mine, not the data's. */
-async function geocodeOnce(query){
-  const url = `https://photon.komoot.io/api?q=${encodeURIComponent(query)}&limit=8&lang=en`;
-  const res = await fetch(url, {headers:{'Accept':'application/json'}});
-  if(!res.ok) throw new Error('geocode http ' + res.status);
-  return res.json();
-}
+/* ---------------- geocoding (the app's own resolver) ---------------- */
 
 async function geocode(query){
-  let json = null, lastErr = null;
+  /* The app's own resolver, imported rather than reimplemented.
+   *
+   * This harness used to carry a private copy of the ranking logic, and the copy drifted:
+   * it reported Medellin resolving to the Philippines for days after the app had been fixed
+   * and verified at 12/12. A suite that reimplements what it is checking tests something
+   * nobody ships. Everything below is now the same code path a typed destination takes,
+   * including the population tiebreak, so a green run here means the product is green. */
+  let geo = null;
   for(let attempt = 0; attempt < 3; attempt++){
     if(attempt) await new Promise(r => setTimeout(r, 1500 * attempt));
-    try{ json = await geocodeOnce(query); lastErr = null; break; }
-    catch(e){ lastErr = e; }
+    geo = await Geo.geoResolve(query);
+    if(geo) break;
   }
-  if(lastErr) throw lastErr;
-  const PLACE_TYPES = new Set(['city','town','village','hamlet','state','region','county',
-                               'country','island','municipality','locality','district','suburb']);
-  const feats = (json.features || []).filter(f => {
-    const p = f.properties || {};
-    return PLACE_TYPES.has(p.osm_value) || PLACE_TYPES.has(p.type);
-  });
-
-  /* Rank the way geo.js does, rather than taking whatever Photon listed first.
-   *
-   * This harness had its own naive "first travel-relevant hit wins", which is not what the app
-   * does — so it reported Medellin resolving to the Philippines long after the app had been
-   * fixed and verified at 12/12. A suite that does not exercise the product's own logic tests
-   * something nobody ships. */
-  const fold = x => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  const RANK = {city:100, town:82, island:88, country:78, state:70, region:74, province:70,
-                county:60, municipality:62, village:58, suburb:44, locality:46, district:50,
-                hamlet:34};
-  const q = fold(query.split(',')[0].trim());
-  const ranked = feats.map((f, i) => {
-    const p = f.properties || {};
-    const name = fold(p.name);
-    let s = 120 - i * 3;
-    s += RANK[p.osm_value || p.type] || 40;
-    if(name === q) s += 25;
-    else if(name.startsWith(q)) s += 12;
-    if(name !== q && name.length > q.length * 1.6) s -= 10;
-    return {f, s};
-  }).sort((a, b) => b.s - a.s);
-
-  const f = (ranked[0] && ranked[0].f) || (json.features || [])[0];
-  if(!f) return null;
-  const p = f.properties || {}, c = (f.geometry || {}).coordinates || [];
-  const ext = Array.isArray(p.extent) && p.extent.length === 4 ? p.extent : null;
+  if(!geo) return null;
   return {
-    name: p.name, country: p.country, countryCode: (p.countrycode || '').toUpperCase(),
-    lat: c[1], lng: c[0], placeType: p.osm_value || p.type, geoVerified: true,
-    id: 'test-' + (p.osm_id || p.name), placeId: `osm:${p.osm_type || 'X'}${p.osm_id || 0}`,
-    bbox: ext ? {minLng:Math.min(ext[0],ext[2]), maxLng:Math.max(ext[0],ext[2]),
-                 minLat:Math.min(ext[1],ext[3]), maxLat:Math.max(ext[1],ext[3])} : null,
+    name: geo.name, country: geo.country, countryCode: geo.countryCode,
+    lat: geo.lat, lng: geo.lng, placeType: geo.type, geoVerified: true,
+    id: 'test-' + (geo.osmId || geo.name), placeId: geo.placeId, bbox: geo.bbox,
   };
 }
 
