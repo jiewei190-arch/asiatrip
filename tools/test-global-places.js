@@ -111,7 +111,30 @@ async function geocode(query){
     const p = f.properties || {};
     return PLACE_TYPES.has(p.osm_value) || PLACE_TYPES.has(p.type);
   });
-  const f = feats[0] || (json.features || [])[0];
+
+  /* Rank the way geo.js does, rather than taking whatever Photon listed first.
+   *
+   * This harness had its own naive "first travel-relevant hit wins", which is not what the app
+   * does — so it reported Medellin resolving to the Philippines long after the app had been
+   * fixed and verified at 12/12. A suite that does not exercise the product's own logic tests
+   * something nobody ships. */
+  const fold = x => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const RANK = {city:100, town:82, island:88, country:78, state:70, region:74, province:70,
+                county:60, municipality:62, village:58, suburb:44, locality:46, district:50,
+                hamlet:34};
+  const q = fold(query.split(',')[0].trim());
+  const ranked = feats.map((f, i) => {
+    const p = f.properties || {};
+    const name = fold(p.name);
+    let s = 120 - i * 3;
+    s += RANK[p.osm_value || p.type] || 40;
+    if(name === q) s += 25;
+    else if(name.startsWith(q)) s += 12;
+    if(name !== q && name.length > q.length * 1.6) s -= 10;
+    return {f, s};
+  }).sort((a, b) => b.s - a.s);
+
+  const f = (ranked[0] && ranked[0].f) || (json.features || [])[0];
   if(!f) return null;
   const p = f.properties || {}, c = (f.geometry || {}).coordinates || [];
   const ext = Array.isArray(p.extent) && p.extent.length === 4 ? p.extent : null;

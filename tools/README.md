@@ -393,3 +393,26 @@ Recency is therefore graded and weighted heavily instead: a photograph from this
 scores +22, three years +16, seven +9, twelve +2, and anything from before 1990 is rejected
 outright. The newest available always wins where one exists. Files with no year in the title —
 most of Commons — are neutral, because undated is not evidence of being old.
+
+## Anchoring a country
+
+A country's centroid is a geometric average, not a place. Indonesia's is -2.4834, 117.8903 —
+open water in the Makassar Strait, hundreds of kilometres from anywhere with a restaurant — so
+searching around it returned nothing at any radius. The same is true of anywhere long, hollow or
+made of islands.
+
+Large destinations therefore anchor on their most prominent settlement: one Overpass query for
+cities inside the destination's own boundary, ordered by the population OSM records. Indonesia
+now anchors on Jakarta and returns 397 places instead of 0.
+
+Three things that query taught me, each of which had it returning nothing:
+
+- `place~"^(city|town)$"` over a whole country is unaffordable — 504 after 37 seconds. Cities
+  alone answer in 11. Towns are only included at the smallest population magnitude, where the
+  country is small enough for the scan to be cheap anyway.
+- `out tags` returns tags and NO geometry, so every candidate was discarded for having no
+  coordinates. It needs `out tags center`.
+- The query legitimately takes ~40 seconds against a standard 25-second per-mirror cap, so it
+  timed out on every mirror and gave up on a query that does succeed. It has its own budget now.
+
+The answer is persisted, because it is the most expensive lookup in the app and never changes.
