@@ -145,6 +145,39 @@ const check = (n, c, d) => { if(c){ pass++; console.log('  PASS  ' + n); }
     check('and the local ones are sent up', out.pushedCount >= out.before, `${out.pushedCount} pushed`);
   }
 
+  console.log('\nDeleting a trip has to reach the account, but only once Undo has passed');
+  {
+    const out = await page.evaluate(async () => {
+      const calls = { upserts: [] };
+      __setCloudClientForTests({
+        auth: { getUser: async () => ({ data: { user: { id:'u1', email:'you@example.com' } } }) },
+        from: () => ({
+          select: () => ({ eq: async () => ({ data: [], error: null }) }),
+          upsert: async (rows) => { calls.upserts.push(rows); return { error: null }; },
+        }),
+      });
+      await cloudCurrentUser();
+
+      // Undo taken: nothing may be written, or every other device forgets a trip this one kept.
+      let restored = false;
+      toastUndo('deleted', () => { restored = true; }, () => { calls.upserts.push([{ committed:'A' }]); });
+      document.querySelector('.toast button, .toast [data-toast-action]')?.click();
+      const undoBtn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Undo');
+      if(undoBtn) undoBtn.click();
+      await new Promise(r => setTimeout(r, TOAST_UNDO_MS + 400));
+      const afterUndo = calls.upserts.length;
+
+      // Undo ignored: the tombstone must be written.
+      await cloudDeleteTrip('gone-for-good');
+      const tomb = calls.upserts[calls.upserts.length - 1][0];
+      return { restored, afterUndo, tombDeleted: tomb.deleted, tombId: tomb.id };
+    });
+    check('taking Undo writes nothing to the account', out.afterUndo === 0, `${out.afterUndo} writes`);
+    check('Undo still restores locally', out.restored === true);
+    check('a committed delete writes a tombstone, not a removal', out.tombDeleted === true);
+    check('against the right trip', out.tombId === 'gone-for-good', out.tombId);
+  }
+
   check('the page threw nothing', errors.length === 0, errors.slice(0,2).join(' | '));
   await browser.close();
   console.log(`\n${pass} passed, ${fail} failed`);

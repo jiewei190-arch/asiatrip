@@ -38,13 +38,23 @@ function toast(msg, action){
 function snapshot(value){ return JSON.parse(JSON.stringify(value)); }
 /** Announces a destructive action and offers to put it back. The restore runs against live
  * state, then re-renders whatever view the user is on. */
-function toastUndo(message, restoreFn){
+/** `onCommit` runs once the undo window has passed without being used — the moment a deletion
+ *  stops being reversible. Anything irreversible belongs there rather than beside the local
+ *  delete: writing a cloud tombstone immediately would make Undo restore a trip on this device
+ *  that every other device had already been told to forget. */
+const TOAST_UNDO_MS = 7000;
+function toastUndo(message, restoreFn, onCommit){
+  let undone = false;
   toast(message, { label:'Undo', onClick: ()=>{
+    undone = true;
     restoreFn();
     saveState();
     refreshCurrentView();
     toast('Restored.');
   }});
+  if(typeof onCommit === 'function'){
+    setTimeout(() => { if(!undone) onCommit(); }, TOAST_UNDO_MS);
+  }
 }
 let __uidN = 1;
 function uid(prefix){ return `${prefix}_${Date.now().toString(36)}_${(__uidN++).toString(36)}`; }
@@ -3212,7 +3222,12 @@ function wireTripCards(container){
       STATE.trips = STATE.trips.filter(x=>x.id!==t.id);
       saveState();
       renderTripsView();
-      toastUndo(`Deleted "${removed.title}".`, ()=>{ STATE.trips.splice(Math.max(0,index), 0, removed); });
+      toastUndo(`Deleted "${removed.title}".`,
+        ()=>{ STATE.trips.splice(Math.max(0,index), 0, removed); },
+        /* Only once Undo has expired. Without this the trip was removed locally and left
+         * untouched in the account, so the very next sync pulled it back — a deletion that
+         * silently undoes itself is worse than one that fails loudly. */
+        ()=>{ if(typeof cloudDeleteTrip === 'function') cloudDeleteTrip(removed.id); });
     });
   });
   hydratePhotos(container);
