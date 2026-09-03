@@ -314,3 +314,36 @@ back empty. `overpassQuery` checks for the remark.
 
 Including relations (`nwr` rather than `nw`) took the Seoul hotel query from 16 seconds to a
 timeout at 82. Almost nothing in these categories is mapped as a relation, so the queries use `nw`.
+
+## Foundation audit: why discovery and imagery were inconsistent
+
+Five root causes, found by reading the code rather than guessing:
+
+1. **Discovery only ran for typed destinations.** `discoverPlacesFor` was reachable from
+   `makeGenericDestination` and `applyGeoToDestination` only — both typed-destination paths — so
+   the twelve curated destinations never ran it and showed their hand-written handful, while
+   anywhere else got hundreds. It now runs when ANY destination is opened.
+
+2. **Enrichment deleted what discovery found.** `applyEnrichment` spliced out every existing
+   attraction before pushing its own Wikipedia-derived list. Enrichment usually finishes first,
+   so it wiped several hundred discovered attractions. It merges now.
+
+3. **The stand-in pool held six photographs.** `categoryPhoto()` maps a whole category to one
+   image, so a page of restaurants was one plate of food repeated. The pool is now every
+   category and cuisine photograph that actually ships (41 food, 6 stay, 5 sight).
+
+4. **Place images fell back to the city.** `photoQuery` ended its chain with the bare
+   destination name, so any place without its own photograph resolved to the city's — one Tokyo
+   skyline measured on **308 cards**. A place now searches only for itself.
+
+5. **The search x was a close button.** `id="gsearchClose"`, wired to
+   `panel.classList.remove('show')`. It clears now; a second press on an empty field closes.
+
+### Known gap: the attraction stand-in pool
+
+Only five attraction photographs ship (cathedral, museum, old-town, promenade, viewpoint). Real
+photographs cover most of a visible page, but where they run out those five must be shared. They
+are distributed evenly and marked "Illustrative", never clustered — but enlarging that pool is
+the honest remaining fix, and matters more than any further code change here.
+
+`test-foundation.js` covers all five, in a browser, against live services.

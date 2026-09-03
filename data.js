@@ -940,8 +940,20 @@ function applyEnrichment(dest, payload){
     if(payload.country){ dest.country = payload.country; dest.currencyCode = currencyCodeForCountry(payload.country); }
   }
   if(payload.attractions && payload.attractions.length){
-    for(let i=PLACES.length-1;i>=0;i--){ if(PLACES[i].destId===dest.id && PLACES[i].type==='attraction') PLACES.splice(i,1); }
-    payload.attractions.forEach((p,i)=>{
+    // ADD, never replace. This block used to splice out every attraction the destination already
+    // had before pushing its own, which meant that whenever Wikipedia enrichment finished after
+    // OpenStreetMap discovery — the usual order, since enrichment is the faster call — it
+    // deleted several hundred real discovered attractions and left its own handful behind. That
+    // is why a destination could show four hundred restaurants beside seven things to do.
+    //
+    // Enrichment and discovery are two sources for the same question and both return real
+    // places; the right thing is to merge them and drop repeats by name.
+    const seen = new Set(PLACES.filter(p => p.destId === dest.id && p.type === 'attraction')
+      .map(p => String(p.name || '').trim().toLowerCase()));
+    payload.attractions.forEach((p, i) => {
+      const key = String(p.name || '').trim().toLowerCase();
+      if(!key || seen.has(key)) return;
+      seen.add(key);
       PLACES.push(Object.assign({ id:`${dest.id}-a${i+1}`, destId:dest.id, type:'attraction', source:'live' }, p,
         { image: p.image || img(dest.id+'-attr-'+i, 640,480, p.name) }));
     });

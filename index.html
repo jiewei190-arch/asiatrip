@@ -452,6 +452,71 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
   </div>
 </div>
 
+<div class="modalBack" id="modal-tripPrefs">
+  <div class="modal wide">
+    <div class="modalHeader">
+      <div><h2>Plan your trip</h2><p class="small" id="prefsSubtitle">Tell us what you enjoy and we will build the days around it.</p></div>
+      <button class="xbtn" data-close="modal-tripPrefs">&times;</button>
+    </div>
+
+    <div class="prefStep">
+      <h3>What are you interested in?</h3>
+      <p class="small">Pick as many as you like. These change which places are chosen, not just how they are labelled.</p>
+      <div class="prefGrid" id="prefInterests"></div>
+    </div>
+
+    <div class="prefStep">
+      <h3>How full should the days be?</h3>
+      <div class="prefRow" id="prefPace"></div>
+    </div>
+
+    <div class="prefStep">
+      <h3>Budget</h3>
+      <div class="prefRow" id="prefBudget"></div>
+      <div class="field hidden" id="prefCustomBudgetWrap" style="margin-top:10px">
+        <label>Roughly per day, per person</label>
+        <input type="number" id="prefCustomBudget" min="0" step="10" placeholder="e.g. 120">
+      </div>
+    </div>
+
+    <div class="prefStep">
+      <h3>Food preferences <span class="small">(optional)</span></h3>
+      <div class="pillRow" id="prefFood"></div>
+    </div>
+
+    <div class="prefStep">
+      <h3>What time do you like to start?</h3>
+      <div class="prefRow" id="prefDayStart"></div>
+    </div>
+
+    <div class="prefStep">
+      <h3>Who is travelling?</h3>
+      <div class="prefRow" id="prefParty"></div>
+    </div>
+
+    <div class="prefStep">
+      <div class="sectionGrid" style="grid-template-columns:1fr 1fr;gap:14px">
+        <div class="field">
+          <label>Places you must visit <span class="small">(one per line)</span></label>
+          <textarea id="prefMustSee" rows="3" placeholder="Eiffel Tower&#10;Sacre-Coeur"></textarea>
+        </div>
+        <div class="field">
+          <label>Anything to avoid <span class="small">(one per line)</span></label>
+          <textarea id="prefMustAvoid" rows="3" placeholder="No museums&#10;No nightlife"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="prefFoot">
+      <span class="small" id="prefSummary"></span>
+      <div style="display:flex;gap:8px">
+        <button class="btn" data-close="modal-tripPrefs">Cancel</button>
+        <button class="btn primary" id="prefGenerateBtn">Build my itinerary</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modalBack" id="modal-customize">
   <div class="modal">
     <div class="modalHeader"><div><h2>Customize this trip idea</h2><p class="small">Tune it, then regenerate.</p></div><button class="xbtn" data-close="modal-customize">×</button></div>

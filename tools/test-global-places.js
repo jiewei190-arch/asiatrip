@@ -154,7 +154,12 @@ function mark(ok, soft){
     const unnamed = all.filter(p => !p.name);
     const noId    = all.filter(p => !/^osm:/.test(p.placeId || ''));
     const fakeNum = all.filter(p => p.rating != null || p.reviews != null);
-    const dupes   = all.length - new Set(all.map(p=>p.placeId)).size;
+    // Duplicates mean the SAME entity listed twice within one category. A place appearing under
+    // both food and stays is not a duplicate: OSM tags a hotel-with-restaurant as both, and
+    // showing it in each list is correct. Giethoorn's De Kruumte is exactly that.
+    const dupeIn = list => list.length - new Set(list.map(p=>p.placeId)).size;
+    const dupes   = dupeIn(eat) + dupeIn(stay);
+    const dualUse = stay.filter(p => eat.some(e => e.placeId === p.placeId)).length;
 
     const boundsOk = outside.length === 0 && unnamed.length === 0 && noId.length === 0
                      && fakeNum.length === 0 && dupes === 0;
@@ -178,7 +183,8 @@ function mark(ok, soft){
     if(!currencyOk) why.push(`expected ${c.currency}`);
     if(outside.length) why.push(`${outside.length} out of bounds`);
     if(fakeNum.length) why.push(`${fakeNum.length} carry invented ratings`);
-    if(dupes) why.push(`${dupes} duplicates`);
+    if(dupes) why.push(`${dupes} duplicates within a category`);
+    if(dualUse) why.push(`${dualUse} hotel${dualUse===1?'':'s'} with a restaurant (listed in both, correctly)`);
     if(!eat.length) why.push('no food mapped');
     if(!stay.length) why.push('no stays mapped');
     console.log(row + (why.length ? '  ' + why.join('; ') : ''));

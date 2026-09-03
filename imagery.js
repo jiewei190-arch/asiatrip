@@ -444,6 +444,12 @@ function applyResolvedImage(imgEl, entity, opts){
     if(!res || !res.url) return;
     if(__imageryActive.get(imgEl) !== key) return;   // a different entity now owns this slot
     if(!imgEl.isConnected) return;
+    // Two different places can resolve to the same photograph — a shared building, a square that
+    // several venues sit on, a Commons file that names a whole street. Whichever card claims it
+    // first keeps it; the other keeps looking rather than showing a picture of its neighbour.
+    const claimant = entity.placeId || entity.id || entity.name;
+    if(typeof claimImage === 'function' && !claimImage(res.url, claimant)) return;
+
     imgEl.src = res.url;
     imgEl.dataset.imageSource = res.source;
     imgEl.dataset.imageConfidence = String(res.confidence);

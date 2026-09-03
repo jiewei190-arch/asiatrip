@@ -180,9 +180,17 @@ function destHeroSrc(dest){
  * restaurant, hotel), falling back to the destination's own photo if that specific place has no
  * usable Wikipedia photo (common for real supplemented places pulled from GeoSearch, like an
  * obscure train station) rather than dropping straight to the generic placeholder. */
+/** The image-search chain for ONE place.
+ *
+ *  It used to end with the bare destination name as a fallback: "Senso-ji Temple Tokyo" first,
+ *  then plain "Tokyo". Most small OSM entries have no photograph of their own, so the chain fell
+ *  through to the city almost every time and handed the same Tokyo skyline to 308 different
+ *  cards. A picture of the city on a restaurant's card is not a picture of the restaurant.
+ *
+ *  A place now searches only for ITSELF. When nothing is found the card keeps its category
+ *  stand-in, which the image registry guarantees is different from its neighbours'. */
 function photoQuery(name, destName){
-  const specific = destName ? `${name} ${destName}` : name;
-  return destName ? `${specific}||${destName}` : specific;
+  return destName ? `${name} ${destName}` : name;
 }
 /** Runs `fn` when the image is at or near the viewport. Falls back to running immediately where
  *  IntersectionObserver is unavailable, so nothing is lost on an older browser — it just goes
@@ -296,7 +304,11 @@ function hydratePhotos(container){
       ? resolveDestinationPhoto(DESTINATIONS.find(d => d.id === destId))
       : fetchWikiThumbnailChain(queries);
     Promise.resolve(resolver).then(url=>{
-      if(url){ imgEl.src = url; return; }
+      // A resolved photograph is claimed like any other. Without this two places whose names
+      // both match one Commons file would quietly show the same picture.
+      const claimant = imgEl.dataset.photoPlace || imgEl.dataset.photoDest || (queries[0] || '');
+      if(url && (typeof claimImage !== 'function' || claimImage(url, claimant))){ imgEl.src = url; return; }
+      if(url) return;                       // taken by someone else: keep the distinct stand-in
       if(destId) return fetchWikiThumbnailChain(queries).then(u => { if(u) imgEl.src = u; });
     }).catch(()=>{});
   });
@@ -395,15 +407,30 @@ function buildAutoTrip(destId, title, start, end, travelers, style){
   };
 }
 
-function mkStopFromPlace(place, time){
+/** `planned` is the planner's own record for this stop, when the trip came from planner.js:
+ *  the real visit length, the real travel leg from the previous stop, whether the place is open
+ *  at that hour, and whether it is a meal. Without it the stop still works — it just falls back
+ *  to generic values, which is what every stop used to get: a flat "Walk, 15 mins" between every
+ *  pair of places regardless of whether they were next door or across the city. */
+function mkStopFromPlace(place, time, planned){
+  const pl = planned || null;
   return {
     id: uid('stop'), placeId: place.id, name: place.name, type: place.type,
     area: place.area, lat: place.lat, lng: place.lng, image: place.image,
     rating: place.rating, cost: place.type==='hotel' ? place.price : (place.price||0),
     category: place.category || place.cuisine || (place.type==='hotel'?`${place.stars}★ Hotel`:''),
-    duration: place.duration || 90,
-    time: time || '10:00', note:'',
-    transitToNext: {mode:'Walk', mins: 15},
+    duration: (pl && pl.durationMin) || place.duration || 90,
+    time: time || (pl && pl.time) || '10:00', note:'',
+    // Filled in with the real measured leg by buildPlannedTrip once the following stop is known;
+    // this is only the shape, so the editor and stats keep working for hand-built trips.
+    transitToNext: {mode:'Walk', mins:15, estimated:true},
+    transitFromPrev: (pl && pl.travelFromPrev)
+      ? {mode: pl.travelFromPrev.modeLabel, mins: pl.travelFromPrev.minutes,
+         km: pl.travelFromPrev.km, icon: pl.travelFromPrev.icon}
+      : null,
+    openStatus: (pl && pl.openStatus) || 'unknown',
+    mealSlot: (pl && pl.mealSlot) || null,
+    mealLabel: (pl && pl.mealLabel) || null,
     votes: { interested:1, mustvisit:0, skip:0, userVoted:null },
     comments: [],
   };
@@ -552,6 +579,9 @@ function route(){
   const hash = location.hash || '#/';
   const parts = hash.replace(/^#\/?/,'').split('/').filter(Boolean);
   closeDropdowns();
+  // Image claims are per page. Without this, navigating away and back would find every stand-in
+  // already taken by the previous render and leave the cards blank.
+  if(typeof resetImageClaims === 'function') resetImageClaims();
   if(parts[0]==='discover'){ showView('discover'); renderDiscoverView(); }
   else if(parts[0]==='trips'){ showView('trips'); renderTripsView(); }
   else if(parts[0]==='saved'){ showView('saved'); renderSavedView(parts[1]); }
@@ -573,7 +603,33 @@ function initTopbar(){
   $('brandBtn').onclick = ()=>navigate('#/');
 
   $('searchToggle').onclick = (e)=>{ e.stopPropagation(); const p=$('gsearchPanel'); p.classList.toggle('show'); $('notifDropdown').classList.remove('show'); $('profileDropdown').classList.remove('show'); if(p.classList.contains('show')){ $('globalSearchInput').focus(); runGlobalSearch($('globalSearchInput').value); } };
-  $('gsearchClose').onclick = ()=>$('gsearchPanel').classList.remove('show');
+  // The x next to a search box means "clear what I typed", not "close the search". It was wired
+  // to hide the panel — hence the name — so clearing a query threw the traveller out of search
+  // and made them reopen it to look up anywhere else. It now empties the field, keeps the panel
+  // open, puts the cursor back, and shows suggestions. Escape and clicking outside still close.
+  $('gsearchClose').onclick = (e) => {
+    e.stopPropagation();
+    const input = $('globalSearchInput');
+    // With something typed, x means CLEAR: empty the field, keep the panel open, put the cursor
+    // back, and show recent and trending suggestions. With the field already empty there is
+    // nothing left to clear, so the same control closes — which keeps an explicit way out.
+    if(input && input.value){
+      input.value = '';
+      input.focus();
+      runGlobalSearch('');
+      return;
+    }
+    $('gsearchPanel').classList.remove('show');
+  };
+  // Escape closes the search from anywhere inside it, including mid-typing.
+  $('gsearchPanel').addEventListener('keydown', (e) => {
+    if(e.key === 'Escape'){
+      e.stopPropagation();
+      $('gsearchPanel').classList.remove('show');
+      const t = $('searchToggle');
+      if(t) t.focus();
+    }
+  });
   $('globalSearchInput').addEventListener('input', debounce(e=>runGlobalSearch(e.target.value), 150));
   $('globalSearchInput').addEventListener('focus', ()=>runGlobalSearch($('globalSearchInput').value));
   $('globalSearchInput').onkeydown = (e)=>{
@@ -841,23 +897,145 @@ function initSettingsModal(){
 }
 
 /* ---------------- reusable place card ---------------- */
+/* ---------------- image uniqueness ----------------
+ *
+ * Root cause of the repeated imagery: categoryPhoto() maps a whole CATEGORY to one bundled
+ * photograph, so every museum got the same museum picture and every restaurant of a given
+ * cuisine the same plate of food. Ten attractions, one image, ten times over. And nothing
+ * anywhere in the codebase tracked which images were already on screen, so nothing could have
+ * noticed.
+ *
+ * The registry below is the missing piece: an image is CLAIMED by the first place that uses it,
+ * and any other place asking for the same file is refused and sent to find another. A place may
+ * reuse an image it already holds — re-rendering the same card must not fight itself — and two
+ * cards for genuinely the same entity share, because they are the same place. */
+
+const __imageClaims = new Map();   // normalized image key -> placeId holding it
+
+/** Two URLs for the same photograph differ by width and query string; compare the file itself. */
+function imageIdentity(src){
+  const v = String(src || '');
+  if(!v) return '';
+  // A placeholder is the ABSENCE of a photograph, not a photograph. It carries the place's own
+  // name and is meant to repeat across cards that have nothing yet, so claiming one would let a
+  // single "no image" frame lock every other card out of the pool.
+  if(v.indexOf('data:') === 0) return '';
+  const noQuery = v.split('?')[0];
+  const file = noQuery.split('/').pop() || noQuery;
+  // Strip Wikimedia's size prefix so 640px-X.jpg and 960px-X.jpg count as one photograph.
+  return file.replace(/^\d+px-/, '').toLowerCase();
+}
+
+/** True when `src` is free for `placeId`, or already belongs to it. */
+function imageAvailableFor(src, placeId){
+  const key = imageIdentity(src);
+  if(!key) return false;
+  const holder = __imageClaims.get(key);
+  return !holder || holder === placeId;
+}
+
+function claimImage(src, placeId){
+  const key = imageIdentity(src);
+  if(!key) return false;
+  const holder = __imageClaims.get(key);
+  if(holder && holder !== placeId) return false;
+  __imageClaims.set(key, placeId);
+  return true;
+}
+
+function releaseImagesFor(placeId){
+  for(const [k, v] of __imageClaims) if(v === placeId) __imageClaims.delete(k);
+}
+
+/** Cleared when the view changes, so leaving and returning to a page does not exhaust the pool. */
+function resetImageClaims(){ __imageClaims.clear(); __standinUse.clear(); }
+
+/* How many places currently lean on each stand-in, so overflow can be spread evenly. */
+const __standinUse = new Map();
+
+/** Picks a stand-in for this place.
+ *
+ *  First choice is one nothing else is using. When the pool is genuinely smaller than the page —
+ *  there are only five attraction photographs bundled and a dense city returns four hundred
+ *  attractions — repetition is unavoidable, so the goal becomes spreading it EVENLY: the
+ *  least-used photograph wins, with the place id breaking ties so the same card keeps the same
+ *  picture across re-renders. Five photographs shared evenly over forty cards is a wallpaper;
+ *  five photographs where one appears thirty times is the bug being fixed here.
+ *
+ *  Every one of these is marked "Illustrative" on the card, and imagery.js replaces it the
+ *  moment it finds a real photograph of the place itself. */
+function claimFirstFreeImage(candidates, placeId){
+  const pool = candidates.filter(Boolean);
+  if(!pool.length) return '';
+  for(const c of pool){
+    if(claimImage(c, placeId)){ __standinUse.set(c, (__standinUse.get(c) || 0) + 1); return c; }
+  }
+  let best = pool[0], bestN = Infinity;
+  const tie = String(placeId || '').split('').reduce((a, ch) => a + ch.charCodeAt(0), 0);
+  pool.forEach((c, i) => {
+    const n = (__standinUse.get(c) || 0) * pool.length + ((i + tie) % pool.length);
+    if(n < bestN){ bestN = n; best = c; }
+  });
+  __standinUse.set(best, (__standinUse.get(best) || 0) + 1);
+  return best;
+}
+
 /** Discovered places arrive from OpenStreetMap without a photograph. Rather than a grey box,
  *  show a category or cuisine stand-in — clearly marked "Illustrative" — which imagery.js then
  *  replaces if it can find a photograph of this exact entity. */
+/* Every category and cuisine photograph that actually ships in images/ — 52 of them, split by
+ * what each one depicts so a stand-in is at least the right kind of thing. The pool used to hold
+ * six, which is why a page of thirty restaurants ran out after six and the rest went grey.
+ *
+ * These are stand-ins, never claims about the venue: each one renders with the "Illustrative"
+ * mark, and a real photograph of the place replaces it the moment imagery.js finds one. */
+const STANDIN_POOLS = {
+  restaurant: [
+    'category/restaurant', 'category/fine-dining', 'category/bakery', 'category/market',
+    'cuisine/balinese-cuisine', 'cuisine/bistro', 'cuisine/cacio-e-pepe',
+    'cuisine/chinese-cuisine', 'cuisine/dakos', 'cuisine/delicatessen', 'cuisine/dessert',
+    'cuisine/eggs-benedict', 'cuisine/falafel', 'cuisine/french-cuisine', 'cuisine/gelato',
+    'cuisine/greek-cuisine', 'cuisine/hamburger', 'cuisine/hot-dog',
+    'cuisine/indonesian-cuisine', 'cuisine/italian-cuisine', 'cuisine/izakaya',
+    'cuisine/moroccan-cuisine', 'cuisine/new-zealand-cuisine', 'cuisine/pad-thai',
+    'cuisine/paella', 'cuisine/pizza', 'cuisine/pizza-al-taglio', 'cuisine/ramen',
+    'cuisine/seafood', 'cuisine/slovenian-cuisine', 'cuisine/smoked-salmon',
+    'cuisine/steakhouse', 'cuisine/street-food', 'cuisine/sushi', 'cuisine/tapas',
+    'cuisine/trattoria', 'cuisine/yakitori', 'cuisine/cocktail', 'cuisine/coffeehouse',
+    'cuisine/nightclub', 'cuisine/pub',
+  ],
+  hotel: [
+    'category/hotel-luxury', 'category/hotel-room', 'category/hotel-lobby', 'category/hostel',
+    'category/guesthouse', 'category/resort',
+  ],
+  attraction: [
+    'category/cathedral', 'category/museum', 'category/old-town', 'category/promenade',
+    'category/viewpoint',
+  ],
+};
+
 function placeImageSrc(p){
-  if(p.image) return p.image;
+  const id = p.placeId || p.id || p.name;
   try{
+    // A real photograph of this exact place always wins, and claiming it stops another card
+    // borrowing it.
+    if(p.image){ claimImage(p.image, id); return p.image; }
+
+    const specific = [];
     if(p.type === 'restaurant'){
-      return (typeof bundledCuisinePhoto === 'function' && bundledCuisinePhoto(p.cuisine))
-          || (typeof categoryPhoto === 'function' && categoryPhoto('restaurant', p.cuisine))
-          || (typeof bundledPhoto === 'function' && bundledPhoto('category/restaurant')) || '';
+      if(typeof bundledCuisinePhoto === 'function') specific.push(bundledCuisinePhoto(p.cuisine));
+      if(typeof categoryPhoto === 'function') specific.push(categoryPhoto('restaurant', p.cuisine));
+    } else if(p.type === 'hotel'){
+      if(typeof hotelCategoryPhoto === 'function') specific.push(hotelCategoryPhoto(p.stars || 3));
+    } else {
+      if(typeof categoryPhoto === 'function') specific.push(categoryPhoto('attraction', p.category));
     }
-    if(p.type === 'hotel'){
-      return (typeof hotelCategoryPhoto === 'function' && hotelCategoryPhoto(p.stars || 3))
-          || (typeof bundledPhoto === 'function' && bundledPhoto('category/hotel-room')) || '';
-    }
-    return (typeof categoryPhoto === 'function' && categoryPhoto('attraction', p.category))
-        || (typeof bundledPhoto === 'function' && bundledPhoto('category/attraction')) || '';
+    const pool = (STANDIN_POOLS[p.type] || STANDIN_POOLS.attraction)
+      .map(slug => (typeof bundledPhoto === 'function' ? bundledPhoto(slug) : null));
+
+    // A category photo is a stand-in, and a stand-in shared between two different places is the
+    // repetition being fixed here — so it is claimed like anything else.
+    return claimFirstFreeImage(specific.concat(pool), id);
   }catch(e){ return ''; }
 }
 
@@ -1214,6 +1392,17 @@ function initHero(){
     const name = $('heroDestination').value.trim() || 'Tokyo, Japan';
     const d = findDestination(name);
     stashHeroParams();
+    const hp = window.__heroParams || {};
+    // With dates chosen, the traveller is planning a trip rather than browsing: ask what they
+    // enjoy and build the itinerary around it, instead of generating something at random.
+    if(hp.start && hp.end){
+      openTripPreferences(d, prefs => {
+        const trip = buildPlannedTrip(d, prefs, hp.start, hp.end, hp.travelers);
+        window.__heroParams = null;
+        navigate(`#/trip/${encodeURIComponent(trip.id)}`);
+      });
+      return;
+    }
     navigate(`#/destination/${encodeURIComponent(d.id)}`);
   };
   $('surpriseMeBtn').onclick = ()=>{
@@ -1224,6 +1413,158 @@ function initHero(){
     navigate(`#/ideas/${encodeURIComponent(d.id)}`);
   };
 }
+/* ---------------- the trip preferences step ----------------
+ * Asked BEFORE anything is generated, because these answers decide which places are chosen and
+ * how the days are shaped. Every control here maps to something planner.js actually reads. */
+
+let __prefsDraft = null;
+let __prefsOnDone = null;
+
+function renderPrefChoices(containerId, options, selectedKey, onPick){
+  const el = $(containerId);
+  if(!el) return;
+  el.innerHTML = options.map(o => `
+    <button class="prefChip ${o.key === selectedKey ? 'active' : ''}" data-key="${esc(o.key)}">
+      <b>${o.emoji ? o.emoji + ' ' : ''}${esc(o.label)}</b>
+      ${o.sub ? `<span>${esc(o.sub)}</span>` : ''}
+    </button>`).join('');
+  el.querySelectorAll('[data-key]').forEach(b => b.onclick = () => {
+    el.querySelectorAll('[data-key]').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    onPick(b.dataset.key);
+    updatePrefSummary();
+  });
+}
+
+function renderPrefMulti(containerId, options, selected, onToggle){
+  const el = $(containerId);
+  if(!el) return;
+  el.innerHTML = options.map(o => `
+    <button class="prefChip ${selected.includes(o.key) ? 'active' : ''}" data-key="${esc(o.key)}">
+      <b>${o.emoji ? o.emoji + ' ' : ''}${esc(o.label)}</b>
+    </button>`).join('');
+  el.querySelectorAll('[data-key]').forEach(b => b.onclick = () => {
+    b.classList.toggle('active');
+    onToggle(b.dataset.key, b.classList.contains('active'));
+    updatePrefSummary();
+  });
+}
+
+/** A running plain-English summary, so the effect of each choice is visible before generating. */
+function updatePrefSummary(){
+  const el = $('prefSummary');
+  if(!el || !__prefsDraft) return;
+  const p = __prefsDraft;
+  const pace = TRIP_PACE[p.pace], budget = TRIP_BUDGET[p.budget], start = DAY_START[p.dayStart];
+  const bits = [];
+  bits.push(`${pace.activities}\u2013${pace.max} things a day`);
+  bits.push(`${budget.label.toLowerCase()} budget`);
+  if(start.key !== 'any') bits.push(start.label.toLowerCase());
+  if(p.interests.length) bits.push(`${p.interests.length} interest${p.interests.length === 1 ? '' : 's'}`);
+  if(p.mustAvoid.length) bits.push(`avoiding ${p.mustAvoid.length}`);
+  el.textContent = bits.join(' \u00b7 ');
+}
+
+function readPrefTextarea(id){
+  const el = $(id);
+  if(!el) return [];
+  return el.value.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 12);
+}
+
+/** Opens the step. `onDone(prefs)` fires with a normalized record when the traveller confirms. */
+function openTripPreferences(dest, onDone){
+  __prefsDraft = loadTripPreferences();
+  __prefsOnDone = onDone;
+  const sub = $('prefsSubtitle');
+  if(sub) sub.textContent = dest && dest.name
+    ? `Tell us what you enjoy and we will build ${dest.name} around it.`
+    : 'Tell us what you enjoy and we will build the days around it.';
+
+  renderPrefMulti('prefInterests', TRIP_INTERESTS, __prefsDraft.interests, (key, on) => {
+    if(on){ if(!__prefsDraft.interests.includes(key)) __prefsDraft.interests.push(key); }
+    else __prefsDraft.interests = __prefsDraft.interests.filter(k => k !== key);
+  });
+  renderPrefChoices('prefPace', Object.values(TRIP_PACE), __prefsDraft.pace, k => __prefsDraft.pace = k);
+  renderPrefChoices('prefBudget', Object.values(TRIP_BUDGET), __prefsDraft.budget, k => {
+    __prefsDraft.budget = k;
+    const wrap = $('prefCustomBudgetWrap');
+    if(wrap) wrap.classList.toggle('hidden', k !== 'custom');
+  });
+  renderPrefChoices('prefDayStart', Object.values(DAY_START), __prefsDraft.dayStart, k => __prefsDraft.dayStart = k);
+  renderPrefChoices('prefParty', Object.values(TRAVEL_PARTY), __prefsDraft.party, k => __prefsDraft.party = k);
+  renderPrefMulti('prefFood', FOOD_PREFERENCES, __prefsDraft.food, (key, on) => {
+    if(on){ if(!__prefsDraft.food.includes(key)) __prefsDraft.food.push(key); }
+    else __prefsDraft.food = __prefsDraft.food.filter(k => k !== key);
+  });
+  if($('prefMustSee')) $('prefMustSee').value = (__prefsDraft.mustSee || []).join('\n');
+  if($('prefMustAvoid')) $('prefMustAvoid').value = (__prefsDraft.mustAvoid || []).join('\n');
+  const wrap = $('prefCustomBudgetWrap');
+  if(wrap) wrap.classList.toggle('hidden', __prefsDraft.budget !== 'custom');
+
+  updatePrefSummary();
+  openModal('modal-tripPrefs');
+}
+
+function initTripPreferences(){
+  const btn = $('prefGenerateBtn');
+  if(!btn) return;
+  btn.onclick = () => {
+    if(!__prefsDraft) return;
+    __prefsDraft.mustSee = readPrefTextarea('prefMustSee');
+    __prefsDraft.mustAvoid = readPrefTextarea('prefMustAvoid');
+    const custom = $('prefCustomBudget');
+    __prefsDraft.customDailyBudget = (__prefsDraft.budget === 'custom' && custom && custom.value)
+      ? Number(custom.value) : null;
+    const prefs = normalizeTripPreferences(__prefsDraft);
+    saveTripPreferences(prefs);
+    closeModal('modal-tripPrefs');
+    if(typeof __prefsOnDone === 'function') __prefsOnDone(prefs);
+  };
+}
+
+/** Builds a trip through planner.js, from real places, for exactly the chosen dates. */
+function buildPlannedTrip(dest, prefs, start, end, travelers){
+  const nDays = tripDurationDays(start, end);
+  const places = placesFor(dest.id).filter(p => p.type === 'attraction' || p.type === 'restaurant');
+  const plan = planTrip({dest, places, days: nDays, start, preferences: prefs});
+
+  const budgetKey = TRIP_BUDGET[prefs.budget] ? prefs.budget : 'moderate';
+  const perDay = (prefs.budget === 'custom' && prefs.customDailyBudget)
+    ? prefs.customDailyBudget
+    : (dest.avgDailyBudget && (dest.avgDailyBudget[budgetKey] || dest.avgDailyBudget.moderate)) || 120;
+
+  const trip = {
+    id: uid('trip'), destId: dest.id,
+    destName: dest.name + (dest.country ? ', ' + dest.country : ''),
+    title: `${dest.name} trip`, start, end,
+    travelers: travelers || 2,
+    cover: dest.hero,
+    days: plan.days.map(d => {
+      const stops = d.stops.map(s => mkStopFromPlace(s.place, s.time, s));
+      // The leg TO the next stop is the leg the planner measured FROM it, so each stop carries a
+      // real distance and mode instead of a flat "Walk, 15 mins" between every pair of places.
+      stops.forEach((stop, i) => {
+        const next = d.stops[i + 1];
+        if(next && next.travelFromPrev){
+          stop.transitToNext = {mode: next.travelFromPrev.modeLabel, mins: next.travelFromPrev.minutes,
+                                km: next.travelFromPrev.km, icon: next.travelFromPrev.icon};
+        }
+      });
+      return {date: d.date, stops};
+    }),
+    budget:{ total: Math.round(perDay * nDays * (travelers || 2)), style: budgetKey, expenses: [] },
+    preferences: prefs,
+    warnings: plan.warnings,
+    collaborators:[ mkCollaborator('Jie Wei (you)', STATE.settings.email, 'Owner') ],
+    activity:[ {id:uid('act'), author:'You', text:`generated this itinerary from your preferences.`, ts:Date.now()} ],
+    createdAt: Date.now(),
+  };
+  normalizeTripDays(trip);
+  STATE.trips.unshift(trip);
+  saveState();
+  return trip;
+}
+
 function stashHeroParams(){
   window.__heroParams = {
     start: $('heroStart').value, end: $('heroEnd').value,
@@ -1379,6 +1720,18 @@ function renderDestinationView(idOrName, tab){
   }
   if(destState.id !== dest.id){ destState = { id:dest.id, tab:tab, thingsFilters:{cat:'all',price:'any',rating:'any',sort:'rec'}, restFilters:{cuisine:'all',price:'any',rating:'any',open:false,dietary:new Set(),sort:'rec'}, hotelFilters:{price:'any',stars:'any',guest:'any',amenity:'all',sort:'rec'}, mapCats:new Set(['attraction','restaurant','hotel']) }; }
   destState.tab = tab || destState.tab || 'overview';
+
+  // UNIVERSAL DISCOVERY. This is the only place that matters: the moment a traveller opens a
+  // destination, whichever it is. Before this, discovery was reached only from
+  // makeGenericDestination and applyGeoToDestination — both of which run for TYPED destinations
+  // only — so the twelve curated ones (Tokyo, Paris, Bali, Santorini, New York, Rome, Bangkok,
+  // Barcelona, Queenstown, Reykjavik, Ljubljana, Marrakech) never ran it at all and showed only
+  // their hand-written handful, while anywhere else got hundreds of real places. That is exactly
+  // why the experience differed by destination.
+  //
+  // Curated entries are kept: they are real places checked by a person. Discovery ADDS to them,
+  // it does not replace them, and mergeDiscoveredPlaces already skips anything already present.
+  if(typeof discoverPlacesFor === 'function' && hasVerifiedGeo(dest)) discoverPlacesFor(dest);
 
   $('destHero').innerHTML = `
     <img src="${destHeroSrc(dest)}" alt="${esc(dest.name)}" data-photo-dest="${esc(dest.id)}" data-photo-q="${esc(destPhotoQuery(dest))}">
@@ -4941,6 +5294,7 @@ function init(){
   initApiKeysModal();
   initEditBudgetModal();
   initCustomizeModal();
+  initTripPreferences();
   initAI();
   renderNotifications();
   route();

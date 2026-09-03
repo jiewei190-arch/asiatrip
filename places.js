@@ -95,7 +95,12 @@ const PLACES_TIMEOUT_MS = 25000;
 /* How long to let Overpass work before Photon is allowed to answer instead. Measured healthy
  * Overpass responses in this project run 4-16s, so this waits out a normal slow one and gives up
  * on a stuck mirror rather than on the query. */
-const OVERPASS_PATIENCE_MS = 12000;
+const OVERPASS_PATIENCE_MS = 20000;
+/* After Photon has answered, keep waiting this much longer for Overpass and use its richer
+ * result if it lands. Measured: a Tokyo attraction union takes ~15s and returns 400 places, so a
+ * 12s patience threw the good answer away, made the result look thin, and sent the fallback
+ * ladder climbing for nothing. */
+const OVERPASS_GRACE_MS = 15000;
 
 /* Named distinctly on purpose. data.js already had an `async function fetch` helper with the
  * arguments the OTHER way round (url, ms, opts). Both are top-level declarations in one shared
@@ -422,12 +427,34 @@ async function discoverPlaces(dest, kind, opts){
   if(placesInFlight.has(key)) return placesInFlight.get(key);
 
   const run = (async () => {
-    const radiusKm = discoveryRadiusKm(dest);
-    const radiusM = Math.round(radiusKm * 1000);
+    const baseRadiusKm = discoveryRadiusKm(dest);
     const spec = PLACE_KINDS[kind];
-    const ql = `[out:json][timeout:20];(` +
-      spec.overpass.map(sel => `${sel}(around:${radiusM},${dest.lat},${dest.lng});`).join('') +
-      `);out tags center 400;`;
+
+    // The ladder. Each rung is a genuinely different way of asking, not the same question again:
+    // a wider circle finds a village whose centre point sits off to one side; a bounding box uses
+    // the geocoder's own boundary instead of a circle; splitting the categories turns one
+    // expensive query into several cheap ones that a busy mirror will actually answer. Results
+    // from every rung are merged and deduplicated, so a partial answer still contributes.
+    const rungs = [];
+    rungs.push({label:'radius', km: baseRadiusKm});
+    rungs.push({label:'radius x2', km: baseRadiusKm * 2});
+    if(dest.bbox && dest.bbox.minLat != null) rungs.push({label:'bbox', bbox: dest.bbox});
+    rungs.push({label:'radius x4', km: baseRadiusKm * 4});
+    // No per-selector rung. It sounds cheaper and is measurably not: against Tokyo the combined
+    // union answered in 15s with 400 results while two of its three selectors on their own
+    // returned 504 after 31 and 171 seconds. Overpass optimises the union better than we can.
+    rungs.push({label:'radius x8', km: baseRadiusKm * 8});
+
+    const buildQL = (rung, selectors) => {
+      const area = rung.bbox
+        ? `(${rung.bbox.minLat},${rung.bbox.minLng},${rung.bbox.maxLat},${rung.bbox.maxLng})`
+        : `(around:${Math.round(Math.min(rung.km, 80) * 1000)},${dest.lat},${dest.lng})`;
+      return `[out:json][timeout:20];(` +
+        selectors.map(sel => `${sel}${area};`).join('') + `);out tags center 400;`;
+    };
+
+    const radiusKm = baseRadiusKm;
+    const ql = buildQL(rungs[0], spec.overpass);
 
     /* Overpass carries far richer tags, so it is preferred — but it is also the flakier source,
      * and rotating through three mirrors at 30s each meant a bad day for Overpass cost 66
@@ -438,15 +465,67 @@ async function discoverPlaces(dest, kind, opts){
      * which is most of the time; this only bounds the bad case. */
     const delay = ms => new Promise(r => setTimeout(r, ms));
     let elements = [];
+    const attempts = [];
+    // Overpass is started once and kept, never abandoned. Photon fills the page if Overpass is
+    // slow, and Overpass still replaces it when it lands — the earlier version raced them and
+    // discarded whichever lost, which meant a perfectly good 400-place answer was thrown away
+    // for arriving three seconds after the deadline.
+    let overpassSettled = false;
+    const overpassP = overpassQuery(ql, opts.signal)
+      .then(r => { overpassSettled = true; return r; })
+      .catch(() => { overpassSettled = true; return []; });
     try{
       elements = await Promise.race([
-        overpassQuery(ql, opts.signal).catch(() => []),
+        overpassP,
         delay(OVERPASS_PATIENCE_MS).then(() =>
           photonNearby(dest, kind, radiusKm, opts.signal).catch(() => [])),
       ]);
+      attempts.push(`${rungs[0].label}:${elements.length}${overpassSettled ? '' : ' (photon first)'}`);
+
+      if(!overpassSettled){
+        // Give the richer source its remaining time; its tags are worth the wait.
+        const late = await Promise.race([overpassP, delay(OVERPASS_GRACE_MS).then(() => null)]);
+        if(late && late.length > elements.length){
+          attempts.push(`overpass-late:${late.length}`);
+          elements = late;
+        }
+      }
     }catch(e){ elements = []; }
+
+    // Thin or empty is not an answer yet — climb the ladder. "Thin" is judged against what this
+    // kind of destination should plausibly hold, so a hamlet with four cafes stops early and a
+    // capital with four does not.
+    const THIN = (dest.placeType === 'city' || dest.placeType === 'municipality') ? 25 : 8;
+    if(!(opts.signal && opts.signal.aborted)){
+      for(let i = 1; i < rungs.length && elements.length < THIN; i++){
+        const rung = rungs[i];
+        try{
+          let more = [];
+          if(rung.split){
+            // One selector at a time: cheaper per query, and a mirror that refuses the union
+            // will often answer the parts.
+            for(const sel of spec.overpass){
+              try{ more = more.concat(await overpassQuery(buildQL(rung, [sel]), opts.signal)); }
+              catch(e){ if(opts.signal && opts.signal.aborted) throw e; }
+            }
+          } else {
+            more = await overpassQuery(buildQL(rung, spec.overpass), opts.signal);
+          }
+          const before = elements.length;
+          elements = elements.concat(more);
+          attempts.push(`${rung.label}:+${elements.length - before}`);
+        }catch(e){
+          if(opts.signal && opts.signal.aborted) throw e;
+          attempts.push(`${rung.label}:failed`);
+        }
+      }
+    }
+    // Last resort before giving up: the other provider entirely, at the widest radius tried.
     if(!elements.length && !(opts.signal && opts.signal.aborted)){
-      try{ elements = await photonNearby(dest, kind, radiusKm, opts.signal); }catch(e){ /* nothing available */ }
+      try{
+        elements = await photonNearby(dest, kind, Math.min(baseRadiusKm * 4, 50), opts.signal);
+        attempts.push(`photon:${elements.length}`);
+      }catch(e){ attempts.push('photon:failed'); }
     }
 
     const mapped = [];
@@ -458,6 +537,9 @@ async function discoverPlaces(dest, kind, opts){
       if(rec && typeof placeWithinDestination === 'function' && placeWithinDestination(rec, dest)) mapped.push(rec);
     }
     const finalList = rankPlaces(dedupePlaces(mapped));
+    // Kept so a genuinely empty result can be shown as "we tried these and found nothing" rather
+    // than an unexplained blank.
+    finalList.attempts = attempts;
     if(finalList.length) writePlacesCache(dest, kind, finalList);
     return finalList;
   })();
