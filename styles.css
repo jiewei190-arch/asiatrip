@@ -856,4 +856,35 @@ input:checked+.slider:before{transform:translateX(18px)}
   transition:opacity .18s ease, transform .18s ease;
 }
 .savedChip.show{ opacity:1; transform:translateY(0); }
+/* The assistant launcher is fixed to the bottom-right and grows to nearly the full width on a
+   phone, so at bottom:16px the chip sat on top of it. Lifted clear rather than moved, because
+   bottom-left is where a save indicator belongs and the launcher is the thing that moved in. */
+@media (max-width: 720px){ .savedChip{ bottom:86px; } }
 @media print{ .savedChip, .storageBanner{ display:none !important; } }
+
+/* Tap targets.
+   Measured at 390x844: the home page's own search form — destination, both dates, travellers —
+   rendered 19-20px tall, and the currency converter's fields 23px. The FIELD around each one is
+   comfortably large, but the control inside it is borderless and transparent with no padding of
+   its own, so the only thing that responds to a finger is the line of text. That is the primary
+   call to action on the site, and it was the hardest thing on the page to hit.
+
+   Both Apple and Google put the minimum around 44px; these sit inside a padded field that
+   supplies the rest, so 34px on the control itself brings the real target to roughly that
+   without changing how anything looks. */
+.planbox-field input, .planbox-field select,
+.field input, .field select, .field textarea{
+  min-height:34px;
+  padding:4px 0;
+}
+/* A text button is still a button. 17px of line box is not a target. */
+.linklike{ padding:6px 0; min-height:30px; }
+
+/* Footer navigation is navigation, whatever it looks like. 19px tall is a link you miss twice
+   before you hit it. */
+.footerLinks button, .footerLinks a{ padding:7px 0; min-height:32px; }
+
+/* The photographer credit stays visually small — it is a caption, not a call to action — but
+   the link inside it gets a real target rather than a 14px line of text. */
+.photoCredit a{ display:inline-block; padding:6px 2px; }
+.photoCredit{ padding:1px 8px; }
