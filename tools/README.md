@@ -381,3 +381,15 @@ worth understanding, both correct decisions rather than bugs:
   equal name is explicitly on the reject list, and being wrong here would put a different
   restaurant on the card.
 - **Le Buci** — Commons genuinely holds nothing.
+
+### Why imagery is not filtered to a single year
+
+Asked for "2026 only", I measured it before building it. The Eiffel Tower has **14,267**
+photographs on Commons and **234** carry the current year — 1.6%. Café de Flore has about six in
+total; Gasthof Simony has one, undated. A hard single-year filter would blank almost every card,
+which is the opposite of wanting current imagery.
+
+Recency is therefore graded and weighted heavily instead: a photograph from this year or last
+scores +22, three years +16, seven +9, twelve +2, and anything from before 1990 is rejected
+outright. The newest available always wins where one exists. Files with no year in the title —
+most of Commons — are neutral, because undated is not evidence of being old.

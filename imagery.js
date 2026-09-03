@@ -459,15 +459,31 @@ function scoreImageCandidate(title, entity, source){
 
   // Recency. A place a traveller has to recognise today is not well served by an engraving.
   if(HISTORICAL_MARKERS.some(w => t.includes(w))){ score -= 45; reasons.push('historical depiction'); }
+  /* Recency, graded rather than filtered.
+   *
+   * A hard "this year only" rule was considered and measured before being rejected: the Eiffel
+   * Tower has 14,267 photographs on Commons and 234 of them carry the current year — 1.6%. Café
+   * de Flore has about six in total and Gasthof Simony has one, undated. Filtering to a single
+   * year would blank almost every card in the app, which is the opposite of wanting current
+   * imagery.
+   *
+   * So the newest available wins by a wide margin, and genuinely outdated pictures are rejected
+   * outright. Most Commons files carry no year in the title at all; those are neutral rather
+   * than penalised, because "undated" is not evidence of being old. */
   const year = titleYear(t);
+  const thisYear = new Date().getUTCFullYear();
   if(year != null){
-    if(year >= 2015){ score += 10; reasons.push('recent'); }
-    else if(year >= 2005){ score += 4; }
-    else if(year < 1990){ score -= 50; reasons.push('long out of date'); }
-    else { score -= 12; reasons.push('dated'); }
+    const age = thisYear - year;
+    if(age <= 1){ score += 22; reasons.push(`from ${year}`); }
+    else if(age <= 3){ score += 16; reasons.push(`from ${year}`); }
+    else if(age <= 7){ score += 9;  reasons.push(`from ${year}`); }
+    else if(age <= 12){ score += 2; reasons.push(`from ${year}`); }
+    else if(year >= 2000){ score -= 12; reasons.push(`dated ${year}`); }
+    else if(year >= 1990){ score -= 30; reasons.push(`dated ${year}`); }
+    else { score -= 50; reasons.push(`from ${year}, long out of date`); }
   }
 
-  return {score, reasons};
+  return {score, reasons, year};
 }
 
 /** Whole-word containment on already-folded strings. */
