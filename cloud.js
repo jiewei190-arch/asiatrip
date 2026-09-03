@@ -78,9 +78,12 @@ const __cloud = { client: null, user: null, loading: null, lastError: null };
  *  Deliberately not a <script> tag in index.html: an app that is not configured should not pay
  *  for a library it will never call, and the offline path must not depend on a CDN answering. */
 async function cloudClient(){
+  // An already-built client wins over re-reading config: it is the live connection, and
+  // rebuilding it on every call would drop the session. saveCloudConfig() clears it so a
+  // changed project still takes effect.
+  if(__cloud.client) return __cloud.client;
   const cfg = cloudConfig();
   if(!cfg) return null;
-  if(__cloud.client) return __cloud.client;
   if(__cloud.loading) return __cloud.loading;
   __cloud.loading = (async () => {
     try {
@@ -156,7 +159,132 @@ function mergeTrips(localTrips, remoteRows){
   return { keep, push, conflicts };
 }
 
+/* ---------------- accounts ----------------
+   Supabase handles the parts that are dangerous to write yourself: password hashing, session
+   tokens, refresh, and the reset-by-email flow. Nothing below stores or compares a password.
+
+   Every function answers {ok, reason} rather than throwing. A sign-in that fails because the
+   device is offline and one that fails because the password is wrong are different messages,
+   and a traveller deserves to be told which. */
+
+/** Injected by the test suites so the whole flow can be exercised without a project. Nothing in
+ *  the app calls this; it exists because the alternative is testing sync against nothing. */
+function __setCloudClientForTests(client){ __cloud.client = client; }
+
+async function cloudSignUp(email, password){
+  const c = await cloudClient();
+  if(!c) return { ok: false, reason: cloudUnavailableReason() };
+  try {
+    const { data, error } = await c.auth.signUp({ email, password });
+    if(error) return { ok: false, reason: error.message };
+    __cloud.user = (data && data.user) || null;
+    // Supabase can be configured to require email confirmation. When it is, there is no session
+    // yet and saying "signed in" would be a lie the traveller discovers on the next reload.
+    const needsConfirmation = !(data && data.session);
+    return { ok: true, needsConfirmation };
+  } catch(e){ return { ok: false, reason: cloudNetworkReason(e) }; }
+}
+
+async function cloudSignIn(email, password){
+  const c = await cloudClient();
+  if(!c) return { ok: false, reason: cloudUnavailableReason() };
+  try {
+    const { data, error } = await c.auth.signInWithPassword({ email, password });
+    if(error) return { ok: false, reason: error.message };
+    __cloud.user = (data && data.user) || null;
+    return { ok: true };
+  } catch(e){ return { ok: false, reason: cloudNetworkReason(e) }; }
+}
+
+async function cloudSignOut(){
+  const c = await cloudClient();
+  __cloud.user = null;
+  if(!c) return { ok: true };
+  try { await c.auth.signOut(); } catch(e){ /* the local session is cleared either way */ }
+  return { ok: true };
+}
+
+/** Supabase emails the link and hosts the form. Writing our own reset flow would mean handling
+ *  tokens and expiry in a static page, which is exactly the kind of thing to leave alone. */
+async function cloudResetPassword(email){
+  const c = await cloudClient();
+  if(!c) return { ok: false, reason: cloudUnavailableReason() };
+  try {
+    const redirectTo = (typeof location !== 'undefined') ? location.origin + location.pathname : undefined;
+    const { error } = await c.auth.resetPasswordForEmail(email, { redirectTo });
+    if(error) return { ok: false, reason: error.message };
+    return { ok: true };
+  } catch(e){ return { ok: false, reason: cloudNetworkReason(e) }; }
+}
+
+/** Who is signed in, if anyone. Reads the persisted session, so it survives a reload. */
+async function cloudCurrentUser(){
+  const c = await cloudClient();
+  if(!c) return null;
+  try {
+    const { data } = await c.auth.getUser();
+    __cloud.user = (data && data.user) || null;
+    return __cloud.user;
+  } catch(e){ return null; }
+}
+
+function cloudUnavailableReason(){
+  if(!cloudConfigured()) return 'No account is connected on this device yet.';
+  if(__cloud.lastError === 'sdk') return 'Could not reach the account service. Your trips are still saved on this device.';
+  return 'The account service is not available right now. Your trips are still saved on this device.';
+}
+function cloudNetworkReason(e){
+  const msg = (e && e.message) || '';
+  if(/fetch|network|Failed to fetch/i.test(msg)) return 'No connection. Your trips are still saved on this device.';
+  return msg || 'Something went wrong reaching the account service.';
+}
+
+/* ---------------- sync ----------------
+   Local first, always. Every one of these runs AFTER the trip is already safe in localStorage,
+   and every one of them is allowed to fail without the traveller losing anything. */
+
+/** Everything this account has, including tombstones — the merge needs to see a deletion. */
+async function cloudPullTrips(){
+  const c = await cloudClient();
+  if(!c || !__cloud.user) return { ok: false, reason: cloudUnavailableReason(), rows: [] };
+  try {
+    const { data, error } = await c.from('trips').select('id, data, updated_at, deleted')
+      .eq('owner', __cloud.user.id);
+    if(error) return { ok: false, reason: error.message, rows: [] };
+    return { ok: true, rows: data || [] };
+  } catch(e){ return { ok: false, reason: cloudNetworkReason(e), rows: [] }; }
+}
+
+/** Upsert, because the app already owns the id and a trip may exist on either side first. */
+async function cloudPushTrips(trips){
+  const c = await cloudClient();
+  if(!c || !__cloud.user) return { ok: false, reason: cloudUnavailableReason(), pushed: 0 };
+  const rows = (trips || []).map(t => ({ id: t.id, owner: __cloud.user.id, data: t, deleted: false }));
+  if(!rows.length) return { ok: true, pushed: 0 };
+  try {
+    const { error } = await c.from('trips').upsert(rows, { onConflict: 'id' });
+    if(error) return { ok: false, reason: error.message, pushed: 0 };
+    return { ok: true, pushed: rows.length };
+  } catch(e){ return { ok: false, reason: cloudNetworkReason(e), pushed: 0 }; }
+}
+
+/** A tombstone rather than a delete. Another device has to be able to learn this happened, and
+ *  a row that is simply gone is indistinguishable from one that was never synced. */
+async function cloudDeleteTrip(tripId){
+  const c = await cloudClient();
+  if(!c || !__cloud.user) return { ok: false, reason: cloudUnavailableReason() };
+  try {
+    const { error } = await c.from('trips')
+      .upsert([{ id: tripId, owner: __cloud.user.id, data: {}, deleted: true }], { onConflict: 'id' });
+    if(error) return { ok: false, reason: error.message };
+    return { ok: true };
+  } catch(e){ return { ok: false, reason: cloudNetworkReason(e) }; }
+}
+
 if(typeof module !== 'undefined' && module.exports){
   module.exports = { cloudConfig, cloudConfigProblem, saveCloudConfig, forgetCloudConfig,
-                     cloudConfigured, mergeTrips, tripUpdatedAt, CLOUD_CONFIG_KEY };
+                     cloudConfigured, mergeTrips, tripUpdatedAt, CLOUD_CONFIG_KEY,
+                     cloudSignUp, cloudSignIn, cloudSignOut, cloudResetPassword, cloudCurrentUser,
+                     cloudPullTrips, cloudPushTrips, cloudDeleteTrip, __setCloudClientForTests,
+                     __cloud };
 }

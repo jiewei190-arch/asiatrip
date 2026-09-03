@@ -103,5 +103,119 @@ console.log('\nUnconfigured is a supported state, not a broken one');
   check('and says so plainly', C.cloudConfigured() === false);
 }
 
-console.log(`\n${pass} passed, ${fail} failed\n`);
-process.exitCode = fail ? 1 : 0;
+/* ---------------------------------------------------------------------------
+   Auth and sync, against a stand-in for Supabase.
+
+   There is no project to talk to here, and there will not be one in CI, so the client is
+   mocked. That tests the half this code is actually responsible for: what it sends, what it
+   does with each kind of answer, and — the part that matters — that every failure is survivable
+   and reported in words rather than swallowed. It does NOT prove a real round trip works; only
+   credentials can do that, and that limitation is stated rather than papered over.
+   --------------------------------------------------------------------------- */
+function mockClient(opts){
+  const o = opts || {};
+  const calls = { upserts: [], selects: 0, signIn: 0, signOut: 0, reset: 0 };
+  return {
+    calls,
+    auth: {
+      signUp: async () => o.signUpError ? { data: null, error: { message: o.signUpError } }
+              : { data: { user: { id: 'u1', email: 'a@b.c' }, session: o.noSession ? null : {} }, error: null },
+      signInWithPassword: async () => { calls.signIn++;
+        return o.signInError ? { data: null, error: { message: o.signInError } }
+                             : { data: { user: { id: 'u1', email: 'a@b.c' } }, error: null }; },
+      signOut: async () => { calls.signOut++; return {}; },
+      resetPasswordForEmail: async () => { calls.reset++;
+        return o.resetError ? { error: { message: o.resetError } } : { error: null }; },
+      getUser: async () => ({ data: { user: o.noUser ? null : { id: 'u1', email: 'a@b.c' } } }),
+    },
+    from: () => ({
+      select: () => ({ eq: async () => { calls.selects++;
+        if(o.throwOnSelect) throw new Error('Failed to fetch');
+        return o.selectError ? { data: null, error: { message: o.selectError } }
+                             : { data: o.rows || [], error: null }; } }),
+      upsert: async (rows) => { calls.upserts.push(rows);
+        if(o.throwOnUpsert) throw new Error('Failed to fetch');
+        return o.upsertError ? { error: { message: o.upsertError } } : { error: null }; },
+    }),
+  };
+}
+
+(async () => {
+  console.log('\nSigning in');
+  {
+    C.__setCloudClientForTests(mockClient());
+    const ok = await C.cloudSignIn('a@b.c', 'pw');
+    check('a good sign-in reports success', ok.ok === true);
+
+    C.__setCloudClientForTests(mockClient({ signInError: 'Invalid login credentials' }));
+    const wrong = await C.cloudSignIn('a@b.c', 'nope');
+    check('the reason comes from the service', wrong.ok === false && /Invalid login/.test(wrong.reason), wrong.reason);
+
+    // Confirmation-required projects have no session yet. Saying "signed in" would be a lie the
+    // traveller discovers on the next reload.
+    C.__setCloudClientForTests(mockClient({ noSession: true }));
+    const su = await C.cloudSignUp('a@b.c', 'pw');
+    check('a sign-up needing email confirmation says so', su.ok === true && su.needsConfirmation === true);
+    C.__setCloudClientForTests(mockClient());
+    const su2 = await C.cloudSignUp('a@b.c', 'pw');
+    check('one that does not, does not', su2.ok === true && su2.needsConfirmation === false);
+  }
+
+  console.log('\nSync carries what it should, and survives what it cannot');
+  {
+    const m = mockClient({ rows: [{ id: 'r1', data: { id:'r1', title:'From cloud' }, updated_at: '2026-05-02T00:00:00Z', deleted: false }] });
+    C.__setCloudClientForTests(m);
+    await C.cloudCurrentUser();
+    const pulled = await C.cloudPullTrips();
+    check('a pull returns the account rows', pulled.ok && pulled.rows.length === 1);
+
+    const pushed = await C.cloudPushTrips([{ id: 't1', title: 'Mine' }]);
+    check('a push sends one row per trip', pushed.ok && pushed.pushed === 1);
+    check('and stamps the owner on it, which the policy requires',
+          m.calls.upserts[0][0].owner === 'u1');
+    check('and marks it not-deleted explicitly', m.calls.upserts[0][0].deleted === false);
+
+    await C.cloudDeleteTrip('t1');
+    const tomb = m.calls.upserts[1][0];
+    check('a delete writes a tombstone rather than removing the row',
+          tomb.deleted === true && tomb.id === 't1');
+
+    check('pushing nothing does not call the network at all',
+          (await C.cloudPushTrips([])).pushed === 0 && m.calls.upserts.length === 2);
+  }
+
+  console.log('\nEvery failure is survivable and explained');
+  {
+    C.__setCloudClientForTests(mockClient({ throwOnSelect: true }));
+    await C.cloudCurrentUser();
+    const offline = await C.cloudPullTrips();
+    check('an offline pull fails without throwing', offline.ok === false);
+    check('and says the trips are still on this device',
+          /still saved on this device/i.test(offline.reason), offline.reason);
+
+    C.__setCloudClientForTests(mockClient({ throwOnUpsert: true }));
+    await C.cloudCurrentUser();
+    const p = await C.cloudPushTrips([{ id: 'x' }]);
+    check('an offline push fails without throwing', p.ok === false && p.pushed === 0);
+
+    C.__setCloudClientForTests(mockClient({ selectError: 'permission denied for table trips' }));
+    await C.cloudCurrentUser();
+    const denied = await C.cloudPullTrips();
+    check('a policy rejection is passed through verbatim, not hidden',
+          denied.ok === false && /permission denied/.test(denied.reason), denied.reason);
+
+    // The case that matters most: signed out, or never configured.
+    C.__setCloudClientForTests(null);
+    C.__cloud.user = null;
+    const noAccount = await C.cloudPushTrips([{ id: 'y' }]);
+    check('with no account, a push is a refusal rather than a crash', noAccount.ok === false);
+    check('and the message tells the traveller nothing is lost',
+          /this device/i.test(noAccount.reason), noAccount.reason);
+  }
+
+  console.log(`\n${pass} passed, ${fail} failed`);
+  console.log('NOTE: the account and sync sections run against a mock. A real round trip needs');
+  console.log('      project credentials and has NOT been verified.\n');
+  process.exitCode = fail ? 1 : 0;
+})();
+
