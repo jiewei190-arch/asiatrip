@@ -518,25 +518,6 @@ function pickNearby(pool, here, used, prefs, date, hour, maxKm){
   return near[0].p;
 }
 
-/** The best place to eat near where the traveller already is, that they have not eaten at
- *  already today or on another day, and that is plausibly open at that hour. */
-function pickRestaurantNear(restaurants, centre, used, prefs, date, hour){
-  if(!centre) return restaurants.find(r => !used.has(r.placeId || r.id || r.name)) || null;
-  const candidates = restaurants
-    .filter(r => !used.has(r.placeId || r.id || r.name))
-    .filter(r => r.lat != null)
-    .map(r => ({r, km: geoDistanceKm(centre, r), open: isOpenAt(r.hours, date, hour)}))
-    .filter(x => x.open !== false)                 // never book a table somewhere shut
-    .filter(x => x.km < 4)
-    .sort((a, b) => a.km - b.km);
-  // Prefer somewhere close, but among the close ones prefer what the traveller likes.
-  const near = candidates.slice(0, 8);
-  if(!near.length) return null;
-  if(typeof preferenceScore === 'function'){
-    near.sort((a, b) => preferenceScore(b.r, prefs) - preferenceScore(a.r, prefs) || a.km - b.km);
-  }
-  return near[0].r;
-}
 
 /* ---------------- More ideas, and where they would go ----------------
    Two jobs that look like one. Suggesting a place is a question about the traveller; placing it
@@ -747,7 +728,7 @@ function assessDayLoad(day, prefs){
 if(typeof module !== 'undefined' && module.exports){
   module.exports = {
     TRAVEL_MODES, VISIT_MINUTES, travelBetween, visitMinutes, isOpenAt, dayListIncludes,
-    clusterByArea, balanceClusters, orderByProximity, planTrip, pickRestaurantNear, pickNearby, keyOf,
+    clusterByArea, balanceClusters, orderByProximity, planTrip, pickNearby, keyOf,
     lastPoint, fmtClock, MEAL_SLOTS, MEAL_LATEST_AFTER_SLOT_H, suggestIdeasForTrip, suggestPlacement, assessDayLoad,
   };
 }

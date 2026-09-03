@@ -170,16 +170,37 @@ function check(name, cond, detail){
 
   console.log('\n5. Pagination renders a page, not everything');
   {
-    const res = await page.evaluate(() => {
-      const fake = Array.from({length: 300}, (_, i) => ({placeId:'osm:N'+i, name:'P'+i}));
-      const p0 = pagePlaces(fake, 0);
-      const p1 = pagePlaces(fake, 1);
-      return {first:p0.items.length, second:p1.items.length, total:p0.total, more:p0.hasMore};
+    /* Against the pagination the app SHIPS. This used to call pagePlaces(), a second
+     * implementation in places.js that renderPagedPlaceGrid() does not use — so it verified
+     * behaviour nobody could reach. A dense city returns several hundred entities and putting
+     * them all in the DOM at once is a visible freeze on a phone, which is the thing worth
+     * checking, so the check now drives the real grid. */
+    const res = await page.evaluate(async () => {
+      const dest = DESTINATIONS.find(d => d.id === 'paris');
+      const fake = Array.from({length: 300}, (_, i) => ({
+        id:'fake'+i, placeId:'osm:N'+i, destId:dest.id, name:'Fake place '+i,
+        type:'attraction', category:'Museum', lat:dest.lat, lng:dest.lng, source:'test' }));
+      const holder = document.createElement('div');
+      holder.id = 'pagingProbe';
+      document.body.appendChild(holder);
+      renderPagedPlaceGrid('pagingProbe', fake, dest, 'attraction', placeCardHTML);
+      const first = holder.querySelectorAll('.placeCard').length;
+      const more = holder.querySelector('[data-showmore]');
+      const label = more ? more.textContent : '';
+      if(more) more.click();
+      await new Promise(r => setTimeout(r, 300));
+      const second = holder.querySelectorAll('.placeCard').length;
+      const nested = holder.querySelectorAll('.placeGrid .placeGrid').length;
+      holder.remove();
+      return { first, second, label, nested };
     });
-    check('the first page is bounded', res.first > 0 && res.first <= 30, `${res.first} items`);
-    check('showing more appends rather than replaces', res.second > res.first);
-    check('the total is reported honestly', res.total === 300);
-    check('it knows there is more to show', res.more === true);
+    check('the first render is bounded, not all 300', res.first > 0 && res.first <= 60, `${res.first} cards`);
+    check('a "Show more" is offered while there is more', /Show more/.test(res.label), res.label);
+    check('and it says how many are left', /\d+ more/.test(res.label), res.label);
+    check('showing more appends rather than replaces', res.second > res.first,
+          `${res.first} then ${res.second}`);
+    // The bug that made every card a third of a third of the width on a phone.
+    check('no grid is nested inside another grid', res.nested === 0);
   }
 
   console.log('\n6. Currency: complete catalogue, searchable, dual prices, honest gaps');

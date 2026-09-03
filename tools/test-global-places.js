@@ -38,7 +38,13 @@ global.CustomEvent = function(n, o){ this.type = n; Object.assign(this, o); };
 const dataSrc = fs.readFileSync(path.join(ROOT, 'data.js'), 'utf8');
 const DEST_RADIUS_KM = eval('(' + dataSrc.match(/const DEST_RADIUS_KM = (\{[\s\S]*?\});/)[1] + ')');
 global.DEST_RADIUS_KM = DEST_RADIUS_KM;
-for(const fn of ['geoDistanceKm', 'hasVerifiedGeo', 'destinationRadiusKm', 'placeWithinDestination']){
+/* currencyCodeForCountry is lifted with the rest because it is the function the APP calls.
+ * This suite used to assert against Currency.currencyForDestination() instead — a second
+ * implementation of the same idea that nothing ships. A suite that checks different code from
+ * the one that runs is how this project spent days believing Medellin was broken after it had
+ * been fixed, so the duplicate is gone and the real one is what is tested. */
+for(const fn of ['geoDistanceKm', 'hasVerifiedGeo', 'destinationRadiusKm', 'placeWithinDestination',
+                 'currencyCodeForCountry']){
   const src = dataSrc.match(new RegExp('function ' + fn + '\\([\\s\\S]*?\\n}', 'm'))[0];
   eval(src);
   global[fn] = eval(fn);
@@ -149,7 +155,7 @@ function mark(ok, soft){
     }
 
     const countryOk = (dest.country || '').toLowerCase() === c.country.toLowerCase();
-    const detected = Currency.currencyForDestination(dest);
+    const detected = currencyCodeForCountry(dest.country, dest.countryCode);
     const currencyOk = detected === c.currency;
 
     const eat  = await Places.discoverPlaces(dest, 'restaurant');

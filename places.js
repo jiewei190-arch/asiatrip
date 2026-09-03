@@ -784,21 +784,11 @@ function discoverPlacesFor(dest, kinds){
  * return several hundred entities, and rendering them all costs a visible freeze on a phone. */
 const PLACES_PAGE_SIZE = 24;
 
-function pagePlaces(list, page, size){
-  const n = size || PLACES_PAGE_SIZE;
-  const p = Math.max(0, page || 0);
-  return {
-    items: list.slice(0, (p + 1) * n),   // cumulative: "Show more" appends rather than replaces
-    shown: Math.min((p + 1) * n, list.length),
-    total: list.length,
-    hasMore: (p + 1) * n < list.length,
-  };
-}
 
 if(typeof module !== 'undefined' && module.exports){
   module.exports = {
     PLACE_KINDS, OSM_SUBTYPE_LABEL, prettyCuisine, osmToPlace, dedupePlaces, rankPlaces,
-    placeCompleteness, discoverPlaces, discoverPlacesFor, pagePlaces, normName,
+    placeCompleteness, discoverPlaces, discoverPlacesFor, normName,
     discoveryRadiusKm, overpassQuery, photonNearby, DISCOVERY_RADIUS_KM, cancelDiscoveryExcept,
     prominentSettlement, needsSettlementAnchor,
     OVERPASS_PATIENCE_MS,
