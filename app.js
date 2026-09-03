@@ -3616,6 +3616,76 @@ function renderPlannerView(tripId, ptab){
 }
 function renderCollabStack(trip){ $('collabStack').innerHTML = trip.collaborators.map(c=>`<div class="avatar sm" title="${esc(c.name)}">${c.initials}</div>`).join(''); }
 
+/* ---------------- More ideas for your trip ----------------
+   Real places in this destination that are not already planned, ranked by what the traveller
+   said they like and by how close they are to the days they have already built.
+
+   Two things this must not do, both of which the rest of the app already learned the hard way:
+   suggest a place that is already on the itinerary, and invent a reason. Every line under a
+   suggestion is derived from the record — a matched interest, a measured distance — or it is
+   not shown at all. */
+function renderMoreIdeasHTML(trip, dest){
+  if(typeof suggestIdeasForTrip !== 'function') return '';
+  const planned = new Set(trip.days.flatMap(d => d.stops.map(s => s.placeId)));
+  const anchors = trip.days.flatMap(d => d.stops)
+                           .filter(s => s.lat != null && s.lng != null)
+                           .map(s => ({lat: s.lat, lng: s.lng}));
+  const prefs = (typeof loadTripPreferences === 'function') ? loadTripPreferences() : null;
+  const ideas = suggestIdeasForTrip({
+    places: PLACES.filter(p => p.destId === dest.id),
+    plannedKeys: [...planned], prefs, anchors, limit: 6,
+  });
+
+  /* Discovery may still be running, and "nothing to suggest" and "still looking" are different
+   * statements. Saying the wrong one is how the app used to claim a city had no restaurants. */
+  if(!ideas.length){
+    const stillLooking = !PLACES.some(p => p.destId === dest.id);
+    return `<h3 style="margin:26px 0 12px">More ideas for your trip</h3>
+      <div class="card"><div class="empty">${stillLooking
+        ? 'Finding real places in ' + esc(dest.name) + '…'
+        : 'Everything we have found in ' + esc(dest.name) + ' is already on your itinerary.'}</div></div>`;
+  }
+
+  return `<h3 style="margin:26px 0 12px">More ideas for your trip</h3>
+    <div class="placeGrid" id="moreIdeasGrid">
+      ${ideas.map(idea => {
+        const p = idea.place;
+        const bits = [];
+        if(idea.why.length) bits.push(idea.why[0]);
+        if(idea.nearestKm != null && idea.nearestKm < 25){
+          bits.push(idea.nearestKm < 1 ? 'a few minutes from a planned stop'
+                                       : `${idea.nearestKm.toFixed(1)} km from a planned stop`);
+        }
+        return `<div class="placeCard" data-place="${esc(p.id)}">
+          <div class="placeMedia">
+            ${placeImageSrc(p) ? '' : placeImagePlaceholderHTML(p)}
+            <img src="${placeImageSrc(p)}" alt="${esc(p.name)}" loading="lazy" ${placeImageSrc(p) ? '' : 'hidden'}
+                 data-photo-place="${esc(p.id)}" data-photo-q="${esc(photoQuery(p.name, dest.name))}">
+            <span class="placeCatBadge">${esc(p.category || p.cuisine || p.subtype || 'Place')}</span>
+          </div>
+          <div class="placeBody">
+            <h4>${esc(p.name)}</h4>
+            ${bits.length ? `<p class="small">${esc(bits.join(' · '))}</p>` : ''}
+            <button class="btn primary sm" data-ideaadd="${esc(p.id)}">＋ Add to trip</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+/** Adds a suggested place where it actually belongs, and says where that was.
+ *  A silent add is indistinguishable from a broken button when the place lands on Day 3. */
+function addIdeaToTrip(trip, place){
+  const prefs = (typeof loadTripPreferences === 'function') ? loadTripPreferences() : null;
+  const spot = (typeof suggestPlacement === 'function') ? suggestPlacement(trip, place, {prefs}) : null;
+  if(!spot){
+    toast(`Every day is already full — add a day first, or remove a stop to make room for ${place.name}.`);
+    return;
+  }
+  addPlaceToTrip(trip, spot.dayIndex, place, spot.time);
+  toast(`${place.name} added to Day ${spot.dayIndex + 1} at ${fmtTime12(spot.time)} — ${spot.reason}.`);
+}
+
 /* ---------------- Trip Dashboard (the trip's home page) ---------------- */
 function renderDashboardTab(trip){
   const dest = destForTrip(trip);
@@ -3671,6 +3741,7 @@ function renderDashboardTab(trip){
             <button class="btn primary sm" data-nextstep="${i}">${esc(s.cta)}</button>
           </div>`).join('')}
         </div>`}
+        ${isOver ? '' : renderMoreIdeasHTML(trip, dest)}
         <h3 style="margin:26px 0 12px">Upcoming</h3>
         <div class="card">
           ${upcomingDay && upcomingDay.stops.length ? `
@@ -3702,6 +3773,10 @@ function renderDashboardTab(trip){
     </div>`;
   nextSteps.forEach((s,i)=>{ const b = body.querySelector(`[data-nextstep="${i}"]`); if(b) b.onclick = s.go; });
   body.querySelectorAll('[data-goitin]').forEach(b=>b.onclick=()=>navigate(`#/trip/${trip.id}/itinerary`));
+  body.querySelectorAll('[data-ideaadd]').forEach(b=>b.onclick=()=>{
+    const p = placeById(b.dataset.ideaadd);
+    if(p) addIdeaToTrip(trip, p);
+  });
   const recapBtn = body.querySelector('#shareRecapBtn');
   if(recapBtn) recapBtn.onclick = ()=>{
     const text = buildRecapText(trip);

@@ -279,6 +279,73 @@ console.log('\n11. Days are full enough to be useful');
   console.log(`        worst packed day: ${worst} km`);
 }
 
+console.log('\nMore ideas, and where they would go');
+{
+  const trip = { days: [
+    { date:'2026-05-01', stops:[
+      {placeId:'a', name:'Museum', type:'attraction', lat:48.8606, lng:2.3376, time:'10:00', duration:120},
+      {placeId:'b', name:'Lunch',  type:'restaurant', lat:48.8620, lng:2.3400, time:'13:00', duration:75},
+      {placeId:'c', name:'Garden', type:'attraction', lat:48.8630, lng:2.3270, time:'16:00', duration:90},
+    ]},
+    { date:'2026-05-02', stops:[
+      {placeId:'d', name:'Tower', type:'attraction', lat:48.8584, lng:2.2945, time:'10:00', duration:120},
+    ]},
+    { date:'2026-05-03', stops:[] },
+  ]};
+
+  const nearDay1 = {id:'x', name:'Gallery', type:'attraction', subtype:'gallery', lat:48.8610, lng:2.3380, duration:60};
+  const nearDay2 = {id:'y', name:'Bridge', type:'attraction', subtype:'attraction', lat:48.8590, lng:2.2950, duration:45};
+  const p1 = PL.suggestPlacement(trip, nearDay1, {prefs:{pace:'balanced'}});
+  const p2 = PL.suggestPlacement(trip, nearDay2, {prefs:{pace:'balanced'}});
+  check('a place is put on the day it is nearest to', p1 && p1.dayIndex === 0, p1 && `day ${p1.dayIndex+1}`);
+  check('a place across town goes to the day that is across town', p2 && p2.dayIndex === 1, p2 && `day ${p2.dayIndex+1}`);
+
+  // The behaviour this replaces appended at "last stop + 20 minutes", whatever the place was.
+  const dinner = {id:'r', name:'Bistro', type:'restaurant', subtype:'restaurant', lat:48.8612, lng:2.3382, duration:90};
+  const pd = PL.suggestPlacement(trip, dinner, {prefs:{pace:'balanced'}});
+  check('a restaurant is scheduled at a mealtime, not tacked onto the end',
+        !!(pd && /^(12|13|19|20)/.test(pd.time)), pd && pd.time);
+  const bar = {id:'v', name:'Wine Bar', type:'restaurant', subtype:'bar', lat:48.8612, lng:2.3382, duration:60};
+  const pb = PL.suggestPlacement(trip, bar, {prefs:{pace:'balanced'}});
+  check('a bar is scheduled in the evening', !!(pb && Number(pb.time.slice(0,2)) >= 18), pb && pb.time);
+  const museum = {id:'m', name:'Small Museum', type:'attraction', subtype:'museum', lat:48.8611, lng:2.3378, duration:60};
+  const pm = PL.suggestPlacement(trip, museum, {prefs:{pace:'balanced'}});
+  check('a daytime place is never scheduled into the night', !!(pm && Number(pm.time.slice(0,2)) < 22), pm && pm.time);
+  check('nothing is scheduled before 8am', !!(pm && Number(pm.time.slice(0,2)) >= 8), pm && pm.time);
+
+  const emptyOnly = { days:[{date:'2026-05-01', stops:[]}] };
+  const pe = PL.suggestPlacement(emptyOnly, museum, {prefs:{pace:'balanced'}});
+  check('an empty day starts in the morning', !!(pe && pe.time === '09:30'), pe && pe.time);
+
+  const cap = PL.TRIP_PACE ? PL.TRIP_PACE.balanced.max : 9;
+  const stuffed = { days:[{date:'2026-05-01', stops: Array.from({length:cap}, (_,i)=>(
+    {placeId:'s'+i, name:'Stop'+i, type:'attraction', lat:48.86, lng:2.33, time:'10:00', duration:60}))}] };
+  check('a day already at its ceiling is not offered',
+        PL.suggestPlacement(stuffed, museum, {prefs:{pace:'balanced'}}) === null, 'ceiling is ' + cap);
+
+  const pool = [
+    {id:'a', name:'Museum', type:'attraction', subtype:'museum', lat:48.8606, lng:2.3376},
+    {id:'n1', name:'Print Gallery', type:'attraction', subtype:'gallery', lat:48.8608, lng:2.3379, tags:['art']},
+    {id:'n2', name:'Old Fort', type:'attraction', subtype:'castle', lat:48.8609, lng:2.3381, tags:['history']},
+    {id:'h1', name:'Grand Hotel', type:'hotel', subtype:'hotel', lat:48.8607, lng:2.3377, stars:5},
+  ];
+  const ideas = PL.suggestIdeasForTrip({places: pool, plannedKeys: ['a'], prefs: null,
+                                       anchors: [{lat:48.8606, lng:2.3376}], limit: 6});
+  const names = ideas.map(i => i.place.name);
+  check('a place already on the itinerary is not suggested again', !names.includes('Museum'), names.join(', '));
+  check('a hotel is not suggested as an idea', !names.includes('Grand Hotel'), names.join(', '));
+  check('real alternatives are suggested',
+        names.includes('Print Gallery') && names.includes('Old Fort'), names.join(', '));
+  check('every suggestion carries the place record it came from', ideas.every(i => i.place && i.place.id));
+
+  const manyMuseums = Array.from({length:8}, (_,i)=>(
+    {id:'m'+i, name:'Museum '+i, type:'attraction', subtype:'museum', lat:48.86+i*0.001, lng:2.33, tags:['culture']}));
+  const varied = PL.suggestIdeasForTrip({places: manyMuseums.concat(pool.slice(1,3)), plannedKeys: [],
+                                        prefs: null, anchors: [{lat:48.86, lng:2.33}], limit: 6});
+  const museums = varied.filter(v => v.place.subtype === 'museum').length;
+  check('one category cannot fill the whole list', museums <= 2, `${museums} museums of ${varied.length}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 /* process.exitCode rather than process.exit(): when stdout is redirected to a file or a pipe,
  * Node writes it asynchronously and process.exit() discards whatever is still buffered. Two

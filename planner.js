@@ -464,10 +464,165 @@ function pickRestaurantNear(restaurants, centre, used, prefs, date, hour){
   return near[0].r;
 }
 
+/* ---------------- More ideas, and where they would go ----------------
+   Two jobs that look like one. Suggesting a place is a question about the traveller; placing it
+   is a question about the day they have already planned. Keeping them apart is what stops the
+   app suggesting a museum it then schedules at 9pm. */
+
+/** Places worth suggesting for a trip: real, in this destination, not already planned, not
+ *  already saved-but-unscheduled, and ranked by what the traveller actually said they like.
+ *
+ *  Rated-and-reviewed is not available here and never will be — OSM has no ratings — so the
+ *  ranking is preference match first, then how close it is to somewhere already on the
+ *  itinerary. A place across the city is a worse idea than an equally good one next door. */
+function suggestIdeasForTrip(opts){
+  const o = opts || {};
+  const pool = o.places || [];
+  const planned = new Set(o.plannedKeys || []);
+  const prefs = o.prefs || null;
+  const anchors = (o.anchors || []).filter(a => a && a.lat != null && a.lng != null);
+  const limit = o.limit || 6;
+
+  const scored = [];
+  for(const p of pool){
+    if(!p || !p.name) continue;
+    if(planned.has(keyOf(p))) continue;
+    // A hotel is not an "idea for your trip" — you sleep in one, you do not add three.
+    if(p.type === 'hotel') continue;
+
+    let score = 0;
+    const why = [];
+    if(typeof preferenceScore === 'function' && prefs){
+      score = preferenceScore(p, prefs);
+      if(score === -Infinity) continue;              // must-avoid is a rule, not a ranking
+      if(typeof interestHits === 'function'){
+        const hits = interestHits(p, prefs);
+        if(hits.length) why.push('matches ' + hits.slice(0, 2).join(' and '));
+      }
+    }
+
+    // Distance to the nearest thing already planned, which is what makes an idea practical.
+    let nearestKm = null;
+    if(anchors.length && p.lat != null && p.lng != null){
+      for(const a of anchors){
+        const km = geoDistanceKm(p, a);
+        if(nearestKm == null || km < nearestKm) nearestKm = km;
+      }
+      // Worth up to 12 points, fading out by 5km. Deliberately smaller than a preference match:
+      // convenient and uninteresting is a worse suggestion than interesting and ten minutes away.
+      if(nearestKm != null){
+        score += Math.max(0, 12 - nearestKm * 2.4);
+        if(nearestKm <= 1.2) why.push('close to what you have planned');
+      }
+    }
+    scored.push({ place: p, score, nearestKm, why });
+  }
+
+  scored.sort((a, b) => b.score - a.score);
+
+  /* Spread the suggestions across categories. Ranking alone returns six museums for anyone who
+   * ticked "history", which reads as a broken list rather than a considered one. */
+  const out = [], seenKind = new Map();
+  for(const s of scored){
+    const kind = String(s.place.subtype || s.place.category || s.place.type || 'place').toLowerCase();
+    const n = seenKind.get(kind) || 0;
+    if(n >= 2) continue;
+    seenKind.set(kind, n + 1);
+    out.push(s);
+    if(out.length >= limit) break;
+  }
+  return out;
+}
+
+/** Which day, and what time, a place should be added at.
+ *
+ *  The previous behaviour appended to whichever day happened to be open, at the last stop's
+ *  time plus twenty minutes. That puts a restaurant at 4pm, a bar at 10am, and a place on the
+ *  far side of the city between two stops that are next door to each other.
+ *
+ *  Returns {dayIndex, time, reason} — or null when every day is already at its ceiling, which
+ *  the caller must report rather than silently overfill. */
+function suggestPlacement(trip, place, opts){
+  const o = opts || {};
+  const pace = (typeof TRIP_PACE !== 'undefined' && TRIP_PACE[(o.prefs && o.prefs.pace) || 'balanced'])
+             || { max: 9, minutesPerStop: 85 };
+  const days = (trip && trip.days) || [];
+  if(!days.length) return null;
+
+  const kind = String(place.subtype || place.category || '').toLowerCase();
+  const isMeal = place.type === 'restaurant' && !/cafe|bakery|ice_cream|deli|bar|pub/.test(kind);
+  const isEvening = /bar|pub|biergarten|nightclub|theatre/.test(kind);
+
+  let best = null;
+  days.forEach((day, i) => {
+    const stops = day.stops || [];
+    if(stops.length >= pace.max) return;                  // a full day is not a candidate
+
+    // How far this place is from that day's centre of gravity. A day with nothing planned is
+    // neutral rather than ideal: an empty day is a fine home for anything.
+    let km = null;
+    const pts = stops.filter(s => s.lat != null && s.lng != null);
+    if(pts.length && place.lat != null && place.lng != null){
+      km = Math.min(...pts.map(s => geoDistanceKm(place, s)));
+    }
+    const spare = pace.max - stops.length;
+    // Fit is distance first, then how much room the day has left.
+    const fit = (km == null ? 6 : km) - spare * 0.8;
+    if(!best || fit < best.fit) best = { fit, dayIndex: i, km, stops };
+  });
+
+  if(!best) return null;
+
+  const stops = best.stops.slice().sort((a, b) => String(a.time).localeCompare(String(b.time)));
+  const mins = t => { const [h, m] = String(t || '09:00').split(':').map(Number); return h * 60 + (m || 0); };
+  const clock = total => String(Math.floor(total / 60) % 24).padStart(2, '0') + ':' +
+                         String(total % 60).padStart(2, '0');
+
+  /* A meal goes at a mealtime, an evening place in the evening, and anything else into the
+   * largest gap in the day — which is usually where the traveller has room, rather than tacked
+   * onto the end after dinner. */
+  let target;
+  let reason;
+  if(isMeal){
+    const lunchTaken = stops.some(s => s.type === 'restaurant' && mins(s.time) >= 11 * 60 && mins(s.time) <= 14 * 60);
+    target = lunchTaken ? 19 * 60 + 30 : 12 * 60 + 30;
+    reason = lunchTaken ? 'dinner time' : 'lunch time';
+  } else if(isEvening){
+    target = 20 * 60;
+    reason = 'evening';
+  } else if(!stops.length){
+    target = 9 * 60 + 30;
+    reason = 'first stop of an empty day';
+  } else {
+    // Largest gap between consecutive stops, including the end of the day.
+    let bestGap = { at: mins(stops[stops.length - 1].time) + (stops[stops.length - 1].duration || 90) + 20, size: 0 };
+    for(let i = 0; i < stops.length - 1; i++){
+      const endOfThis = mins(stops[i].time) + (stops[i].duration || 90);
+      const gap = mins(stops[i + 1].time) - endOfThis;
+      if(gap > bestGap.size && gap >= (place.duration || 90) + 30){
+        bestGap = { at: endOfThis + 15, size: gap };
+      }
+    }
+    target = bestGap.at;
+    reason = bestGap.size ? 'a gap in the day' : 'after your last stop';
+  }
+
+  // Never schedule into the small hours, whatever the arithmetic says.
+  if(target > 22 * 60) target = 22 * 60;
+  if(target < 8 * 60) target = 8 * 60;
+
+  return {
+    dayIndex: best.dayIndex,
+    time: clock(target),
+    reason,
+    km: best.km,
+  };
+}
+
 if(typeof module !== 'undefined' && module.exports){
   module.exports = {
     TRAVEL_MODES, VISIT_MINUTES, travelBetween, visitMinutes, isOpenAt, dayListIncludes,
     clusterByArea, orderByProximity, planTrip, pickRestaurantNear, pickNearby, keyOf,
-    lastPoint, fmtClock, MEAL_SLOTS,
+    lastPoint, fmtClock, MEAL_SLOTS, suggestIdeasForTrip, suggestPlacement,
   };
 }
