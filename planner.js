@@ -259,6 +259,12 @@ const MEAL_SLOTS = [
   {key:'lunch',  hour:13, label:'Lunch'},
   {key:'dinner', hour:19.5, label:'Dinner'},
 ];
+/* How late a meal may still be scheduled after its slot. Without an upper bound the first pass
+ * placed a meal at whatever the clock happened to say once it passed the slot hour, so a day
+ * whose sights ran long produced "Lunch" at 16:40 — a real result from the scenario suite, and
+ * not lunch by any definition. A slot missed by more than this is missed; nothing is invented
+ * to fill it, because a meal at the wrong time is worse than a day that plainly has no lunch. */
+const MEAL_LATEST_AFTER_SLOT_H = 1.5;
 
 function fmtClock(hourFloat){
   let h = Math.floor(hourFloat);
@@ -404,7 +410,8 @@ function planTrip(opts){
       // Slot a meal in when a meal time arrives and we are near somewhere to eat.
       for(const slot of MEAL_SLOTS){
         if(mealsPlaced >= pace.mealsPerDay) break;
-        if(clock >= slot.hour - 0.75 && !stops.some(s => s.mealSlot === slot.key)){
+        if(clock >= slot.hour - 0.75 && clock <= slot.hour + MEAL_LATEST_AFTER_SLOT_H &&
+           !stops.some(s => s.mealSlot === slot.key)){
           const near = pickNearby(restaurants, lastPoint(stops, centre), usedPlaces, prefs, date, slot.hour, 3);
           if(near && pushStop(near, 'meal')){
             stops[stops.length-1].mealSlot = slot.key;
@@ -443,6 +450,9 @@ function planTrip(opts){
     for(const slot of MEAL_SLOTS){
       if(mealsPlaced >= pace.mealsPerDay) break;
       if(stops.some(s => s.mealSlot === slot.key)) continue;
+      // Anchored to the slot, and refused outright once the day has run past it — the same
+      // bound the first pass now applies, so neither route can produce a late-afternoon lunch.
+      if(clock > slot.hour + MEAL_LATEST_AFTER_SLOT_H) continue;
       const near = pickNearby(restaurants, lastPoint(stops, centre), usedPlaces, prefs, date, slot.hour, 3);
       if(near){
         clock = Math.max(clock, slot.hour);
@@ -738,6 +748,6 @@ if(typeof module !== 'undefined' && module.exports){
   module.exports = {
     TRAVEL_MODES, VISIT_MINUTES, travelBetween, visitMinutes, isOpenAt, dayListIncludes,
     clusterByArea, balanceClusters, orderByProximity, planTrip, pickRestaurantNear, pickNearby, keyOf,
-    lastPoint, fmtClock, MEAL_SLOTS, suggestIdeasForTrip, suggestPlacement, assessDayLoad,
+    lastPoint, fmtClock, MEAL_SLOTS, MEAL_LATEST_AFTER_SLOT_H, suggestIdeasForTrip, suggestPlacement, assessDayLoad,
   };
 }

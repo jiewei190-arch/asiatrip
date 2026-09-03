@@ -99,9 +99,9 @@ function prettyCuisine(raw){
 /* ---------------- fetch plumbing ---------------- */
 
 const PLACES_TIMEOUT_MS = 25000;
-/* How long to let Overpass work before Photon is allowed to answer instead. Measured healthy
- * Overpass responses in this project run 4-16s, so this waits out a normal slow one and gives up
- * on a stuck mirror rather than on the query. */
+/* Retained as the outer bound on how long a single Overpass attempt is given, and exported for
+ * the suites. It is no longer a delay before Photon is asked: both sources start together now,
+ * because waiting twenty seconds before beginning the fast one is not a race. */
 const OVERPASS_PATIENCE_MS = 20000;
 /* After Photon has answered, keep waiting this much longer for Overpass and use its richer
  * result if it lands. Measured: a Tokyo attraction union takes ~15s and returns 400 places, so a
@@ -604,11 +604,27 @@ async function discoverPlaces(dest, kind, opts){
     const overpassP = overpassQuery(ql, opts.signal)
       .then(r => { overpassSettled = true; return r; })
       .catch(() => { overpassSettled = true; return []; });
+
+    /* Both sources are STARTED now, together.
+     *
+     * This used to be `delay(OVERPASS_PATIENCE_MS).then(() => photonNearby(...))`, which reads
+     * like a race and is not one: Photon was not begun until twenty seconds had passed, and
+     * only then took its own second or two. So a destination somebody typed showed one card
+     * almost immediately and then sat half-empty — measured at 39.7 seconds to reach six cards
+     * — while the fast source had not been asked yet.
+     *
+     * Started in parallel, whichever has something useful first fills the page, and the grace
+     * window below still lets Overpass replace it with its richer tags when it lands. Nothing
+     * about "Overpass wins when it is healthy" changes; the twenty-second dead wait goes. */
+    const photonP = photonNearby(Object.assign({}, dest, anchor), kind, radiusKm, opts.signal)
+      .then(r => r || []).catch(() => []);
     try{
+      // First source with an actual answer. A source that comes back EMPTY defers to the other
+      // rather than winning the race with nothing, which would blank a page that had results
+      // on the way.
       elements = await Promise.race([
-        overpassP,
-        delay(OVERPASS_PATIENCE_MS).then(() =>
-          photonNearby(Object.assign({}, dest, anchor), kind, radiusKm, opts.signal).catch(() => [])),
+        overpassP.then(r => (r && r.length) ? r : photonP),
+        photonP.then(r => (r && r.length) ? r : overpassP),
       ]);
       attempts.push(`${rungs[0].label}:${elements.length}${overpassSettled ? '' : ' (photon first)'}`);
 

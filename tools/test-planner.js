@@ -23,6 +23,7 @@ const geoHelpers = new Function(grab('geoDistanceKm') + '\n' + grab('parseDateOn
 Object.assign(global, geoHelpers);
 Object.assign(global, require(path.join(ROOT, 'preferences.js')));
 const PL = require(path.join(ROOT, 'planner.js'));
+const P_DEFAULTS = () => (typeof defaultTripPreferences === 'function' ? defaultTripPreferences() : {});
 Object.assign(global, PL);
 
 let pass = 0, fail = 0;
@@ -420,6 +421,41 @@ console.log('\nDays get a fair share of the city');
 
   check('balancing an empty set does not throw', PL.balanceClusters([[], [], []], 3).length === 3);
   check('a single day keeps everything', PL.balanceClusters([city], 1)[0].length === city.length);
+}
+
+console.log('\nA meal is at a mealtime, or it is not scheduled');
+{
+  /* From the scenario suite, on a real New York itinerary: "Luanne's 16:40, Buddakan 16:30".
+   * The first pass placed a meal at whatever the clock said once it passed the slot hour, so a
+   * day whose sights ran long produced lunch in the late afternoon. */
+  const near = (n) => Array.from({length:n}, (_,i)=>(
+    {id:'r'+i, name:'Restaurant '+i, type:'restaurant', subtype:'restaurant',
+     lat:48.8606+i*0.0008, lng:2.3376+i*0.0008, tags:['food']}));
+  const sights = Array.from({length:24}, (_,i)=>(
+    {id:'a'+i, name:'Sight '+i, type:'attraction', subtype:'attraction',
+     lat:48.8606+i*0.0009, lng:2.3376+i*0.0009, tags:['culture']}));
+
+  const plan = PL.planTrip({
+    dest: {name:'Paris', lat:48.8606, lng:2.3376, placeType:'city'},
+    places: sights.concat(near(10)),
+    days: 3, start: '2026-10-01',
+    preferences: Object.assign(P_DEFAULTS(), {pace:'packed'}),
+  });
+  const meals = plan.days.flatMap(d => d.stops.filter(s => s.mealSlot));
+  const hourOf = t => { const [h,m] = String(t).split(':').map(Number); return h + (m||0)/60; };
+  const late = meals.filter(s => {
+    const slot = PL.MEAL_SLOTS.find(x => x.key === s.mealSlot);
+    return slot && hourOf(s.time) > slot.hour + PL.MEAL_LATEST_AFTER_SLOT_H + 0.01;
+  });
+  check('no meal is scheduled past its slot window', late.length === 0,
+        late.map(s => `${s.mealSlot} ${s.time}`).join(', '));
+  check('nothing is labelled lunch in the late afternoon',
+        !meals.some(s => s.mealSlot === 'lunch' && hourOf(s.time) >= 15),
+        meals.filter(s => s.mealSlot === 'lunch').map(s => s.time).join(', '));
+  check('meals are still scheduled when the day allows it', meals.length > 0,
+        `${meals.length} meals across 3 days`);
+  check('the bound is a single named setting',
+        typeof PL.MEAL_LATEST_AFTER_SLOT_H === 'number' && PL.MEAL_LATEST_AFTER_SLOT_H > 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
