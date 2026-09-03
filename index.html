@@ -212,6 +212,11 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
       <div class="tripProgress" id="tripProgress"></div>
 
       <div class="plannerTabs" id="plannerTabs">
+      <div class="tripSearchWrap">
+        <input id="tripSearchInput" class="tripSearchInput" type="search" autocomplete="off"
+               placeholder="Search this trip — a place, a confirmation number, a note…">
+        <div id="tripSearchResults" class="tripSearchResults hidden"></div>
+      </div>
         <button class="ptab active" data-ptab="dashboard">Dashboard</button>
         <button class="ptab" data-ptab="itinerary">Itinerary &amp; Map</button>
         <button class="ptab" data-ptab="tripmap">Trip map</button>

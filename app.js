@@ -3615,6 +3615,7 @@ function renderPlannerView(tripId, ptab){
   $('plannerSub').textContent = `${fmtDateFull(trip.start)} – ${fmtDateFull(trip.end)} · ${trip.days.length} days · ${trip.travelers} travelers`;
   renderCollabStack(trip);
   renderTripProgress(trip);
+  renderTripSearch(trip);
 
   $$('.ptab').forEach(b=>{ b.classList.toggle('active', b.dataset.ptab===(ptab||'dashboard')); b.onclick=()=>navigate(`#/trip/${trip.id}/${b.dataset.ptab}`); });
   $$('.ptabBody').forEach(b=>b.classList.remove('active'));
@@ -3817,6 +3818,132 @@ function renderDashboardTab(trip){
     toast('Trip notes saved.');
   };
   hydratePhotos(body);
+}
+
+/* ---------------- Search inside a trip ----------------
+   A planned trip accumulates a lot: sixty stops across ten days, saved places waiting to be
+   scheduled, bookings with confirmation numbers, a packing list, expenses, and notes on the
+   trip and on individual days and stops. There was no way to ask it a question. "Which day is
+   the Louvre on?" and "where did I put the hotel confirmation?" both meant clicking through
+   tabs until you found it.
+
+   Everything is searched, and every hit says where it lives and how to get there. */
+
+/** Case- and accent-insensitive, so "cafe" finds "Café" and "medellin" finds "Medellín" —
+ *  the same folding the destination ranker uses, for the same reason. */
+function tripSearchFold(s){
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
+/** Every match in a trip, grouped by what kind of thing it is.
+ *  Returns [] for a query too short to be meaningful rather than everything: a single letter
+ *  matches most of a trip, which is not an answer to anything. */
+function searchTrip(trip, query){
+  const q = tripSearchFold(query).trim();
+  if(!trip || q.length < 2) return [];
+  const hit = (...fields) => fields.some(f => tripSearchFold(f).includes(q));
+  const out = [];
+
+  (trip.days || []).forEach((day, di) => {
+    (day.stops || []).forEach(stop => {
+      if(hit(stop.name, stop.category, stop.area, stop.note)){
+        out.push({ kind: 'stop', title: stop.name,
+                   where: `Day ${di + 1} · ${fmtTime12(stop.time)}`,
+                   detail: stop.note || stop.category || '',
+                   goto: { tab: 'itinerary', day: di } });
+      }
+    });
+    if(day.note && hit(day.note)){
+      out.push({ kind: 'note', title: `Day ${di + 1} note`, where: fmtDateFull(day.date),
+                 detail: day.note, goto: { tab: 'itinerary', day: di } });
+    }
+  });
+
+  if(trip.notes && hit(trip.notes)){
+    out.push({ kind: 'note', title: 'Trip note', where: 'Dashboard', detail: trip.notes,
+               goto: { tab: 'dashboard' } });
+  }
+
+  // Bookings are the reason this feature exists: a confirmation number is the one thing people
+  // genuinely need to find in a hurry, and it is searched here as text, not just the title.
+  (trip.bookings || []).forEach(b => {
+    if(hit(b.title, b.confirmation, b.provider, b.notes, b.type)){
+      out.push({ kind: 'booking', title: b.title || b.type || 'Booking',
+                 where: b.date ? fmtDateFull(b.date) : 'No date yet',
+                 detail: [b.provider, b.confirmation].filter(Boolean).join(' · '),
+                 goto: { tab: 'bookings' } });
+    }
+  });
+
+  (trip.packing || []).forEach(item => {
+    const label = item && (item.label || item.name || item.text);
+    if(label && hit(label)){
+      out.push({ kind: 'packing', title: label,
+                 where: item.packed ? 'Packed' : 'Still to pack',
+                 detail: item.category || '', goto: { tab: 'packing' } });
+    }
+  });
+
+  ((trip.budget && trip.budget.expenses) || []).forEach(e => {
+    if(hit(e.label, e.category, e.note)){
+      out.push({ kind: 'expense', title: e.label || e.category || 'Expense',
+                 where: typeof fmt$ === 'function' ? fmt$(e.amount || 0) : String(e.amount || 0),
+                 detail: e.category || '', goto: { tab: 'budget' } });
+    }
+  });
+
+  // Saved places not yet on a day: they are part of the trip even though they have no slot.
+  if(typeof unscheduledPlacesForTrip === 'function'){
+    try {
+      unscheduledPlacesForTrip(trip).forEach(p => {
+        if(p && hit(p.name, p.category, p.cuisine)){
+          out.push({ kind: 'saved', title: p.name, where: 'Saved, not scheduled',
+                     detail: p.category || p.cuisine || '', goto: { tab: 'unscheduled' } });
+        }
+      });
+    } catch(e){ /* a malformed saved list must not break search */ }
+  }
+
+  return out;
+}
+
+const TRIP_SEARCH_ICON = { stop:'📍', note:'📝', booking:'🎟️', packing:'🎒', expense:'💰', saved:'♡' };
+
+function renderTripSearch(trip){
+  const box = $('tripSearchInput');
+  if(!box) return;
+  const run = () => {
+    const results = searchTrip(trip, box.value);
+    const panel = $('tripSearchResults');
+    const q = (box.value || '').trim();
+    if(q.length < 2){ panel.classList.add('hidden'); panel.innerHTML = ''; return; }
+    panel.classList.remove('hidden');
+    if(!results.length){
+      panel.innerHTML = `<div class="empty" style="padding:16px">Nothing in this trip matches “${esc(q)}”.</div>`;
+      return;
+    }
+    panel.innerHTML = results.slice(0, 40).map((r, i) => `
+      <button class="listRow" data-tripsearch="${i}" style="width:100%;text-align:left">
+        <div class="left">
+          <span style="font-size:18px">${TRIP_SEARCH_ICON[r.kind] || '•'}</span>
+          <div>
+            <div>${esc(r.title)}</div>
+            <div class="small">${esc(r.where)}${r.detail ? ' · ' + esc(r.detail) : ''}</div>
+          </div>
+        </div>
+      </button>`).join('') +
+      (results.length > 40 ? `<div class="small" style="padding:8px 12px">${results.length - 40} more matches — narrow the search to see them.</div>` : '');
+    panel.querySelectorAll('[data-tripsearch]').forEach(btn => btn.onclick = () => {
+      const r = results[Number(btn.dataset.tripsearch)];
+      if(!r) return;
+      if(r.goto.day != null) plannerState.day = r.goto.day;
+      panel.classList.add('hidden');
+      box.value = '';
+      navigate(`#/trip/${trip.id}/${r.goto.tab}`);
+    });
+  };
+  box.oninput = debounce(run, 120);
+  box.onkeydown = e => { if(e.key === 'Escape'){ box.value = ''; $('tripSearchResults').classList.add('hidden'); box.blur(); } };
 }
 
 /* ---------------- The whole trip on one map ----------------
