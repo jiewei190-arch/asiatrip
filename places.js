@@ -23,6 +23,7 @@
 // Measured from this project: private.coffee ~4.4s, kumi ~15s, overpass-api.de refused the
 // connection outright. Ordered by observed reliability, and we rotate on failure rather than
 // giving up — a single mirror being down must not empty a destination page.
+const PLACES_USER_AGENT = 'TripFlow/1.0 (https://jiewei190-arch.github.io/asiatrip/)';
 const OVERPASS_ENDPOINTS = [
   'https://overpass.private.coffee/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
@@ -130,7 +131,13 @@ async function overpassQuery(ql, signal, timeoutMs){
         method: 'POST',
         // Overpass answers 406 without an explicit Accept, and form-encoding is what the
         // public mirrors expect for a POSTed query.
-        headers: {'Accept':'application/json', 'Content-Type':'application/x-www-form-urlencoded'},
+        // The public mirrors answer an anonymous client with 429 and "please include a
+        // meaningful User-Agent". Browsers send their own and drop this header as forbidden,
+        // so it changes nothing in the app — but without it the Node test suites are throttled
+        // partway through a long run and read the refusals as "this country has no places".
+        // Indonesia reported zero restaurants that way while working perfectly in a browser.
+        headers: {'Accept':'application/json', 'Content-Type':'application/x-www-form-urlencoded',
+                  'User-Agent': PLACES_USER_AGENT},
         body: 'data=' + encodeURIComponent(ql),
         signal,
       }, timeoutMs || PLACES_TIMEOUT_MS);

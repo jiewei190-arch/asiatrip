@@ -83,7 +83,11 @@ const CASES = [
   {q:'Morocco',                kind:'country',      country:'Morocco',     currency:'MAD'},
   {q:'Indonesia',              kind:'country',      country:'Indonesia',   currency:'IDR'},
   {q:'Ushuaia',                kind:'remote town',  country:'Argentina',   currency:'ARS'},
-  {q:'Longyearbyen',           kind:'remote town',  country:'Svalbard and Jan Mayen', currency:'NOK'},
+  // Svalbard, not "Svalbard and Jan Mayen". That was the ISO 3166 entry rather than what the
+  // geocoder says, and the app deliberately shows the country OSM gives it rather than a label
+  // of its own: Photon returns Norway, which is whose territory Longyearbyen is on. The
+  // currency check (NOK) is the one that would catch a real mistake here.
+  {q:'Longyearbyen',           kind:'remote town',  country:'Norway',      currency:'NOK'},
 ];
 
 /* ---------------- geocoding (the app's own resolver) ---------------- */
@@ -213,5 +217,11 @@ function mark(ok, soft){
   }
 
   console.log(`\n${pass} passed, ${fail} failed, ${warn} warnings (thin map data, not defects)\n`);
-  process.exit(fail ? 1 : 0);
+  /* process.exitCode rather than process.exit(): when stdout is redirected to a file or a pipe,
+   * Node writes it asynchronously and process.exit() discards whatever is still buffered. Two
+   * full worldwide runs lost their closing summary that way — the tally, the sample of what was
+   * found and the currency checks were simply gone, and the run looked like it had died at
+   * whichever destination happened to be last flushed. Setting the code instead lets Node drain
+   * stdout and exit on its own. */
+  process.exitCode = fail ? 1 : 0;
 })();

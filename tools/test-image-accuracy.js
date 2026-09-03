@@ -158,5 +158,11 @@ console.log('\n6. Live: real venues of each category resolve to photographs of t
   }
 
   console.log(`\n${pass} passed, ${fail} failed\n`);
-  process.exit(fail ? 1 : 0);
+  /* process.exitCode rather than process.exit(): when stdout is redirected to a file or a pipe,
+   * Node writes it asynchronously and process.exit() discards whatever is still buffered. Two
+   * full worldwide runs lost their closing summary that way — the tally, the sample of what was
+   * found and the currency checks were simply gone, and the run looked like it had died at
+   * whichever destination happened to be last flushed. Setting the code instead lets Node drain
+   * stdout and exit on its own. */
+  process.exitCode = fail ? 1 : 0;
 })();

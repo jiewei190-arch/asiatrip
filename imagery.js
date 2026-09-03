@@ -250,6 +250,10 @@ async function overpassEntityTags(entity, opts){
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
             'Accept': 'application/json',
+            // Identifies the client to the public mirrors, which answer an anonymous one with
+            // 429. Browsers send their own and drop this as a forbidden header; it exists so
+            // the Node suites are not throttled into reporting an empty world.
+            'User-Agent': 'TripFlow/1.0 (https://jiewei190-arch.github.io/asiatrip/)',
           },
           body: 'data=' + encodeURIComponent(q),
           signal: o.signal,
