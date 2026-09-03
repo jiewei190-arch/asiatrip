@@ -66,6 +66,23 @@ const CASES = [
   {q:'Zanzibar',               kind:'island',       country:'Tanzania',    currency:'TZS'},
   {q:'Paris, Texas',           kind:'ambiguous',    country:'United States', currency:'USD'},
   {q:'London, Ontario',        kind:'ambiguous',    country:'Canada',      currency:'CAD'},
+
+  /* The spread asked for in the foundation brief: major cities, mid-size cities, islands,
+     whole countries, and places nobody optimises for. */
+  {q:'New York City',          kind:'city',         country:'United States', currency:'USD'},
+  {q:'London',                 kind:'city',         country:'United Kingdom', currency:'GBP'},
+  {q:'Chengdu',                kind:'city',         country:'China',       currency:'CNY'},
+  {q:'Kyoto',                  kind:'city',         country:'Japan',       currency:'JPY'},
+  {q:'Porto',                  kind:'city',         country:'Portugal',    currency:'EUR'},
+  {q:'Medellin',               kind:'city',         country:'Colombia',    currency:'COP'},
+  {q:'Bali',                   kind:'island',       country:'Indonesia',   currency:'IDR'},
+  {q:'Santorini',              kind:'island',       country:'Greece',      currency:'EUR'},
+  {q:'Madeira',                kind:'island',       country:'Portugal',    currency:'EUR'},
+  {q:'Cape Verde',             kind:'country',      country:'Cabo Verde',  currency:'CVE'},
+  {q:'Morocco',                kind:'country',      country:'Morocco',     currency:'MAD'},
+  {q:'Indonesia',              kind:'country',      country:'Indonesia',   currency:'IDR'},
+  {q:'Ushuaia',                kind:'remote town',  country:'Argentina',   currency:'ARS'},
+  {q:'Longyearbyen',           kind:'remote town',  country:'Svalbard and Jan Mayen', currency:'NOK'},
 ];
 
 /* ---------------- geocoding (the same keyless source geo.js uses) ---------------- */
