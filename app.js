@@ -388,6 +388,7 @@ function defaultState(){
    records its result here — a `let` further down the file is in the temporal dead zone at
    that moment and throws on the very first page load. */
 let __storage = { ok: true, at: 0, error: null, loadProblem: null };
+let __savedFlashTimer = null;   // hoisted for the same reason as __storage: saveState() runs during init
 let STATE = loadState();
 saveState(); // ensure a freshly-seeded state (first-ever visit) is persisted immediately
 
@@ -436,15 +437,39 @@ function loadState(){
 }
 
 function saveState(){
+  let stored = false;
   try {
     localStorage.setItem(LS_KEY, JSON.stringify(STATE));
     __storage.ok = true; __storage.at = Date.now(); __storage.error = null;
+    stored = true;
   } catch(e){
     __storage.ok = false;
     // QuotaExceededError is the common one and has its own remedy, so it is named separately.
     __storage.error = (e && (e.name === 'QuotaExceededError' || e.code === 22)) ? 'full' : 'blocked';
   }
+  /* Outside the try, and this matters. Anything with a side effect that runs INSIDE the block
+   * guarding localStorage gets its exceptions caught and reported as a storage failure: a DOM
+   * error in the "Saved" indicator was being shown to the traveller as "this browser is not
+   * allowing TripFlow to save", which is both wrong and alarming. The guard covers storage and
+   * nothing else. */
+  if(stored) flashSaved();
   renderStorageBanner();
+}
+
+/** A quiet confirmation that the work is on disk.
+ *
+ *  The banner above covers the broken case; this covers the ordinary one, which matters more
+ *  than it sounds in an app with no account: there is nothing else on screen to tell somebody
+ *  their afternoon of planning actually persisted. It appears on save and fades, so it informs
+ *  without becoming furniture. Saves fire in bursts while editing, so the timer is reset rather
+ *  than stacked — otherwise it flickers on every keystroke. */
+function flashSaved(){
+  const el = $('savedChip');
+  if(!el) return;
+  el.textContent = 'Saved';
+  el.classList.add('show');
+  clearTimeout(__savedFlashTimer);
+  __savedFlashTimer = setTimeout(() => el.classList.remove('show'), 1400);
 }
 
 /** Says, permanently and in place, when saving has stopped working. A toast is wrong for this:
@@ -715,6 +740,10 @@ function route(){
   // Image claims are per page. Without this, navigating away and back would find every stand-in
   // already taken by the previous render and leave the cards blank.
   if(typeof resetImageClaims === 'function') resetImageClaims();
+  /* Re-asserted on every navigation. A storage problem is a property of the session, not of one
+   * view, and the single call at start-up was landing before the banner element was reachable
+   * in some load orders — leaving a corrupted-data warning that never appeared. */
+  renderStorageBanner();
   if(parts[0]==='discover'){ showView('discover'); renderDiscoverView(); }
   else if(parts[0]==='trips'){ showView('trips'); renderTripsView(); }
   else if(parts[0]==='saved'){ showView('saved'); renderSavedView(parts[1]); }
@@ -1938,7 +1967,7 @@ function renderDestOverview(dest, body){
     </div>
     <div class="card" style="margin-top:8px">
       <h3>Average daily budget</h3>
-      <div class="sectionGrid" style="grid-template-columns:repeat(3,1fr)">
+      <div class="sectionGrid cols3">
         <div class="ovCard"><div class="k">Budget</div><div class="v" style="font-size:20px">${fmtMoneyDual(dest.avgDailyBudget.budget, dest)}<span class="small">/day</span></div></div>
         <div class="ovCard"><div class="k">Moderate</div><div class="v" style="font-size:20px">${fmtMoneyDual(dest.avgDailyBudget.moderate, dest)}<span class="small">/day</span></div></div>
         <div class="ovCard"><div class="k">Luxury</div><div class="v" style="font-size:20px">${fmt$(dest.avgDailyBudget.luxury)}<span class="small">/day</span></div></div>
@@ -5191,7 +5220,7 @@ function openOptimizeModal(trip, dayIdx){
   const distBefore = totalDistance(before), distAfter = totalDistance(optimized);
   window.__optimizePending = {trip, dayIdx, optimized};
   $('optimizeBody').innerHTML = `
-    <div class="sectionGrid" style="grid-template-columns:1fr 1fr">
+    <div class="sectionGrid cols2">
       <div class="card"><h3>Before <span class="small">(${distBefore.toFixed(1)} km)</span></h3>${before.map((s,i)=>`<div class="small" style="margin:4px 0">${i+1}. ${esc(s.name)}</div>`).join('')}</div>
       <div class="card"><h3>After <span class="small">(${distAfter.toFixed(1)} km)</span></h3>${optimized.map((s,i)=>`<div class="small" style="margin:4px 0">${i+1}. ${esc(s.name)}</div>`).join('')}</div>
     </div>

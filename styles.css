@@ -172,6 +172,12 @@ main{max-width:1280px;margin:0 auto;padding:0 24px 60px;min-height:60vh}
 
 /* ---------- Cards & grids ---------- */
 .sectionGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+/* Column counts as classes, not inline styles. An inline grid-template-columns outranks every
+   stylesheet rule including the mobile media queries below, so a three-column grid stayed three
+   columns on a 390px phone and pushed the page 5px wider than the screen — visible only as a
+   sliver, and hidden entirely by body{overflow-x:hidden}, which is why it survived this long. */
+.sectionGrid.cols3{grid-template-columns:repeat(3,1fr)}
+.sectionGrid.cols2{grid-template-columns:repeat(2,1fr)}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:var(--shadow)}
 .card h3{margin:0 0 10px;font:700 16px 'Plus Jakarta Sans'}
 .metric{font-size:26px;font-weight:800;margin-top:8px}
@@ -618,7 +624,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 /* ---------- Responsive ---------- */
 @media(max-width:1200px){
   .dashboard{grid-template-columns:1fr}
-  .sectionGrid,.budgetTop{grid-template-columns:1fr 1fr}
+  .sectionGrid,.sectionGrid.cols3,.sectionGrid.cols2,.budgetTop{grid-template-columns:1fr 1fr}
   .destStrip{grid-template-columns:repeat(2,1fr)}
   .featureGrid,.stepsGrid{grid-template-columns:1fr 1fr}
   .placeGrid,.savedGrid,.tripsGrid{grid-template-columns:repeat(2,1fr)}
@@ -640,7 +646,7 @@ input:checked+.slider:before{transform:translateX(18px)}
   .planbox-field{border-right:0!important;border-bottom:1px solid var(--line)}
   .planbox-actions{flex-direction:column}
   .planbox-actions .btn{width:100%;justify-content:center}
-  .featureGrid,.stepsGrid,.sectionGrid,.budgetTop,.placeGrid,.savedGrid,.tripsGrid,.destStrip,.destOverviewGrid{grid-template-columns:1fr}
+  .featureGrid,.stepsGrid,.sectionGrid,.sectionGrid.cols3,.sectionGrid.cols2,.budgetTop,.placeGrid,.savedGrid,.tripsGrid,.destStrip,.destOverviewGrid{grid-template-columns:1fr}
   .modalGrid{grid-template-columns:1fr}
   .field.grow2{grid-column:span 1}
   .preferenceGrid{grid-template-columns:1fr 1fr}
@@ -838,3 +844,16 @@ input:checked+.slider:before{transform:translateX(18px)}
 }
 .storageBanner .small{ opacity:.9; margin-top:2px; max-width:78ch; }
 .storageBanner button{ margin-left:auto; white-space:nowrap; }
+
+/* "Saved". Deliberately small and deliberately temporary — the point is reassurance, not
+   decoration, and a permanent badge would stop being read within a day. */
+.savedChip{
+  position:fixed; left:16px; bottom:16px; z-index:60;
+  padding:6px 12px; border-radius:999px;
+  background:var(--surface); border:1px solid var(--line);
+  color:var(--muted); font-size:12px; font-weight:700;
+  opacity:0; transform:translateY(6px); pointer-events:none;
+  transition:opacity .18s ease, transform .18s ease;
+}
+.savedChip.show{ opacity:1; transform:translateY(0); }
+@media print{ .savedChip, .storageBanner{ display:none !important; } }
