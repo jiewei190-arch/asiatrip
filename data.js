@@ -158,12 +158,18 @@ async function fetchWithTimeout(url, ms, opts){
  * to force a larger size therefore manufactures a 404 for every image whose original is narrower
  * than the size we asked for — which silently cost those destinations their photo. Trust the
  * width the API actually returned; only shrink an oversized one, never grow it. */
-function capWikiThumb(url, maxWidth){
-  const m = url.match(/\/(\d+)px-/);
-  if(!m) return url;
-  const actual = parseInt(m[1], 10);
-  if(!actual || actual <= (maxWidth||720)) return url;
-  return url.replace(/\/(\d+)px-/, `/${maxWidth||720}px-`);
+function capWikiThumb(url /*, maxWidth */){
+  // Deliberately a pass-through now. Wikimedia's thumbnailer serves only a DISCRETE set of
+  // widths — probed against a real 5184px file, 960 and 1280 return 200 while 320, 480, 640,
+  // 720, 800 and 1024 all return 400 Bad Request. This function used to rewrite the API's URL
+  // down to 720px whenever the API had picked something larger, which turned a working 960px
+  // thumbnail into a guaranteed 400. Twenty-one images on a single Seoul page load were
+  // failing this way, each one falling back to a category stand-in even though a real
+  // photograph of the place had been found.
+  //
+  // The API already picks a valid width for the iiurlwidth we ask for, so the correct handling
+  // is to use exactly what it returned and never rewrite the size.
+  return url;
 }
 
 /* ---- Real photos via Wikipedia's public REST API (no key, CORS-enabled) ---- */
@@ -245,7 +251,8 @@ async function lookupWikiThumbnail(key, query){
       answered = true;
       const pages = (data.query && data.query.pages) || {};
       const page = Object.values(pages)[0];
-      if(page && page.thumbnail && page.thumbnail.source){
+      if(page && page.thumbnail && page.thumbnail.source
+         && isTravelAppropriate(page.title) && isTravelAppropriate(page.thumbnail.source)){
         result = capWikiThumb(page.thumbnail.source, 720);
       }
     }
@@ -292,21 +299,400 @@ async function fetchWikiThumbnailChain(queries){
   return null;
 }
 
+/* ---- Destination photography, worldwide ----
+   A destination's own article is usually the best photo of it, but searching by name alone
+   gets two things wrong often enough to matter, and both were measured across 51 places on
+   six continents rather than guessed at:
+
+     · It can match something that is not a place. "Vinales" returned Maverick Viñales, a
+       MotoGP rider — a photograph of a motorcyclist standing in for a Cuban valley. Articles
+       about people carry no coordinates, so requiring coordinates near the destination
+       rejects the whole class of error.
+     · It can find the right article with no photograph on it. "Swiss Alps" and "Reine"
+       resolved to the correct page and came back empty.
+
+   So: take several candidates rather than only the first, keep the best one that is provably
+   the right PLACE, and when the place itself has no picture, fall back to a real photograph
+   of a real landmark beside it (Reine borrows Moskenes Municipality, the Swiss Alps borrow
+   the Jungfrau). That lifts coverage from 96% to essentially everywhere a traveller can go,
+   and every image is still a genuine photograph of that location. */
+
+/** Wikipedia throttles bursts with 429. Without a retry a throttled moment reads as "this
+ *  place has no photo": a run of destinations went from resolving to blank purely because the
+ *  requests were refused, which measured as 67% coverage instead of the real 96%. One retry
+ *  after a short pause recovers nearly all of it, and a refusal is still never cached as a
+ *  miss — only a real answer is. */
+/* Wikimedia request gate.
+ *
+ * Every place card resolves its own photograph, and each resolution makes several Commons and
+ * Wikipedia calls. A page of 24 cards therefore fired around a hundred requests at once, and
+ * Wikimedia answered with 36 Commons 429s and 21 Wikipedia 429s in a single live page load —
+ * so cards that had a perfectly good photograph available kept their stand-in instead. Retrying
+ * harder makes it worse, because the retries collide too.
+ *
+ * Three or four in flight is enough to keep a page filling steadily without tripping the limit.
+ * Everything else waits its turn, which costs a little latency on a dense page and gains the
+ * photographs that were previously being thrown away. */
+const WIKI_MAX_CONCURRENT = 3;
+let wikiInFlight = 0;
+const wikiWaiting = [];
+
+function wikiAcquire(){
+  if(wikiInFlight < WIKI_MAX_CONCURRENT){ wikiInFlight++; return Promise.resolve(); }
+  return new Promise(resolve => wikiWaiting.push(resolve));
+}
+function wikiRelease(){
+  const next = wikiWaiting.shift();
+  if(next) next();            // hand the slot straight over
+  else wikiInFlight = Math.max(0, wikiInFlight - 1);
+}
+
+async function fetchWikiJSON(url){
+  await wikiAcquire();
+  try{
+    for(let attempt = 0; attempt < 3; attempt++){
+      try {
+        const res = await fetchWithTimeout(url, 8000, {headers:{'Accept':'application/json'}});
+        if(res && res.ok) return await res.json();
+        if(res && (res.status === 429 || res.status === 503)){
+          // Honour Retry-After when the server sends one; otherwise back off with jitter so a
+          // batch of throttled requests does not all come back at the same instant.
+          const after = res.headers && res.headers.get && Number(res.headers.get('retry-after'));
+          const wait = (after > 0 && after < 30) ? after * 1000
+                     : (800 * Math.pow(2, attempt)) + Math.random() * 400;
+          await new Promise(r => setTimeout(r, wait));
+          continue;
+        }
+        return null;                        // a real error, not worth retrying
+      } catch(e){
+        if(attempt >= 1) return null;
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+    return null;
+  } finally {
+    wikiRelease();
+  }
+}
+
+/** Filenames that are graphics rather than photographs of a place. The bundled-image importer
+ *  rejects these too — without it here, "Faroe Islands" resolved to the national flag and
+ *  "Socotra" to a satellite view. */
+const NON_PHOTO_FILE = new RegExp([
+  'flag', 'coat[_ ]of[_ ]arms', '\\bseal\\b', '\\blogo\\b', 'emblem', 'blason',
+  // "map" in the languages Wikipedia files actually use — Nosy Be resolved to
+  // "Carte_de_Nosy_Be", a French map, because only the English word was blocked.
+  '\\bmap\\b', '\\bcarte\\b', '\\bmapa\\b', '\\bkarte\\b', '\\bkaart\\b', '\\bmappa\\b',
+  'locator', 'location_map', 'topograph', 'orthophoto',
+  // Satellite frames: "Alps_2007-03-13_10.10UTC_1px-250m.jpg" is imagery of a place, not a
+  // photograph of it.
+  'satview', 'satellite', '\\baster\\b', 'landsat', 'sentinel', '\\bnasa\\b', 'utc_',
+  // A rendered vector graphic. Wikipedia serves these as "<name>.svg.png", and a diagram is
+  // essentially never what a traveller should see — this alone caught two locator maps.
+  'svg png', '\\bsvg\\b',
+].join('|'), 'i');
+/** Photographs on Wikimedia Commons are overwhelmingly JPEG; maps, diagrams, flags and
+ *  charts are PNG, GIF or SVG. Names alone cannot separate them — "2011_Dimos_Thiras.png" is
+ *  a municipality map of Santorini and says nothing about being one, and a 10th-century map
+ *  arrived for Tuscany the same way. The import pipeline catches these by inspecting pixels,
+ *  which is too expensive at runtime; the file format is the cheap signal that agrees with it
+ *  almost always, and anything wrongly excluded simply falls to the next candidate. */
+function isPhotographicFormat(url){
+  const base = String(url).split('?')[0].toLowerCase();
+  return /\.jpe?g$/.test(base);
+}
+function looksLikePhoto(url){
+  if(!url) return false;
+  if(!isPhotographicFormat(url)) return false;
+  let name = String(url).split('/').pop() || '';
+  try { name = decodeURIComponent(name); } catch(e){}
+  // Underscores are word characters, so /\bmap\b/ does NOT match inside "Pat_map.PNG" — which
+  // is exactly how a map of Patagonia got through. Separators become spaces first so the word
+  // boundaries mean what they look like they mean.
+  name = name.replace(/[_\-.]+/g, ' ');
+  return !NON_PHOTO_FILE.test(name);
+}
+
+function kmBetween(aLat, aLng, bLat, bLng){
+  const R = 6371, rad = d => d * Math.PI / 180;
+  const dLat = rad(bLat - aLat), dLng = rad(bLng - aLng);
+  const h = Math.sin(dLat/2)**2 + Math.cos(rad(aLat)) * Math.cos(rad(bLat)) * Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** Candidate articles for a query, each with its photo and coordinates so it can be vetted. */
+async function fetchWikiCandidates(query, limit){
+  const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search` +
+    `&gsrsearch=${encodeURIComponent(query)}&gsrlimit=${limit || 4}` +
+    `&prop=pageimages|coordinates&piprop=thumbnail&pithumbsize=720&colimit=20&format=json&origin=*`;
+  const data = await fetchWikiJSON(url);
+  if(!data) return null;                                 // null = no answer, distinct from []
+  const pages = (data.query && data.query.pages) || {};
+  return Object.values(pages)
+    .sort((a,b) => (a.index || 9) - (b.index || 9))
+    .map(p => ({
+      title: p.title,
+      thumb: (p.thumbnail && p.thumbnail.source && looksLikePhoto(p.thumbnail.source))
+        ? capWikiThumb(p.thumbnail.source, 720) : null,
+      lat: (p.coordinates && p.coordinates[0]) ? p.coordinates[0].lat : null,
+      lng: (p.coordinates && p.coordinates[0]) ? p.coordinates[0].lon : null,
+    }));
+}
+
+/** A photograph of a real landmark near a coordinate. Wikipedia caps gsradius at 10km. */
+async function fetchNearbyPhoto(lat, lng){
+  if(lat == null || lng == null) return null;
+  const url = `https://en.wikipedia.org/w/api.php?action=query&generator=geosearch` +
+    `&ggscoord=${lat}|${lng}&ggsradius=10000&ggslimit=30` +
+    `&prop=pageimages&piprop=thumbnail&pithumbsize=720&format=json&origin=*`;
+  const data = await fetchWikiJSON(url);
+  if(!data) return null;
+  const pages = Object.values((data.query && data.query.pages) || {});
+  for(const p of pages){
+    if(p.thumbnail && p.thumbnail.source && looksLikePhoto(p.thumbnail.source)){
+      return capWikiThumb(p.thumbnail.source, 720);
+    }
+  }
+  return null;
+}
+
+/** How far a candidate article may sit from the destination and still be about it.
+ *  A single fixed radius cannot work: 75km is right for a town (a "Springfield" 600km away is
+ *  the wrong Springfield) and absurd for Patagonia, whose Wikipedia article sits 606km from
+ *  the geocoder's centroid — both points being legitimately inside a region of a million
+ *  square kilometres. So the tolerance scales with the kind of place. */
+/** Subjects that must never represent a place on a holiday-planning site, however
+ *  geographically correct they are. A photograph of a soldier is not what South Korea is for
+ *  a traveller, and reducing a country to its conflicts is both useless and disrespectful.
+ *  Word boundaries matter here: "Kawarau Gorge" and "Yaowarat Road" contain the letters of
+ *  "war" and are perfectly good travel imagery.
+ *
+ *  This filters DEFAULT imagery only. A user who deliberately searches a war memorial or a
+ *  historic fortress still finds it — those are named attractions they asked for. */
+const INAPPROPRIATE_SUBJECT = new RegExp([
+  '\\bsoldiers?\\b','\\bmilitary\\b','\\barmy\\b','\\bnavy\\b','\\bair force\\b','\\btroops?\\b',
+  '\\bweapons?\\b','\\bgun\\b','\\brifles?\\b','\\btanks?\\b','\\bmissiles?\\b','\\bwarfare\\b',
+  '\\bwar\\b','\\bbattles?\\b','\\bconflict\\b','\\binvasion\\b','\\boccupation\\b','\\bmartyrs?\\b',
+  '\\bprotests?\\b','\\briots?\\b','\\bdemonstrations?\\b','\\buprising\\b','\\brevolution\\b','\\bcoup\\b',
+  '\\bmassacres?\\b','\\bgenocide\\b','\\batrocity\\b','\\bexecutions?\\b','\\bconcentration camp\\b',
+  '\\bdisasters?\\b','\\bearthquakes?\\b','\\btsunami\\b','\\bfamine\\b','\\bepidemic\\b','\\bpandemic\\b',
+  '\\bfloods?\\b','\\bwreck(age)?\\b','\\bcrash(es)?\\b','\\bbombings?\\b','\\bshootings?\\b','\\bterror',
+  '\\bslums?\\b','\\bpoverty\\b','\\brefugees?\\b','\\bprisons?\\b','\\bpenitentiary\\b',
+  '\\bcemeter(y|ies)\\b','\\bgraves?\\b','\\bgraveyard\\b','\\bmorgue\\b','\\bfuneral\\b',
+  '\\bpolice\\b','\\bpolitician\\b','\\bpresident\\b','\\bdictator\\b','\\bparade\\b','\\bDMZ\\b',
+  // Sexual content. A search for "Japan" returned "Kikakumono adult video in Japan" as the
+  // country's representative image; nothing of the sort belongs on a holiday planner.
+  '\\badult video\\b','\\bporn','\\bsex\\b','\\bsexual\\b','\\bnude\\b','\\bnudity\\b','\\berotic',
+  '\\bbrothel\\b','\\bprostitut','\\bstrip club\\b','\\bfetish\\b','\\bhentai\\b','\\bgore\\b',
+].join('|'), 'i');
+
+/** True when a title or filename is safe to use as default travel imagery. */
+function isTravelAppropriate(text){
+  let v = String(text || '');
+  try { v = decodeURIComponent(v); } catch(e){}
+  v = v.replace(/^\d+px-/, '').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_\-.]+/g, ' ');
+  return !INAPPROPRIATE_SUBJECT.test(v);
+}
+
+/** Infrastructure that is genuinely IN a destination but is not what anyone travels to see.
+ *  The bundled-image importer has rejected these for hero images since it was written; without
+ *  the same rule at runtime, Santorini resolved to a photograph of its airport terminal. */
+/** For a large place — a region, state or country — a single small building cannot represent
+ *  it. "Sedgwick hall" is genuinely inside Victoria and genuinely photographed, and tells a
+ *  traveller nothing about the state. Compact places are exempt: any landmark inside a town
+ *  or an island reads as that place. */
+const SMALL_BUILDING_TITLE = /\b(hall|post office|church|chapel|school|college|court|courthouse|library|hotel|inn|pub|shop|store|house|cottage|villa|mill|farm|bridge|monument|memorial|statue|clock tower|water tower|silo|barn)\b/i;
+const LARGE_PLACE_TYPES = new Set(['region','state','province','county','country']);
+
+const NON_HERO_TITLE = /(airport|airfield|air base|bus station|railway station|\bstation\b|terminal|hospital|prison|barracks|power (plant|station)|sewage|landfill|industrial estate|business park|car park|parking)/i;
+
+/** Does this article title actually name the destination? Coordinates prove a candidate is
+ *  in the right area; this proves it is the right PLACE. Without it a neighbouring town's
+ *  article passes the distance check and its photo is served as your destination. */
+function titleNamesPlace(title, name){
+  const norm = v => String(v||'').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'')
+                     .replace(/[^a-z0-9 ]+/g,' ').replace(/\s+/g,' ').trim();
+  const t = norm(title), n = norm(name);
+  if(!t || !n) return false;
+  if(t === n) return true;
+  // "Queenstown, New Zealand" for Queenstown; "Oia, Greece" for Oia.
+  if(t.startsWith(n + ' ') || t.endsWith(' ' + n) || t.includes(' ' + n + ' ')) return true;
+  // Transliteration: Marrakech/Marrakesh, Reykjavik/Reykjavík.
+  if(Math.abs(t.length - n.length) <= 2 && t.length >= 5){
+    let same = 0;
+    for(let i = 0; i < Math.min(t.length, n.length); i++) if(t[i] === n[i]) same++;
+    if(same / Math.max(t.length, n.length) >= 0.8) return true;
+  }
+  return false;
+}
+
+const __destPhotoTier = {};   // which rung answered, for auditing
+/** Which rung of the chain produced a destination's photo: 'article' (the place itself),
+ *  'landmark' (something inside it), or null (name card). Exposed so the accuracy audit can
+ *  tell a photo OF the destination from a photo merely NEAR it. */
+function destPhotoTierFor(destKey){ return __destPhotoTier['dest:' + String(destKey||'').toLowerCase()] || null; }
+/** A landmark photo, but only from within `maxKm` of the point. fetchNearbyPhoto searches a
+ *  fixed 10km circle (the API's cap); this filters that result set down to what is actually
+ *  inside the destination, and returns nothing rather than something from further out. */
+async function fetchNearbyPhotoWithin(lat, lng, maxKm, placeName, placeType, requireNamed){
+  if(lat == null || lng == null || !maxKm) return null;
+  const large = LARGE_PLACE_TYPES.has(placeType);
+  const url = `https://en.wikipedia.org/w/api.php?action=query&generator=geosearch` +
+    `&ggscoord=${lat}|${lng}&ggsradius=10000&ggslimit=40` +
+    `&prop=pageimages|coordinates&piprop=thumbnail&pithumbsize=720&colimit=40&format=json&origin=*`;
+  const data = await fetchWikiJSON(url);
+  if(!data) return null;
+  const pages = Object.values((data.query && data.query.pages) || {})
+    .filter(p => p.thumbnail && p.thumbnail.source && looksLikePhoto(p.thumbnail.source))
+    .filter(p => (p.coordinates || [])[0])
+    .filter(p => !NON_ATTRACTION_TITLE_PATTERNS.some(re => re.test(p.title || '')))
+    .filter(p => !NON_HERO_TITLE.test(p.title || ''))
+    .filter(p => isTravelAppropriate(p.title) && isTravelAppropriate((p.thumbnail||{}).source))
+    // Judge the FILE as well as the article: the article "Sedgwick, Victoria" is a place, but
+    // its photograph is Sedgwick_hall.jpg — a village hall offered as the state of Victoria.
+    .filter(p => {
+      if(!large) return true;
+      let file = String((p.thumbnail || {}).source || '').split('/').pop();
+      try { file = decodeURIComponent(file); } catch(e){}
+      file = file.replace(/^\d+px-/, '')
+                 .replace(/([a-z])([A-Z])/g, '$1 $2')   // SpringGullyHotel -> Spring Gully Hotel
+                 .replace(/[_\-.]+/g, ' ');
+      return !SMALL_BUILDING_TITLE.test(p.title || '') && !SMALL_BUILDING_TITLE.test(file);
+    })
+    .map(p => ({ p, km: kmBetween(lat, lng, p.coordinates[0].lat, p.coordinates[0].lon),
+                 // A landmark that carries the destination's name is recognisable AS the
+                 // destination; nearest-first alone offered a rural post office for the whole
+                 // state of Victoria, which no traveller would recognise.
+                 named: placeName && titleNamesPlace(p.title, placeName) ? 0 : 1 }))
+    .filter(x => x.km <= maxKm)
+    .filter(x => !requireNamed || x.named === 0)
+    .sort((a, b) => a.named - b.named || a.km - b.km);
+  return pages.length ? capWikiThumb(pages[0].p.thumbnail.source, 720) : null;
+}
+
+const DEST_PHOTO_MAX_KM = {
+  city:75, town:60, village:40, hamlet:40, suburb:30, borough:40, locality:50, municipality:75,
+  island:150, archipelago:400, peninsula:300, county:150, national_park:200, nature_reserve:150,
+  protected_area:200, attraction:40, monument:40, castle:40, museum:40, peak:60, volcano:60,
+  bay:150, beach:60, fjord:150, lake:150, glacier:120,
+  region:800, state:600, province:600, country:2000,
+};
+function destPhotoRadiusKm(type){ return DEST_PHOTO_MAX_KM[type] || 100; }
+/** A landmark may stand in for a destination only if it is genuinely within it. A temple 6km
+ *  from the centre of Beijing is Beijing; a church 8km from a hamlet is the next village. */
+const DEST_NEARBY_KM = { city:15, town:6, village:3, hamlet:3, suburb:3, borough:5, locality:4,
+  municipality:8, island:25, archipelago:40, country:0, region:50, state:40, province:40,
+  county:25, national_park:30, nature_reserve:20, protected_area:25, peninsula:30, bay:20,
+  beach:5, lake:20, fjord:25, peak:10, volcano:10, glacier:15, attraction:3, monument:3 };
+function destNearbyRadiusKm(type){ const v = DEST_NEARBY_KM[type]; return v === undefined ? 8 : v; }
+
+/** The full destination-photo chain. Cached under the destination id like any other lookup. */
+async function resolveDestinationPhoto(dest){
+  if(!dest) return null;
+  const cache = photoCache();
+  // Keyed by the canonical place id where there is one: "dest:paris" would otherwise be
+  // shared by Paris, France and Paris, Texas.
+  const key = 'dest:' + (dest.placeId || dest.id || dest.name || '').toLowerCase();
+  const hit = cache[key];
+  if(typeof hit === 'string' && hit) return hit;
+  if(hit && typeof hit === 'object' && hit.miss && (Date.now() - hit.miss) < PHOTO_MISS_TTL_MS) return null;
+
+  return withPhotoSlot(async () => {
+    const queries = [dest.name];
+    if(dest.country && dest.country !== dest.name){
+      queries.push(`${dest.name}, ${dest.country}`, `${dest.name} ${dest.country}`);
+    }
+    if(dest.region && dest.region !== dest.name) queries.push(`${dest.name} ${dest.region}`);
+    const hasCoords = dest.lat != null && dest.lng != null && dest.__geo;
+    let answered = false, found = null, anchorLat = null, anchorLng = null, tier = null;
+
+    for(const q of queries){
+      const candidates = await fetchWikiCandidates(q, 4);
+      if(candidates === null) continue;                  // request failed: not an answer
+      answered = true;
+      for(const c of candidates){
+        // A candidate with no coordinates is not a place — that is what "Maverick Viñales" is.
+        if(c.lat == null) continue;
+        if(hasCoords && kmBetween(dest.lat, dest.lng, c.lat, c.lng) > destPhotoRadiusKm(dest.placeType)) continue;
+        // Coordinates alone are not enough: the article must also name the destination, and
+        // must not be its airport or bus station.
+        if(NON_HERO_TITLE.test(c.title || '')) continue;
+        // Correct location is not enough: it must also be imagery that represents the place
+        // as somewhere to travel to.
+        if(!isTravelAppropriate(c.title) || !isTravelAppropriate(c.thumb)) continue;
+        if(!titleNamesPlace(c.title, dest.name)) continue;
+        if(!anchorLat){ anchorLat = c.lat; anchorLng = c.lng; }   // a vetted point inside the place
+        if(!c.thumb) continue;                                    // right place, no usable photo
+        found = c.thumb; tier = 'article'; break;
+      }
+      if(found) break;
+    }
+
+    // The place is real but unphotographed: borrow a landmark that is genuinely INSIDE it.
+    // fetchNearbyPhoto searches a 10km circle, so anything tighter than that is enforced here
+    // against the landmark's own coordinates.
+    // For a state, province or country the geocoded centroid is an arbitrary point in a huge
+    // area, and no landmark near it reliably represents the whole: Victoria offered in turn a
+    // village hall, then a rural pub. Chasing that with more filename patterns is endless, so
+    // for those types a landmark must NAME the destination or it is not used at all. Compact
+    // places keep the nearest-landmark behaviour, where anything inside genuinely reads as
+    // the place — Santorini's caldera cableway, the Gotthard pass for the Swiss Alps.
+    if(!found && (hasCoords || anchorLat)){
+      // Requiring the landmark to name the destination does not work for these: Wikipedia
+      // titles every settlement in a state as "Town, State", so the name test always passes
+      // and a reservoir in "Kennington, Victoria" is served as the state of Victoria. There is
+      // no reliable signal here, so no landmark is used — the name card is the honest answer.
+      const noLandmark = new Set(['state','province','country']).has(dest.placeType);
+      for(const [la, ln] of (noLandmark ? [] : [[anchorLat, anchorLng], [dest.lat, dest.lng]])){
+        if(la == null) continue;
+        const near = await fetchNearbyPhotoWithin(la, ln, destNearbyRadiusKm(dest.placeType),
+                                                  dest.name, dest.placeType);
+        if(near){ found = near; tier = 'landmark'; answered = true; break; }
+      }
+    }
+    // No country fallback. A photograph of Madagascar is not a photograph of Nosy Be, and a
+    // beautiful image of the wrong place is worse than none: a destination with nothing
+    // verifiably its own gets the name card instead.
+
+    if(found) cache[key] = found;
+    else if(answered) cache[key] = { miss: Date.now() };
+    __destPhotoTier[key] = tier;
+    if(found || answered) writeJSONCache(PHOTO_CACHE_KEY, cache);
+    return found;
+  });
+}
+
 /* ---- Geocoding via OpenStreetMap Nominatim (no key) — real coordinates for ANY place typed, worldwide ---- */
 const GEOCODE_CACHE_KEY = 'tripflow_geocode_cache_v1';
 let __geocodeCache = null;
 function geocodeCache(){ if(!__geocodeCache) __geocodeCache = readJSONCache(GEOCODE_CACHE_KEY); return __geocodeCache; }
+/** Place kinds Nominatim may return when resolving a destination. Its free-text search
+ *  otherwise happily returns businesses: "Paris Texas" resolves to a PUB IN BUDAPEST named
+ *  "Paris, Texas" (country: Hungary), and "Seoul Korea" to a Korean restaurant in Malaysia.
+ *  That is how a destination ended up captioned "Malaysia" under the name "Seoul Korea" —
+ *  the name came from what was typed, the country from an unrelated shop. */
+const GEOCODE_PLACE_TYPES = new Set(['administrative','city','town','village','hamlet',
+  'suburb','borough','municipality','county','state','province','region','country','island',
+  'archipelago','islet','peninsula','locality','national_park','nature_reserve','protected_area',
+  'attraction','monument','castle','ruins','archaeological_site','peak','volcano','bay','beach',
+  'fjord','lake','glacier','neighbourhood','quarter','city_district','district']);
+
 async function geocodeCity(query){
   const cache = geocodeCache();
   const key = query.trim().toLowerCase();
   if(cache[key]) return cache[key];
   let result = null;
   try{
-    const res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=1&q=${encodeURIComponent(query)}`, 8000, {headers:{'Accept':'application/json'}});
+    const res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&q=${encodeURIComponent(query)}`, 8000, {headers:{'Accept':'application/json'}});
     if(res && res.ok){
       const arr = await res.json();
-      if(arr && arr[0]){
-        const a = arr[0];
+      // Take the first result that is actually a PLACE. Without this the first result can be
+      // a restaurant or a pub that merely shares the name, and its country becomes the
+      // destination's country.
+      const a = (arr || []).find(x => GEOCODE_PLACE_TYPES.has(x.type) ||
+                                      GEOCODE_PLACE_TYPES.has(x.class) ||
+                                      x.class === 'place' || x.class === 'boundary');
+      if(a){
         const addr = a.address || {};
         result = {
           lat: parseFloat(a.lat), lng: parseFloat(a.lon),
@@ -340,37 +726,25 @@ const CURRENCY_META = {
   BGN:{symbol:'лв',name:'Bulgarian Lev'},
 };
 const FX_CACHE_KEY = 'tripflow_fx_cache_v1';
-// Approximate fallback rates, used ONLY when the live rate fetch fails (offline, blocked,
-// timeout) so the converter still works instead of going fully dark — clearly marked as
-// approximate (not "live") wherever they're shown, and replaced the moment a live fetch succeeds.
-const FALLBACK_EXCHANGE_RATES = {
-  EUR:0.92, GBP:0.79, JPY:149.5, CAD:1.37, AUD:1.52, CNY:7.1, INR:83.4, THB:35.8, MXN:18.2,
-  BRL:5.4, CHF:0.88, KRW:1330, IDR:15700, ZAR:18.9, NZD:1.64, SGD:1.34, HKD:7.82, ISK:138.5,
-  ILS:3.7, MYR:4.7, PHP:56.2, TRY:34.1, PLN:4.0, CZK:23.4, HUF:365, NOK:10.6, SEK:10.4, DKK:6.86,
-  RON:4.58, BGN:1.8,
-};
+/* Exchange rates live in currency.js now.
+ *
+ * What used to be here: a table of ~30 rates hardcoded into the source, used whenever the live
+ * fetch failed. They were wrong the day after they were written and got worse every day after
+ * that, and a stale rate shown to someone budgeting a trip is a wrong number presented as a
+ * fact. The spec's rule — no guessing, no outdated static rates — is right, so the table is
+ * gone. currency.js caches real rates for 12 hours, falls back to an older cached rate clearly
+ * marked stale, and otherwise says plainly that no rate is available. */
 let EXCHANGE_RATES = {USD:1};
 let EXCHANGE_RATES_ARE_LIVE = false;
 async function loadExchangeRates(){
   try{
-    const cached = JSON.parse(localStorage.getItem(FX_CACHE_KEY) || 'null');
-    if(cached && cached.rates && (Date.now() - cached.ts) < 12*3600*1000){ EXCHANGE_RATES = cached.rates; EXCHANGE_RATES_ARE_LIVE = true; return true; }
-  }catch(e){}
-  try{
-    const symbols = Object.keys(CURRENCY_META).filter(c=>c!=='USD').join(',');
-    const res = await fetchWithTimeout(`https://api.frankfurter.app/latest?from=USD&to=${symbols}`, 8000);
-    if(res && res.ok){
-      const data = await res.json();
-      if(data && data.rates){
-        EXCHANGE_RATES = Object.assign({USD:1}, data.rates);
-        EXCHANGE_RATES_ARE_LIVE = true;
-        writeJSONCache(FX_CACHE_KEY, {ts:Date.now(), rates:EXCHANGE_RATES});
-        return true;
-      }
+    const box = await getRates('USD');
+    if(box && box.rates){
+      EXCHANGE_RATES = Object.assign({USD:1}, box.rates);
+      EXCHANGE_RATES_ARE_LIVE = !box.stale;
+      return !box.stale;
     }
-  }catch(e){}
-  // Live fetch failed — fall back to approximate rates so the converter still functions.
-  if(!EXCHANGE_RATES_ARE_LIVE) EXCHANGE_RATES = Object.assign({USD:1}, FALLBACK_EXCHANGE_RATES);
+  }catch(e){ /* reported by the caller as "rates unavailable" */ }
   return false;
 }
 function convertUSD(amountUSD, toCurrency){
@@ -517,6 +891,13 @@ const NON_ATTRACTION_EXTRACT_PATTERNS = [
 const NON_ATTRACTION_TITLE_PATTERNS = [
   /\b(station|métro|metro line|railway line|tram stop)\b/i,
   /\b\d+(st|nd|rd|th)\s+arrondissement\b/i,
+  // Events, not places. GeoSearch returns any article with coordinates, which near Tiananmen
+  // meant "1989 Tiananmen Square protests and massacre" was offered as somewhere to visit.
+  // An atrocity is not a stop on a holiday itinerary; the square itself still is, and still
+  // appears, because that is a separate article about a place.
+  /\b(massacre|protests?|riots?|uprising|revolution|bombing|attacks?|shootings?|siege|battle|invasion|coup|genocide|earthquake|tsunami|disaster|famine|epidemic|pandemic|outbreak|assassination|murder|scandal|referendum|treaty|olympics|championship|world cup)\b/i,
+  // A leading year is almost always an event ("2008 Summer Olympics"), never a place.
+  /^\s*\d{3,4}\s/,
 ];
 function isVisitableAttraction(title, extract, image){
   if(!image) return false;                                    // no photo -> not a visitor attraction
@@ -549,8 +930,15 @@ function inferTagsFromExtract(text){
 const ENRICH_CACHE_KEY = 'tripflow_enrich_cache_v2';
 function enrichCache(){ return readJSONCache(ENRICH_CACHE_KEY); }
 function applyEnrichment(dest, payload){
-  dest.lat = payload.lat; dest.lng = payload.lng;
-  if(payload.country){ dest.country = payload.country; dest.currencyCode = currencyCodeForCountry(payload.country); }
+  // Enrichment ADDS attractions. It must never restate who the destination is: a destination
+  // resolved from search already carries a verified name, country and coordinates, and letting
+  // a later background lookup overwrite them is precisely how a page came to show one place's
+  // name above another place's country. Identity is written once, at creation.
+  if(!dest.__geo){
+    if(payload.lat != null) dest.lat = payload.lat;
+    if(payload.lng != null) dest.lng = payload.lng;
+    if(payload.country){ dest.country = payload.country; dest.currencyCode = currencyCodeForCountry(payload.country); }
+  }
   if(payload.attractions && payload.attractions.length){
     for(let i=PLACES.length-1;i>=0;i--){ if(PLACES[i].destId===dest.id && PLACES[i].type==='attraction') PLACES.splice(i,1); }
     payload.attractions.forEach((p,i)=>{
@@ -566,7 +954,12 @@ async function enrichGenericDestination(dest){
   try{
     const cache = enrichCache();
     if(cache[dest.id] && cache[dest.id].attractions && cache[dest.id].attractions.length){ applyEnrichment(dest, cache[dest.id]); return true; }
-    const geo = await geocodeCity(dest.name + (dest.country ? ', '+dest.country : ''));
+    // A destination picked from search already carries real coordinates from geo.js, so
+    // geocoding it again is a redundant Nominatim round-trip on the critical path — and
+    // Nominatim is the slowest and least reliable call in the app. Skipping it is why the
+    // real local attractions now appear promptly instead of after a long spell of
+    // placeholders; only a destination that arrived without coordinates still needs it.
+    const geo = dest.__geo ? null : await geocodeCity(dest.name + (dest.country ? ', '+dest.country : ''));
     const lat = geo ? geo.lat : dest.lat, lng = geo ? geo.lng : dest.lng;
     const pois = await fetchNearbyWikiPOIs(lat, lng, 40);
     if(!geo && !pois.length){ dest.__enriched = true; return false; }
@@ -1141,10 +1534,23 @@ const COUNTRY_TO_CURRENCY = {
   'denmark':'DKK','finland':'EUR','croatia':'EUR','russia':'RUB','israel':'ILS','united arab emirates':'AED',
   'saudi arabia':'SAR','qatar':'QAR','hong kong':'HKD','romania':'RON','bulgaria':'BGN','luxembourg':'EUR',
 };
-function currencyCodeForCountry(country){
+/** The currency a country uses. currency-data.js carries the full ISO 3166 -> ISO 4217 map
+ *  (245 countries), so this no longer answers "USD" for every country missing from a
+ *  hand-written table of 58. The old table is still consulted first for the handful of
+ *  historical spellings the curated destinations use. */
+function currencyCodeForCountry(country, countryCode){
+  const cc = String(countryCode || '').toUpperCase();
+  if(cc && typeof COUNTRY_CURRENCY !== 'undefined' && COUNTRY_CURRENCY[cc]) return COUNTRY_CURRENCY[cc];
   if(!country) return 'USD';
-  const code = COUNTRY_TO_CURRENCY[country.trim().toLowerCase()];
-  return code && CURRENCY_META[code] ? code : 'USD';
+  const key = country.trim().toLowerCase();
+  const legacy = COUNTRY_TO_CURRENCY[key];
+  if(legacy) return legacy;
+  if(typeof COUNTRY_NAMES !== 'undefined' && typeof COUNTRY_CURRENCY !== 'undefined'){
+    for(const code2 in COUNTRY_NAMES){
+      if(String(COUNTRY_NAMES[code2]).toLowerCase() === key && COUNTRY_CURRENCY[code2]) return COUNTRY_CURRENCY[code2];
+    }
+  }
+  return 'USD';
 }
 
 DESTINATIONS_RAW.forEach(d=>{
@@ -1270,31 +1676,162 @@ const GENERIC_DEST_NAME_CACHE_KEY = 'tripflow_generic_dest_names_v1';
  * curated list. Without this, resolving a URL like #/destination/gen-beijing after a reload (very
  * common on mobile Safari, which reloads backgrounded tabs) would have nothing to recover the
  * original typed name from, and would wrongly treat the raw id/slug itself as the destination name. */
-function rememberGenericDestName(id, name){
+function rememberGenericDestName(id, name, geo){
   const cache = readJSONCache(GENERIC_DEST_NAME_CACHE_KEY);
-  cache[id] = name;
+  // Stored as an object so a reload recovers the real coordinates and country too; the old
+  // format was a bare string, which is still read below for anything cached before this.
+  cache[id] = geo ? { name, geo } : { name };
   writeJSONCache(GENERIC_DEST_NAME_CACHE_KEY, cache);
 }
 function recallGenericDestName(id){
-  const cache = readJSONCache(GENERIC_DEST_NAME_CACHE_KEY);
-  return cache[id] || null;
+  const hit = readJSONCache(GENERIC_DEST_NAME_CACHE_KEY)[id];
+  if(!hit) return null;
+  return typeof hit === 'string' ? hit : hit.name;      // tolerate the pre-v2 bare-string form
 }
-function makeGenericDestination(name){
-  const clean = titleCaseDestName(name.split(',')[0].trim() || name.trim());
+function recallGenericDestGeo(id){
+  const hit = readJSONCache(GENERIC_DEST_NAME_CACHE_KEY)[id];
+  return (hit && typeof hit === 'object' && hit.geo) ? hit.geo : null;
+}
+/** Upgrades a destination that was created before its real geography was known. */
+/* ---------------- Geographic integrity ----------------
+ * Rule 1 of the spec: never use a destination name alone; always use canonical ID +
+ * coordinates. These are the guards every map, route and place list has to pass through. */
+
+/** Kilometres between two {lat,lng} points. */
+function geoDistanceKm(a, b){
+  if(!a || !b || a.lat==null || a.lng==null || b.lat==null || b.lng==null) return Infinity;
+  const R = 6371, toRad = d => d*Math.PI/180;
+  const dLat = toRad(b.lat-a.lat), dLng = toRad(b.lng-a.lng);
+  const h = Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** True only when this destination's position came from a verified geocode. Everything that
+ *  draws a map, plots a route or validates a place MUST check this first. */
+function hasVerifiedGeo(dest){
+  return !!(dest && dest.lat != null && dest.lng != null &&
+            isFinite(dest.lat) && isFinite(dest.lng) &&
+            Math.abs(dest.lat) <= 90 && Math.abs(dest.lng) <= 180 &&
+            (dest.geoVerified !== false));
+}
+
+/** How far from the centre a place can plausibly still be "in" this destination. A village and
+ *  a country are both destinations but they are not the same size, so a single radius would
+ *  either exile half of London or accept a restaurant 300 km from a hamlet. */
+const DEST_RADIUS_KM = {
+  continent: 3000, country: 900, state: 350, region: 350, province: 350, county: 90,
+  island: 120, city: 30, municipality: 30, town: 14, village: 8, hamlet: 6,
+  suburb: 6, neighbourhood: 4, district: 10, locality: 8,
+  attraction: 3, landmark: 3, museum: 2, building: 2, station: 3,
+};
+function destinationRadiusKm(dest){
+  const t = String((dest && (dest.placeType || dest.type)) || '').toLowerCase();
+  return DEST_RADIUS_KM[t] || 30;
+}
+
+/** Rule 3: every place must belong to the destination context. Rule 4: if a place is thousands
+ *  of kilometres away, reject it. This is what stops a Seoul itinerary listing Spanish stops.
+ *
+ *  Three tests, strongest first, because no single one is right for every scale of destination:
+ *    1. Country code. Decisive when both sides know theirs — Seoul is not in Japan no matter
+ *       what the geometry says.
+ *    2. Boundary box from the geocoder. Real data and much tighter than a circle for anywhere
+ *       long and thin (Chile, Norway, Japan). Note that country boxes genuinely overlap —
+ *       Seoul sits inside Japan's — which is why the code above it is checked first.
+ *    3. Radius. The fallback when we know nothing but a centre point. */
+function placeWithinDestination(place, dest){
+  if(!hasVerifiedGeo(dest)) return false;
+  if(!place || place.lat == null || place.lng == null) return false;
+
+  const placeCC = String(place.countryCode || '').toUpperCase();
+  const destCC  = String(dest.countryCode || '').toUpperCase();
+  if(placeCC && destCC && placeCC !== destCC) return false;
+
+  const box = dest.bbox;
+  if(box && box.minLat != null){
+    // A small tolerance so a place right on the boundary is not exiled by rounding.
+    const padLat = 0.02, padLng = 0.02;
+    const inBox = place.lat >= box.minLat - padLat && place.lat <= box.maxLat + padLat &&
+                  place.lng >= box.minLng - padLng && place.lng <= box.maxLng + padLng;
+    if(!inBox) return false;
+    // Inside the box AND within a sane distance: for a country the box is the real test, but a
+    // city's box should not let in somewhere 200 km away just because the box is generous.
+    return geoDistanceKm(place, dest) <= destinationRadiusKm(dest) * 3;
+  }
+
+  return geoDistanceKm(place, dest) <= destinationRadiusKm(dest) * 1.25;
+}
+
+function applyGeoToDestination(dest, geo){
+  if(!dest || !geo) return dest;
+  if(geo.lat != null && geo.lng != null){ dest.lat = geo.lat; dest.lng = geo.lng; dest.geoVerified = true; }
+  if(geo.country){
+    dest.country = geo.country;
+    dest.currencyCode = currencyCodeForCountry(geo.country, geo.countryCode);
+    dest.currency = `Local currency (${dest.currencyCode})`;
+  }
+  if(geo.countryCode) dest.countryCode = geo.countryCode;
+  if(geo.bbox) dest.bbox = geo.bbox;
+  if(geo.flag) dest.flag = geo.flag;
+  if(geo.region) dest.region = geo.region;
+  if(geo.type) dest.placeType = geo.type;
+  if(geo.displayName) dest.displayName = geo.displayName;
+  if(geo.placeId) dest.placeId = geo.placeId;
+  dest.__geo = true;
+  // Now that the position is verified, real places can be discovered around it. Before this
+  // point there was nowhere to search, which is exactly why nothing was invented.
+  if(hasVerifiedGeo(dest) && typeof discoverPlacesFor === 'function') discoverPlacesFor(dest);
+  return dest;
+}
+/** Builds a destination for anywhere on Earth.
+ *
+ * `geo` is the structured result from geo.js (name, country, countryCode, coordinates, type).
+ * When it is present the destination starts life with its REAL position, country and flag.
+ * Without it the coordinates were seeded from a hash of the name — a deterministic point
+ * somewhere random on the globe — so the map pointed at open ocean until the background
+ * enrichment happened to fix it. That fallback still exists for a bare typed string, but a
+ * destination chosen from search no longer goes through it. */
+function makeGenericDestination(name, geo){
+  const clean = titleCaseDestName((geo && geo.name) || name.split(',')[0].trim() || name.trim());
   const id = 'gen-'+slugify(clean); // derive the id from the cleaned name (not the raw ", Country" text) so recovering a
   const existing = DESTINATIONS.find(d=>d.id===id);            // remembered name after a reload always reproduces the same id
-  if(existing) return existing;
-  rememberGenericDestName(id, clean);
+  if(existing){
+    if(geo && !existing.__geo) applyGeoToDestination(existing, geo);
+    return existing;
+  }
+  rememberGenericDestName(id, clean, geo);
   const rnd = seededRandom(id);
-  const base = { lat: 20 + (rnd()*40-20), lng: (rnd()*340-170) };
+  // GEOGRAPHIC INTEGRITY (non-negotiable): a destination's position comes from a verified
+  // geocode, or it does not exist. The old fallback seeded lat/lng from a hash of the name,
+  // which put "Seoul Korea" at 36.859,-5.346 — a hillside in Andalusia — and the map, the
+  // route and every generated place then faithfully rendered Spain. An invented coordinate is
+  // worse than an absent one: a missing map says "unverified", a wrong map lies. null means
+  // unverified, and everything downstream is required to check before it draws.
+  const base = (geo && geo.lat != null && geo.lng != null)
+    ? { lat: geo.lat, lng: geo.lng }
+    : null;
   const dest = {
-    id, name:clean, country:'', flag:'🌍',
-    tagline:`Discover ${clean} — attractions, food and stays curated for your trip.`,
+    id, name:clean,
+    placeId: (geo && geo.placeId) || null,   // canonical identity; everything else derives from it
+    country: (geo && geo.country) || '',
+    countryCode: (geo && geo.countryCode) || '',
+    region: (geo && geo.region) || '',
+    placeType: (geo && geo.type) || '',
+    displayName: (geo && geo.displayName) || clean,
+    bbox: (geo && geo.bbox) || null,
+    __geo: !!geo,
+    flag: (geo && geo.flag) || '🌍',
+    tagline: (geo && geo.context)
+      ? `${geo.typeLabel || 'Destination'} in ${geo.context} — attractions, food and stays for your trip.`
+      : `Discover ${clean} — attractions, food and stays curated for your trip.`,
     description:`${clean} is ready to explore. We've put together a starter set of top-rated attractions, restaurants and places to stay while you fine-tune your plan.`,
-    tags:['trending'], lat:base.lat, lng:base.lng,
+    tags:['trending'], lat: base ? base.lat : null, lng: base ? base.lng : null,
+    geoVerified: !!base,
     weather:"Check seasonal averages closer to your travel dates.",
     bestTime:"Year-round — varies by season",
-    currency:"Local currency", currencyCode:'USD', language:"Local language",
+    currency: (geo && geo.country) ? `Local currency (${currencyCodeForCountry(geo.country, geo.countryCode)})` : "Local currency",
+    currencyCode: (geo && geo.country) ? currencyCodeForCountry(geo.country, geo.countryCode) : 'USD',
+    language:"Local language",
     avgDailyBudget:{budget:50,moderate:120,luxury:280},
     travelInfo:{ recommendedDays:'3–5 days', timezone:"Check your device's clock once you arrive",
       visa:"Entry requirements vary by nationality — check your country's foreign ministry site before you go.",
@@ -1305,20 +1842,22 @@ function makeGenericDestination(name){
     hero: img(id+'-hero',1600,900,'')
   };
   DESTINATIONS.push(dest);
-  const attrNames = ['Old Town Walking Tour','Central Museum','City Cathedral','Riverside Promenade','Panoramic Viewpoint','Historic Market Square'];
-  const attrCats = ['Culture','Museum','History','Nature','Viewpoint','Market'];
-  const attrTags = [['culture','history'],['culture','art'],['history','photography'],['nature','relax'],['photography'],['shopping','food']];
-  attrNames.forEach((n,i)=>PLACES.push({ id:`${id}-a${i+1}`, destId:id, type:'attraction', name:`${clean} ${n}`, category:attrCats[i], rating:+(4.3+rnd()*0.5).toFixed(1), reviews:800+Math.floor(rnd()*9000), priceLevel:i%3, price:[0,10,18,0,0,5][i], area:clean, lat:base.lat+(rnd()*0.06-0.03), lng:base.lng+(rnd()*0.06-0.03), desc:`A well-loved local favorite for visitors exploring ${clean}.`, tags:attrTags[i], duration:75, image:categoryPhoto('attraction', attrCats[i]) || img(id+'-attr-'+i,640,480,`${clean} ${n}`) }));
-  const restNames = ['The Local Table','Market Street Kitchen','Grandma\'s Corner Café','The Harborview Grill','Spice & Sea','The Old Bakery'];
-  const cuisines = ['Local Cuisine','Fusion','Café','Seafood','International','Bakery & Café'];
-  restNames.forEach((n,i)=>PLACES.push({ id:`${id}-r${i+1}`, destId:id, type:'restaurant', name:n, cuisine:cuisines[i], rating:+(4.2+rnd()*0.6).toFixed(1), reviews:300+Math.floor(rnd()*4000), priceLevel:1+(i%3), price:[10,18,8,28,15,7][i], area:clean, lat:base.lat+(rnd()*0.05-0.025), lng:base.lng+(rnd()*0.05-0.025), desc:`A favorite spot locals and visitors both recommend in ${clean}.`, tags:['food'], dietary: i%2? ['vegetarian']:[], hours:'11:00 AM – 10:00 PM', image:bundledCuisinePhoto(cuisines[i]) || categoryPhoto('restaurant', cuisines[i]) || img(id+'-food-'+i,640,480,n) }));
-  const hotelNames = [`Grand ${clean} Hotel`,`${clean} Boutique Inn`,`${clean} Central Suites`,`${clean} Budget Stay`];
-  const stars=[5,4,3,2];
-  hotelNames.forEach((n,i)=>PLACES.push({ id:`${id}-h${i+1}`, destId:id, type:'hotel', name:n, stars:stars[i], guestRating:+(7.9+rnd()*1.4).toFixed(1), price:[280,150,95,40][i], area:clean, lat:base.lat+(rnd()*0.04-0.02), lng:base.lng+(rnd()*0.04-0.02), desc:`Comfortable, well-located stay for exploring ${clean}.`, amenities:['Free WiFi','Breakfast'].concat(i<2?['Pool','Bar']:[]), image:hotelCategoryPhoto(stars[i]) || img(id+'-hotel-'+i,640,480,n) }));
+  // Every generated card gets a DIFFERENT stock photograph. Six restaurants previously shared
+  // three images and four hotels shared two, so a typed-in destination looked like a page of
+  // repeats — the same claim-once rule the curated destinations use.
+  // Places are DISCOVERED, not invented. This block used to push six restaurants with made-up
+  // names ("Market Street Kitchen"), made-up ratings (4.2+rnd()*0.6), made-up review counts and
+  // made-up coordinates (base +/- 0.03). None of it was real, and the star ratings in
+  // particular read as genuine review data. Real entities now come from OpenStreetMap through
+  // places.js, keyed to this destination's verified coordinates; until they arrive the
+  // destination simply has no places, which is the honest state.
+  if(typeof discoverPlacesFor === 'function') discoverPlacesFor(dest);
   return dest;
 }
 
-function findDestination(query){
+/** Resolves a typed string to a destination. `geo` is the structured search result when the
+ *  user picked a suggestion, which is what lets a brand-new destination arrive complete. */
+function findDestination(query, geo){
   if(!query) return null;
   const q = query.trim().toLowerCase();
   if(!q) return null;
@@ -1326,7 +1865,7 @@ function findDestination(query){
   if(d) return d;
   d = DESTINATIONS.find(x=> x.name.toLowerCase().includes(q) || q.includes(x.name.toLowerCase()) || x.country.toLowerCase().includes(q));
   if(d) return d;
-  return makeGenericDestination(query);
+  return makeGenericDestination(query, geo);
 }
 
 /** Resolve a destination strictly by its stable id (from a URL hash, a saved trip, etc.) —
@@ -1341,7 +1880,9 @@ function resolveDestFromId(id){
   if(d) return d;
   if(id.indexOf('gen-')===0){
     const remembered = recallGenericDestName(id);
-    if(remembered) return makeGenericDestination(remembered);
+    // Restore the remembered geography too, so a reloaded destination keeps its real
+    // coordinates and flag instead of falling back to the hash-seeded placeholder position.
+    if(remembered) return makeGenericDestination(remembered, recallGenericDestGeo(id));
     // last resort: de-slugify so we at least show a readable name instead of the raw id
     return makeGenericDestination(id.slice(4).replace(/-/g,' '));
   }

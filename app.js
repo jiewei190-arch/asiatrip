@@ -52,12 +52,43 @@ function uid(prefix){ return `${prefix}_${Date.now().toString(36)}_${(__uidN++).
 function currentCurrencyCode(){
   return (STATE.settings && STATE.settings.currencyCode) || 'USD';
 }
+/** Formats a stored (USD) amount in the user's chosen display currency.
+ *  Decimals come from ISO 4217 via currency.js, so all sixteen zero-decimal currencies are
+ *  handled rather than the three that happened to be hardcoded here (JPY, KRW, IDR) — VND, ISK,
+ *  CLP, XOF and the rest were showing phantom decimal places. */
 function fmt$(n){
-  const code = currentCurrencyCode();
-  const meta = CURRENCY_META[code] || CURRENCY_META.USD;
-  const converted = convertUSD(n||0, code);
-  const rounded = Math.abs(converted) >= 100 || code==='JPY' || code==='KRW' || code==='IDR' ? Math.round(converted) : Math.round(converted*100)/100;
-  return meta.symbol + rounded.toLocaleString(undefined, code==='JPY'||code==='KRW'||code==='IDR'||Math.abs(converted)>=100 ? {maximumFractionDigits:0} : {minimumFractionDigits:2,maximumFractionDigits:2});
+  return fmtIn(n, currentCurrencyCode()) || '—';
+}
+
+/** The same amount in a specific currency, or '' when no rate is available for it.
+ *  Synchronous on purpose: cards render inside template strings, and the rate table is already
+ *  in memory by then. Returning '' rather than a guess is what keeps a missing rate honest. */
+function fmtIn(amountUSD, code){
+  const n = Number(amountUSD) || 0;
+  if(!code) return '';
+  const rate = (code === 'USD') ? 1 : (typeof EXCHANGE_RATES !== 'undefined' ? EXCHANGE_RATES[code] : null);
+  if(typeof rate !== 'number' || !isFinite(rate)) return '';
+  const value = n * rate;
+  const round = Math.abs(value) >= 100;
+  return (typeof formatMoney === 'function')
+    ? formatMoney(value, code, {round})
+    : value.toFixed(2) + ' ' + code;
+}
+
+/** A price in the destination's own currency, with the user's currency alongside when they
+ *  differ — the local price is the one that will actually be charged, so it leads. */
+function fmtMoneyDual(amountUSD, dest){
+  const userCode = currentCurrencyCode();
+  const localCode = (dest && dest.currencyCode) || userCode;
+  const localTxt = fmtIn(amountUSD, localCode);
+  if(!localTxt) return `<span class="priceLocal">${esc(fmt$(amountUSD))}</span>`;
+  if(localCode === userCode) return `<span class="priceLocal">${esc(localTxt)}</span>`;
+  const userTxt = fmtIn(amountUSD, userCode);
+  if(!userTxt){
+    // We know the local price but cannot convert it. Say that rather than dropping one side.
+    return `<span class="priceLocal">${esc(localTxt)}</span> <span class="priceConverted">(no ${esc(userCode)} rate)</span>`;
+  }
+  return `<span class="priceLocal">${esc(localTxt)}</span> <span class="priceConverted">≈ ${esc(userTxt)}</span>`;
 }
 function clamp(n,a,b){ return Math.max(a,Math.min(b,n)); }
 function haversine(a,b){
@@ -104,7 +135,34 @@ function catEmoji(type){ return {attraction:'📍',restaurant:'🍜',hotel:'🏨
  * lead photo for that exact place, whether it's a city, coastline, mountain range, island, or
  * small town, not a one-size-fits-all "skyline" shot; 2) the country, only if the destination's
  * own name comes up empty. */
-function destPhotoQuery(dest){ return [dest.name, dest.country].filter(Boolean).join('||'); }
+/** The chain of things to look a destination's photo up as, most specific first.
+ *  Now shaped by the structured geography from geo.js, so each kind of place is searched as
+ *  the thing it actually is: a national park by its full park name, a region qualified by its
+ *  country (there are many "Tuscany"s), a country by itself. The old version only ever tried
+ *  the bare name then the country, which for a park or a region often found the wrong thing
+ *  or nothing at all. */
+/** True when an image is a category or cuisine stand-in rather than a photograph of the
+ * place named on the card. Only about 4% of restaurants carry any image reference in the
+ * free data, so most food cards necessarily show a dish rather than the premises. Showing
+ * one is fine; letting it be MISTAKEN for the restaurant is not, so cards that use one say
+ * so. That satisfies both instructions: the card stays appetising, and nobody is misled
+ * into thinking they are looking at the actual place. */
+function isIllustrativeImage(src){
+  const v = String(src || '');
+  return v.indexOf('images/category/') >= 0 || v.indexOf('images/cuisine/') >= 0;
+}
+
+function destPhotoQuery(dest){
+  const type = dest.placeType || '';
+  const q = [dest.name];
+  if(type === 'national_park' && !/national park/i.test(dest.name)) q.push(`${dest.name} National Park`);
+  if(dest.country && dest.country !== dest.name) q.push(`${dest.name}, ${dest.country}`, `${dest.name} ${dest.country}`);
+  if(dest.region && dest.region !== dest.name) q.push(`${dest.name} ${dest.region}`);
+  if(dest.country) q.push(dest.country);
+  // De-duplicate while keeping order; the chain is tried top to bottom.
+  const seen = new Set();
+  return q.filter(Boolean).filter(x => { const k = x.toLowerCase(); if(seen.has(k)) return false; seen.add(k); return true; }).join('||');
+}
 /** A destination's best CURRENTLY KNOWN photo.
  * dest.hero is fixed at construction — a bundled photo for the curated twelve, a placeholder
  * for a typed-in city whose photo is only found later. Once that lookup has answered, every
@@ -123,6 +181,28 @@ function photoQuery(name, destName){
   const specific = destName ? `${name} ${destName}` : name;
   return destName ? `${specific}||${destName}` : specific;
 }
+/** Runs `fn` when the image is at or near the viewport. Falls back to running immediately where
+ *  IntersectionObserver is unavailable, so nothing is lost on an older browser — it just goes
+ *  back to resolving eagerly. */
+let __placeImageObserver = null;
+const __placeImageJobs = new WeakMap();
+function whenPlaceImageVisible(imgEl, fn){
+  if(typeof IntersectionObserver !== 'function'){ fn(); return; }
+  if(!__placeImageObserver){
+    __placeImageObserver = new IntersectionObserver(entries => {
+      for(const entry of entries){
+        if(!entry.isIntersecting) continue;
+        const job = __placeImageJobs.get(entry.target);
+        __placeImageObserver.unobserve(entry.target);
+        __placeImageJobs.delete(entry.target);
+        if(job) job();
+      }
+    }, {rootMargin: '400px'});   // start a little before it scrolls in, so it is ready on arrival
+  }
+  __placeImageJobs.set(imgEl, fn);
+  __placeImageObserver.observe(imgEl);
+}
+
 function hydratePhotos(container){
   if(!container) return;
   container.querySelectorAll('img[data-photo-q]').forEach(imgEl=>{
@@ -182,9 +262,39 @@ function hydratePhotos(container){
     // page whose photos have been resolved once already.
     const known = cachedWikiThumbnail(queries);
     if(known){ imgEl.src = known; return; }
-    fetchWikiThumbnailChain(queries).then(url=>{
-      if(!url) return;
-      imgEl.src = url;
+    // A destination resolves through the validated chain: candidates are checked to be the
+    // right PLACE (by coordinates) before their photo is used, and a real place with no
+    // photograph of its own borrows one from a landmark beside it. Places keep the simpler
+    // name-based chain — they are looked up within a destination already known to be right.
+    // A NAMED entity (an attraction, restaurant or hotel) resolves through the central
+    // resolver, which tries the entity's own OSM image tags before anything generic. It runs
+    // after this paint, never blocking it — Overpass takes tens of seconds.
+    const placeId = imgEl.dataset.photoPlace;
+    if(placeId && typeof applyResolvedImage === 'function'){
+      // Resolve only what the reader can actually see. Every card's photo lookup costs several
+      // Commons and Wikipedia calls, so resolving a whole page at once produced a burst that
+      // Wikimedia throttled — and a throttled card keeps its stand-in even though a real
+      // photograph of the place existed. Deferring the off-screen ones removes the burst at
+      // source rather than coping with it afterwards.
+      whenPlaceImageVisible(imgEl, () => {
+        const p = placeById(placeId);
+        const pd = p && DESTINATIONS.find(d => d.id === p.destId);
+        if(p && p.lat != null){
+          applyResolvedImage(imgEl, {
+            placeId: 'place:' + p.id, name: p.name, kind: p.type,
+            country: pd && pd.country, countryCode: pd && pd.countryCode,
+            lat: p.lat, lng: p.lng,
+          });
+        }
+      });
+    }
+    const destId = imgEl.dataset.photoDest;
+    const resolver = destId
+      ? resolveDestinationPhoto(DESTINATIONS.find(d => d.id === destId))
+      : fetchWikiThumbnailChain(queries);
+    Promise.resolve(resolver).then(url=>{
+      if(url){ imgEl.src = url; return; }
+      if(destId) return fetchWikiThumbnailChain(queries).then(u => { if(u) imgEl.src = u; });
     }).catch(()=>{});
   });
 }
@@ -513,7 +623,7 @@ function runGlobalSearch(q){
     if(trending.length){
       html += `<div class="gsearch-group">Trending Destinations</div>`;
       trending.forEach(d=>{
-        html += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${destHeroSrc(d)}" alt="" data-photo-q="${esc(destPhotoQuery(d))}"><div><div>${d.flag} ${esc(d.name)}</div><div class="small">${esc(d.tagline)}</div></div></button>`;
+        html += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${destHeroSrc(d)}" alt="" data-photo-dest="${esc(d.id)}" data-photo-q="${esc(destPhotoQuery(d))}"><div><div>${d.flag} ${esc(d.name)}</div><div class="small">${esc(d.tagline)}</div></div></button>`;
       });
     }
     if(!html) html = '<div class="empty" style="padding:26px">Search for a city, attraction, restaurant or hotel.</div>';
@@ -532,7 +642,7 @@ function runGlobalSearch(q){
     if(!matches.length) return '';
     let h = `<div class="gsearch-group">${esc(label)}</div>`;
     matches.forEach(d=>{
-      h += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${destHeroSrc(d)}" alt="" data-photo-q="${esc(destPhotoQuery(d))}"><div><div>${d.flag} ${esc(d.name)}, ${esc(d.country)}</div><div class="small">Explore destination</div></div></button>`;
+      h += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${destHeroSrc(d)}" alt="" data-photo-dest="${esc(d.id)}" data-photo-q="${esc(destPhotoQuery(d))}"><div><div>${d.flag} ${esc(d.name)}, ${esc(d.country)}</div><div class="small">Explore destination</div></div></button>`;
     });
     return h;
   };
@@ -549,14 +659,64 @@ function runGlobalSearch(q){
   html += placeGroup('Attractions', attrMatches);
   html += placeGroup('Restaurants', restMatches);
   html += placeGroup('Hotels', hotelMatches);
-  if(!html){
-    html = `<div class="empty" style="padding:26px">No matches. Press Enter to explore "${esc(q)}" as a destination.</div>`;
-  }
-  results.innerHTML = html;
+  // What is already in memory paints immediately; the worldwide lookup is merged in below
+  // when it answers, so the panel is never blocked on the network.
+  results.innerHTML = html || `<div class="empty" style="padding:22px">Searching the world for "${esc(q)}"…</div>`;
   hydratePhotos(results);
   wireGlobalSearchResults(results);
+  runGlobalPlaceSearch(q, html, results);
 }
+
+/** Merges worldwide destination results into the search panel.
+ *  Replaces the old dead end — "No matches. Press Enter to explore X" — which told the user
+ *  to do the app's job for it even when X was a major world city. */
+let __globalSearchToken = 0;
+let __globalSearchController = null;
+function runGlobalPlaceSearch(q, localHTML, results){
+  if(!q || q.trim().length < 2) return;
+  if(__globalSearchController) __globalSearchController.abort();
+  const controller = new AbortController();
+  __globalSearchController = controller;
+  const token = ++__globalSearchToken;
+
+  geoSearch(q, { signal: controller.signal, limit: 6 }).then(found => {
+    if(token !== __globalSearchToken || !results.isConnected) return;
+    const known = new Set(DESTINATIONS.filter(d => !d.id.startsWith('gen-')).map(d => d.name.toLowerCase()));
+    const fresh = found.filter(r => !known.has(r.name.toLowerCase()));
+    let html = localHTML;
+    if(fresh.length){
+      html += `<div class="gsearch-group">Destinations worldwide</div>`;
+      fresh.forEach((r, i) => {
+        __globalSearchResults[i] = r;
+        html += `<button class="gsearch-row" data-geo="${i}">
+          <div class="ic globeIc">${r.flag || '🌍'}</div>
+          <div><div>${esc(r.name)}</div><div class="small">${esc(r.context || r.country || '')}${r.typeLabel ? ` · ${esc(r.typeLabel)}` : ''}</div></div>
+        </button>`;
+      });
+    }
+    if(!html){
+      html = `<div class="empty" style="padding:26px">Nothing found for "${esc(q)}". Try a city, island, region or country.</div>`;
+    }
+    results.innerHTML = html;
+    hydratePhotos(results);
+    wireGlobalSearchResults(results);
+  }).catch(() => {
+    if(token !== __globalSearchToken || !results.isConnected) return;
+    if(!localHTML){
+      results.innerHTML = `<div class="empty" style="padding:22px">Couldn't reach the destination search. Press Enter to explore "${esc(q)}" anyway.</div>`;
+    }
+  });
+}
+const __globalSearchResults = [];
 function wireGlobalSearchResults(results){
+  results.querySelectorAll('[data-geo]').forEach(b=>b.onclick=()=>{
+    const geo = __globalSearchResults[parseInt(b.dataset.geo, 10)];
+    if(!geo) return;
+    const dest = findDestination(geo.name, geo);     // created with real coordinates and flag
+    recordSearch(geo.displayName || geo.name);
+    closeDropdowns();
+    navigate(`#/destination/${encodeURIComponent(dest.id)}`);
+  });
   results.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{ recordSearch($('globalSearchInput').value); closeDropdowns(); navigate(b.dataset.go); });
   results.querySelectorAll('[data-place]').forEach(b=>b.onclick=()=>{ recordSearch($('globalSearchInput').value); closeDropdowns(); openPlaceDetail(b.dataset.place); });
   results.querySelectorAll('[data-recent]').forEach(b=>b.onclick=()=>{ $('globalSearchInput').value = b.dataset.recent; runGlobalSearch(b.dataset.recent); });
@@ -596,11 +756,48 @@ function openSettings(){
   $('settingsName').value = STATE.settings.name;
   populateCurrencyOptions($('settingsCurrency'));
   $('settingsCurrency').value = currentCurrencyCode();
+  wireCurrencySearch('settingsCurrencySearch', 'settingsCurrency');
   $('themeToggle').checked = STATE.theme==='dark';
   openModal('modal-settings');
 }
+/** Every ISO 4217 currency, named and symbolled from Intl, with the destinations that use it in
+ *  the label so typing a country name finds the currency. The old list held 31 entries, which is
+ *  why anywhere outside western Europe and east Asia had no option to pick. */
+/** Attaches a search box to a currency <select>. 152 currencies in a plain dropdown is a
+ *  scroll, not a choice — this filters by code, currency name or country, so "won", "KRW",
+ *  "South Korea" and "korea" all land on the same entry. */
+function wireCurrencySearch(inputId, selectId){
+  const input = $(inputId), select = $(selectId);
+  if(!input || !select) return;
+  input.oninput = () => {
+    const keep = select.value;
+    const rows = (typeof searchCurrencies === 'function') ? searchCurrencies(input.value) : [];
+    if(!rows.length){
+      select.innerHTML = `<option value="">No currency matches "${esc(input.value)}"</option>`;
+      return;
+    }
+    renderCurrencyOptions(select, rows);
+    // Keep the current selection if it survived the filter, so typing does not silently
+    // change which currency is chosen.
+    if(rows.some(r => r.code === keep)) select.value = keep;
+  };
+}
+
+function renderCurrencyOptions(select, rows){
+  select.innerHTML = rows.map(r => {
+    const sym = (typeof currencySymbol === 'function') ? currencySymbol(r.code) : '';
+    const where = r.countries && r.countries.length
+      ? ' · ' + r.countries.slice(0,3).join(', ') + (r.countries.length > 3 ? '…' : '') : '';
+    return `<option value="${r.code}">${r.code} — ${esc(r.name)}${sym && sym !== r.code ? ' ('+esc(sym)+')' : ''}${esc(where)}</option>`;
+  }).join('');
+}
+
 function populateCurrencyOptions(select){
-  select.innerHTML = Object.entries(CURRENCY_META).map(([code,m])=>`<option value="${code}">${code} — ${esc(m.name)} (${m.symbol})</option>`).join('');
+  if(!select) return;
+  const rows = (typeof searchCurrencies === 'function')
+    ? searchCurrencies('')
+    : Object.keys(CURRENCY_META).map(code=>({code, name:(CURRENCY_META[code]||{}).name||code, countries:[]}));
+  renderCurrencyOptions(select, rows);
 }
 /** Which build is this browser actually running? Surfaced because a stale cached bundle looks
  * identical to a current one — the page loads fine, it's just old — and that is exactly how
@@ -640,6 +837,26 @@ function initSettingsModal(){
 }
 
 /* ---------------- reusable place card ---------------- */
+/** Discovered places arrive from OpenStreetMap without a photograph. Rather than a grey box,
+ *  show a category or cuisine stand-in — clearly marked "Illustrative" — which imagery.js then
+ *  replaces if it can find a photograph of this exact entity. */
+function placeImageSrc(p){
+  if(p.image) return p.image;
+  try{
+    if(p.type === 'restaurant'){
+      return (typeof bundledCuisinePhoto === 'function' && bundledCuisinePhoto(p.cuisine))
+          || (typeof categoryPhoto === 'function' && categoryPhoto('restaurant', p.cuisine))
+          || (typeof bundledPhoto === 'function' && bundledPhoto('category/restaurant')) || '';
+    }
+    if(p.type === 'hotel'){
+      return (typeof hotelCategoryPhoto === 'function' && hotelCategoryPhoto(p.stars || 3))
+          || (typeof bundledPhoto === 'function' && bundledPhoto('category/hotel-room')) || '';
+    }
+    return (typeof categoryPhoto === 'function' && categoryPhoto('attraction', p.category))
+        || (typeof bundledPhoto === 'function' && bundledPhoto('category/attraction')) || '';
+  }catch(e){ return ''; }
+}
+
 function placeCardHTML(p, opts){
   opts = opts||{};
   const dest = DESTINATIONS.find(d=>d.id===p.destId);
@@ -659,14 +876,23 @@ function placeCardHTML(p, opts){
     const open = isOpenNow(p.hours);
     metaHTML = `${ratingHTML}${priceHTML}<span class="openTag ${open?'open':'closed'}">${open?'Open now':'Closed'}</span>`;
   } else if(p.type==='hotel'){
-    metaHTML = `<span class="stars">${'★'.repeat(p.stars)}</span><span>${p.guestRating}/10</span><span class="priceLevel">${fmt$(p.price)}/night</span>`;
+    // Only what OSM actually publishes: an official star classification, and a price only if
+    // one exists. A discovered stay has neither by default, and inventing them is the bug.
+    const starBit  = p.stars ? `<span class="stars">${'★'.repeat(p.stars)}</span>` : '';
+    const guestBit = (p.guestRating != null) ? `<span>${p.guestRating}/10</span>` : '';
+    const priceBit = (p.price != null) ? `<span class="priceLevel">${fmtMoneyDual(p.price, dest)}/night</span>` : '';
+    metaHTML = `${starBit}${guestBit}${priceBit}` ||
+      `<span class="small">${esc(p.category || 'Place to stay')}</span>`;
   }
-  const catLabel = p.type==='attraction'? p.category : (p.type==='restaurant'? p.cuisine : `${p.stars}★ Hotel`);
+  const catLabel = p.type==='attraction' ? (p.category || 'Attraction')
+    : p.type==='restaurant' ? (p.cuisine || p.category || 'Place to eat')
+    : (p.stars ? `${p.stars}★ ${p.category || 'Hotel'}` : (p.category || 'Place to stay'));
   return `
   <div class="placeCard" data-place="${p.id}">
     <div class="placeImgWrap">
-      <img src="${p.image}" alt="${esc(p.name)}" loading="lazy" data-photo-q="${esc(photoQuery(p.name, dest&&dest.name))}">
+      <img src="${placeImageSrc(p)}" alt="${esc(p.name)}" loading="lazy" data-photo-place="${esc(p.id)}" data-photo-q="${esc(photoQuery(p.name, dest&&dest.name))}">
       <span class="placeCatBadge">${esc(catLabel)}</span>
+      ${isIllustrativeImage(placeImageSrc(p)) ? `<span class="illusBadge" title="No photograph of this place is available; this shows the kind of food or stay it is">Illustrative</span>` : ''}
       <button class="placeSaveBtn" data-save="${p.id}" title="Save">${isSaved?'♥':'♡'}</button>
     </div>
     <div class="placeBody">
@@ -767,7 +993,7 @@ function openPlaceDetail(placeId){
       </div>
       <button class="xbtn" data-close="modal-placeDetail">×</button>
     </div>
-    <div class="pdHero"><img src="${p.image}" alt="" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
+    <div class="pdHero"><img src="${placeImageSrc(p)}" alt="" data-photo-place="${esc(p.id)}" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
     <div class="pdGrid">
       <div>
         <p>${esc(displayDesc(p, dest))}</p>
@@ -965,7 +1191,7 @@ function renderHomeView(){
 function destCardHTML(d, tagLabel){
   return `<button class="destCard" data-dest="${d.id}">
     ${tagLabel?`<span class="destCardTag">${esc(tagLabel)}</span>`:''}
-    <img src="${destHeroSrc(d)}" alt="${esc(d.name)}" loading="lazy" data-photo-q="${esc(destPhotoQuery(d))}">
+    <img src="${destHeroSrc(d)}" alt="${esc(d.name)}" loading="lazy" data-photo-dest="${esc(d.id)}" data-photo-q="${esc(destPhotoQuery(d))}">
     <div class="destCardBody"><h4>${d.flag} ${esc(d.name)}</h4><span>${esc(d.country)}</span></div>
   </button>`;
 }
@@ -976,7 +1202,7 @@ function wireDestCards(container){
 
 function initHero(){
   const auto = $('heroDestAuto');
-  $('heroDestination').addEventListener('input', debounce(e=>renderDestAuto(e.target.value, auto, (name)=>{ $('heroDestination').value=name; auto.classList.remove('show'); }), 120));
+  $('heroDestination').addEventListener('input', debounce(e=>renderDestAuto(e.target.value, auto, (name)=>{ $('heroDestination').value=name; auto.classList.remove('show'); }), 220));
   $('heroDestination').addEventListener('focus', e=>renderDestAuto(e.target.value, auto, (name)=>{ $('heroDestination').value=name; auto.classList.remove('show'); }));
   document.addEventListener('click', e=>{ if(!e.target.closest('.planbox-field')) auto.classList.remove('show'); });
 
@@ -1000,14 +1226,80 @@ function stashHeroParams(){
     travelers: parseInt($('heroTravelers').value)||2,
   };
 }
-function renderDestAuto(q, el, onPick){
-  q = (q||'').trim().toLowerCase();
-  if(!q){ el.classList.remove('show'); return; }
-  const matches = DESTINATIONS.filter(d=>!d.id.startsWith('gen-') && (d.name.toLowerCase().includes(q)||d.country.toLowerCase().includes(q))).slice(0,6);
-  if(!matches.length){ el.classList.remove('show'); return; }
-  el.innerHTML = matches.map(d=>`<button class="autolist-row" data-name="${esc(d.name+', '+d.country)}">${d.flag} ${esc(d.name)}, ${esc(d.country)}</button>`).join('');
+/* ---------------- destination autocomplete ----------------
+   Two tiers, rendered in two passes so typing never waits on the network:
+
+     1. The curated destinations match instantly from memory and paint on the first frame.
+     2. geo.js searches the whole world and merges in when it answers, typically 200-400ms.
+
+   The previous version only ever did step 1, which is why "Beijing" reported "No matches"
+   for a city of 22 million: it was not in the list of twelve. */
+
+/** Live global lookups, keyed per input element so two open autocompletes cannot fight. */
+const __destAutoState = new WeakMap();
+
+function destAutoRowHTML(item){
+  // A curated destination and a global search result render identically.
+  const sub = item.__curated ? esc(item.country) : esc(item.context || item.country || '');
+  const badge = item.__curated ? '' : `<span class="autoType">${esc(item.typeLabel || 'Place')}</span>`;
+  return `<button class="autolist-row" data-name="${esc(item.__pickName)}" data-geo="${esc(JSON.stringify(item.__geo || null))}">
+    <span class="autoFlag">${item.flag || '🌍'}</span>
+    <span class="autoText"><span class="autoName">${esc(item.name)}</span>${sub ? `<span class="autoSub">${sub}</span>` : ''}</span>
+    ${badge}
+  </button>`;
+}
+
+function destAutoPaint(el, items, onPick){
+  if(!items.length){ el.classList.remove('show'); el.innerHTML = ''; return; }
+  el.innerHTML = items.map(destAutoRowHTML).join('');
   el.classList.add('show');
-  el.querySelectorAll('[data-name]').forEach(b=>b.onclick=()=>onPick(b.dataset.name));
+  el.querySelectorAll('[data-name]').forEach(b => b.onclick = () => {
+    let geo = null;
+    try { geo = JSON.parse(b.dataset.geo || 'null'); } catch(e){}
+    // Selecting a global result creates the destination with its real coordinates, country
+    // and flag immediately, rather than leaving it to background enrichment.
+    if(geo) findDestination(geo.name, geo);
+    onPick(b.dataset.name, geo);
+  });
+}
+
+function renderDestAuto(q, el, onPick){
+  const raw = (q || '').trim();
+  const state = __destAutoState.get(el) || {};
+  __destAutoState.set(el, state);
+  if(state.controller){ state.controller.abort(); state.controller = null; }
+  if(!raw){ el.classList.remove('show'); return; }
+
+  const lower = raw.toLowerCase();
+  const curated = DESTINATIONS
+    .filter(d => !d.id.startsWith('gen-') &&
+                 (d.name.toLowerCase().includes(lower) || d.country.toLowerCase().includes(lower)))
+    .slice(0, 4)
+    .map(d => Object.assign({}, d, { __curated:true, __pickName: `${d.name}, ${d.country}` }));
+
+  destAutoPaint(el, curated, onPick);          // instant, from memory
+
+  if(raw.length < 2) return;
+  const token = (state.token || 0) + 1;
+  state.token = token;
+  const controller = new AbortController();
+  state.controller = controller;
+
+  geoSearch(raw, { signal: controller.signal, limit: 8 }).then(results => {
+    // A slower earlier request must never overwrite a newer one's answer.
+    if(state.token !== token || !el.isConnected) return;
+    const seen = new Set(curated.map(d => d.name.toLowerCase()));
+    const global = results
+      .filter(r => !seen.has(r.name.toLowerCase()))
+      .map(r => Object.assign({}, r, {
+        __curated:false,
+        __geo:r,
+        __pickName: r.country ? `${r.name}, ${r.country}` : r.name,
+      }));
+    destAutoPaint(el, curated.concat(global).slice(0, 8), onPick);
+  }).catch(() => {
+    // Offline or blocked: the curated matches already on screen stay as they are.
+  });
 }
 
 /* ============================================================
@@ -1045,13 +1337,47 @@ const DEST_TABS = [
   ['hotels','Hotels'],['itinerary','Itinerary'],['map','Map'],['ideas','Trip Ideas'],
 ];
 
+/** Resolves free text ("Seoul Korea" typed and Entered, rather than picked from the
+ * suggestions) into a verified destination. The typed string is a QUERY, never an identity:
+ * treating it as one is how a destination came to be named "Seoul Korea" while its country
+ * said Malaysia, because the name was taken from the text and the country from whatever an
+ * unfiltered geocode returned. The canonical resolver decides both, together, or neither. */
+function resolveTypedDestination(text, onReady){
+  const dest = findDestination(text);              // immediate, so the page can render now
+  if(dest && dest.__geo) return dest;              // already verified, nothing to reconcile
+  geoResolve(text).then(geo => {
+    if(!geo) return;
+    const verified = findDestination(geo.name, geo);
+    // If the verified place is a different destination than the placeholder we created, go
+    // there rather than repainting the placeholder with someone else's country.
+    if(verified && verified.id !== dest.id){
+      if(typeof onReady === 'function') onReady(verified);
+    } else if(verified){
+      applyGeoToDestination(verified, geo);
+      if(typeof onReady === 'function') onReady(verified);
+    }
+  }).catch(()=>{});
+  return dest;
+}
+
 function renderDestinationView(idOrName, tab){
-  let dest = resolveDestFromId(idOrName) || findDestination(idOrName);
+  let dest = resolveDestFromId(idOrName) || resolveTypedDestination(idOrName, verified => {
+    // The canonical answer arrived after the first paint: navigate to the verified
+    // destination so the page never shows a half-resolved identity.
+    if(verified && verified.id !== (destState && destState.id)) navigate(`#/destination/${encodeURIComponent(verified.id)}`);
+  });
+  // One destination, one identity. A destination whose fields disagree is a bug, not
+  // something to render — the caption and the name must come from the same resolved place.
+  const check = (typeof geoValidateDestination === 'function') ? geoValidateDestination(dest) : {ok:true};
+  if(!check.ok){
+    console.warn('TripFlow: refusing to render inconsistent destination', dest && dest.id, check.problems);
+    dest = Object.assign({}, dest, { country:'', countryCode:'', flag:'🌍', displayName: dest.name });
+  }
   if(destState.id !== dest.id){ destState = { id:dest.id, tab:tab, thingsFilters:{cat:'all',price:'any',rating:'any',sort:'rec'}, restFilters:{cuisine:'all',price:'any',rating:'any',open:false,dietary:new Set(),sort:'rec'}, hotelFilters:{price:'any',stars:'any',guest:'any',amenity:'all',sort:'rec'}, mapCats:new Set(['attraction','restaurant','hotel']) }; }
   destState.tab = tab || destState.tab || 'overview';
 
   $('destHero').innerHTML = `
-    <img src="${destHeroSrc(dest)}" alt="${esc(dest.name)}" data-photo-q="${esc(destPhotoQuery(dest))}">
+    <img src="${destHeroSrc(dest)}" alt="${esc(dest.name)}" data-photo-dest="${esc(dest.id)}" data-photo-q="${esc(destPhotoQuery(dest))}">
     <div class="destHeroActions">
       <button class="btn" id="destSaveBtn"><i class="fa-solid fa-heart"></i> Save destination</button>
     </div>
@@ -1117,8 +1443,8 @@ function renderDestOverview(dest, body){
     <div class="card" style="margin-top:8px">
       <h3>Average daily budget</h3>
       <div class="sectionGrid" style="grid-template-columns:repeat(3,1fr)">
-        <div class="ovCard"><div class="k">Budget</div><div class="v" style="font-size:20px">${fmt$(dest.avgDailyBudget.budget)}<span class="small">/day</span></div></div>
-        <div class="ovCard"><div class="k">Moderate</div><div class="v" style="font-size:20px">${fmt$(dest.avgDailyBudget.moderate)}<span class="small">/day</span></div></div>
+        <div class="ovCard"><div class="k">Budget</div><div class="v" style="font-size:20px">${fmtMoneyDual(dest.avgDailyBudget.budget, dest)}<span class="small">/day</span></div></div>
+        <div class="ovCard"><div class="k">Moderate</div><div class="v" style="font-size:20px">${fmtMoneyDual(dest.avgDailyBudget.moderate, dest)}<span class="small">/day</span></div></div>
         <div class="ovCard"><div class="k">Luxury</div><div class="v" style="font-size:20px">${fmt$(dest.avgDailyBudget.luxury)}<span class="small">/day</span></div></div>
       </div>
     </div>
@@ -1169,19 +1495,29 @@ function initCurrencyConverter(dest){
     if(!$('convAmount')) return;
     const amount = Number($('convAmount').value) || 0;
     const from = $('convFrom').value, to = $('convTo').value;
-    const rateFrom = EXCHANGE_RATES[from], rateTo = EXCHANGE_RATES[to];
-    if(typeof rateFrom !== 'number' || typeof rateTo !== 'number'){
+    // Each keystroke starts a conversion; only the newest one is allowed to write the result,
+    // so a slow response cannot overwrite a newer amount.
+    const seq = (window.__convSeq = (window.__convSeq || 0) + 1);
+    $('convResult').textContent = '…';
+    convertCurrency(amount, from, to).then(r => {
+      if(seq !== window.__convSeq || !$('convResult')) return;
+      if(!r){
+        // A real gap in the data, not a glitch, and not something to paper over with a guess.
+        $('convResult').textContent = `No published rate for ${from} → ${to}.`;
+        $('convRateNote').textContent = 'Rates come from live providers; this pair is not covered by either.';
+        return;
+      }
+      $('convResult').textContent = `${formatMoney(amount, from)} = ${formatMoney(r.amount, to)}`;
+      const when = r.asOf ? new Date(r.asOf).toLocaleDateString(undefined, {year:'numeric', month:'short', day:'numeric'}) : '';
+      $('convRateNote').textContent =
+        `1 ${from} = ${r.rate.toLocaleString(undefined,{maximumFractionDigits:6})} ${to}` +
+        (when ? ` · as of ${when}` : '') +
+        (r.stale ? ' · cached rate, may be out of date' : '');
+    }).catch(()=>{
+      if(seq !== window.__convSeq || !$('convResult')) return;
       $('convResult').textContent = 'Rates unavailable — check your connection.';
       $('convRateNote').textContent = '';
-      return;
-    }
-    const usd = amount / rateFrom;
-    const converted = usd * rateTo;
-    const fromMeta = CURRENCY_META[from] || CURRENCY_META.USD, toMeta = CURRENCY_META[to] || CURRENCY_META.USD;
-    $('convResult').textContent = `${fromMeta.symbol}${amount.toLocaleString()} = ${toMeta.symbol}${converted.toLocaleString(undefined,{maximumFractionDigits: converted>=100?0:2})}`;
-    const rate = rateTo / rateFrom;
-    const rateSource = EXCHANGE_RATES_ARE_LIVE ? 'live rates, updated daily' : 'approximate rates — reconnect for live rates';
-    $('convRateNote').textContent = `1 ${from} = ${rate.toLocaleString(undefined,{maximumFractionDigits:4})} ${to} · ${rateSource}`;
+    });
   }
   $('convAmount').oninput = update;
   $('convFrom').onchange = update;
@@ -1192,6 +1528,121 @@ function initCurrencyConverter(dest){
 }
 
 /* ---------------- Things To Do tab ---------------- */
+/* ---------------- discovered places in the UI ----------------
+ * Places arrive asynchronously from OpenStreetMap, so a tab has three honest states: still
+ * looking, found some, or found none. The old code had only one — a grid that was always full,
+ * because the contents were invented. */
+
+const destPageShown = {};   // `${destId}:${kind}` -> how many are on screen
+
+function destPageKey(destId, kind){ return destId + ':' + kind; }
+
+function discoveryNounFor(kind){
+  return kind === 'restaurant' ? 'places to eat'
+       : kind === 'hotel' ? 'places to stay' : 'things to do';
+}
+
+/** The message above a grid: what we are doing, or why the grid is empty. Never silent. */
+function discoveryNoticeHTML(dest, kind, shownCount){
+  const status = (typeof placesStatus === 'function') ? placesStatus(dest.id, kind) : 'idle';
+  const noun = discoveryNounFor(kind);
+  if(status === 'loading'){
+    return `<div class="discNotice" role="status"><span class="discSpinner" aria-hidden="true"></span>
+      Finding real ${noun} in ${esc(dest.name)}…</div>`;
+  }
+  if(status === 'error'){
+    return `<div class="discNotice discErr">Couldn't reach the OpenStreetMap service just now, so this list may be short.
+      <button class="btn sm" data-rediscover="${esc(kind)}">Try again</button></div>`;
+  }
+  if(status === 'done' && !shownCount){
+    const km = (typeof discoveryRadiusKm === 'function') ? discoveryRadiusKm(dest) : 8;
+    return `<div class="empty">OpenStreetMap has no ${noun} mapped within ${km} km of ${esc(dest.name)}.
+      That is a gap in the map data rather than a fault here — you can still add your own stops to a trip.</div>`;
+  }
+  return '';
+}
+
+/** Renders one page of a place grid, with a "Show more" that appends rather than replaces.
+ *  A dense city returns several hundred entities and putting them all in the DOM at once is a
+ *  visible freeze on a phone. */
+function renderPagedPlaceGrid(gridId, arr, dest, kind, cardFn){
+  // The container is a plain wrapper, NOT .placeGrid — this function renders its own .placeGrid
+  // inside it, and nesting one grid in another made every card a third of a third of the width
+  // and pushed the row off the side of a phone.
+  const grid = $(gridId);
+  if(!grid) return;
+  const key = destPageKey(dest.id, kind);
+  const size = (typeof PLACES_PAGE_SIZE !== 'undefined') ? PLACES_PAGE_SIZE : 24;
+  const shown = Math.min(destPageShown[key] || size, arr.length);
+  const page = arr.slice(0, shown);
+  const notice = discoveryNoticeHTML(dest, kind, arr.length);
+  const more = arr.length > shown
+    ? `<div class="showMoreRow"><button class="btn" data-showmore="${esc(kind)}">Show more — ${arr.length - shown} more ${discoveryNounFor(kind)}</button></div>`
+    : (arr.length > size ? `<div class="showMoreRow"><span class="small">Showing all ${arr.length}.</span></div>` : '');
+
+  // While discovery is still running and we have nothing yet, show skeleton cards. They hold the
+  // layout at its final height, so the page does not jump when the real cards land.
+  const status = (typeof placesStatus === 'function') ? placesStatus(dest.id, kind) : 'idle';
+  const skeletons = (status === 'loading' && !page.length)
+    ? `<div class="placeGrid">${Array.from({length:6}, () => `
+        <div class="placeCard skelCard" aria-hidden="true">
+          <div class="skelImg"></div>
+          <div class="placeBody">
+            <div class="skelLine skelTitle"></div>
+            <div class="skelLine skelShort"></div>
+            <div class="skelLine"></div>
+          </div>
+        </div>`).join('')}</div>`
+    : '';
+
+  grid.innerHTML = notice + (page.length
+    ? `<div class="placeGrid">${page.map(cardFn).join('')}</div>${more}`
+    : skeletons || (notice ? '' : '<div class="empty">Nothing matches those filters. Try clearing one.</div>'));
+
+  const moreBtn = grid.querySelector('[data-showmore]');
+  if(moreBtn) moreBtn.onclick = () => {
+    destPageShown[key] = shown + size;
+    renderPagedPlaceGrid(gridId, arr, dest, kind, cardFn);
+  };
+  const retry = grid.querySelector('[data-rediscover]');
+  if(retry) retry.onclick = () => {
+    if(typeof discoverPlacesFor === 'function'){
+      const st = (typeof placesDiscoveryState !== 'undefined') ? placesDiscoveryState.get(dest.id) : null;
+      if(st) delete st[kind];
+      discoverPlacesFor(dest, [kind]);
+    }
+  };
+  wirePlaceCards(grid);
+  hydratePhotos(grid);
+}
+
+/** Ranking for the "Recommended" sort. The old one ordered by review count, which was a random
+ *  number, so "Recommended" was literally meaningless. This uses how completely the place is
+ *  described and how close it is — both real, neither pretending to be a quality score. */
+function recommendedOrder(arr, dest){
+  return arr.slice().sort((a, b) => {
+    const ca = (typeof placeCompleteness === 'function') ? placeCompleteness(a) : 0;
+    const cb = (typeof placeCompleteness === 'function') ? placeCompleteness(b) : 0;
+    // Curated destinations carry real, hand-checked ratings; discovered ones have none. Where a
+    // rating genuinely exists it is the better signal.
+    const ra = a.rating || 0, rb = b.rating || 0;
+    if(ra && rb && ra !== rb) return rb - ra;
+    if(cb !== ca) return cb - ca;
+    return (haversine(dest, a) || 0) - (haversine(dest, b) || 0);
+  });
+}
+
+/** Re-render the open destination tab when discovery lands. */
+window.addEventListener('tripflow:places', function(ev){
+  const d = ev && ev.detail;
+  if(!d || !destState || destState.id !== d.destId) return;
+  if(!location.hash.includes('/destination/')) return;
+  const tabForKind = {restaurant:'restaurants', hotel:'hotels', attraction:'things'};
+  if(destState.tab === tabForKind[d.kind] || destState.tab === 'overview' || destState.tab === 'map'){
+    renderDestinationView(destState.id, destState.tab);
+  }
+});
+
 function renderDestThings(dest, body){
   const all = placesFor(dest.id,'attraction');
   const cats = [...new Set(all.map(p=>p.category))];
@@ -1204,7 +1655,7 @@ function renderDestThings(dest, body){
       <div class="filterGroup"><label>Sort</label><select id="tSort"><option value="rec">Recommended</option><option value="rating">Highest rated</option><option value="price_low">Price: low to high</option><option value="price_high">Price: high to low</option></select></div>
     </div>
     <div class="activeFilters hidden" id="thingsActiveFilters"></div>
-    <div class="placeGrid" id="thingsGrid"></div>`;
+    <div id="thingsGrid"></div>`;
   $('tCat').value=f.cat; $('tPrice').value=f.price; $('tRating').value=f.rating; $('tSort').value=f.sort;
   const PRICE_LABELS = {0:'Free',1:'$',2:'$$',3:'$$$'};
   function clearAllThings(){ f.cat='all'; f.price='any'; f.rating='any'; $('tCat').value='all'; $('tPrice').value='any'; $('tRating').value='any'; apply(); }
@@ -1219,14 +1670,13 @@ function renderDestThings(dest, body){
     if(f.sort==='rating') arr.sort((a,b)=>(b.rating||0)-(a.rating||0));
     else if(f.sort==='price_low') arr.sort((a,b)=>(a.price||0)-(b.price||0));
     else if(f.sort==='price_high') arr.sort((a,b)=>(b.price||0)-(a.price||0));
-    else arr.sort((a,b)=>(b.reviews||0)-(a.reviews||0));
+    else arr = recommendedOrder(arr, dest);
     const chips = [];
     if(f.cat!=='all') chips.push({label:`Category: ${f.cat}`, onRemove:()=>{ f.cat='all'; $('tCat').value='all'; apply(); }});
     if(f.price!=='any') chips.push({label:`Price: ${PRICE_LABELS[f.price]||f.price}`, onRemove:()=>{ f.price='any'; $('tPrice').value='any'; apply(); }});
     if(f.rating!=='any') chips.push({label:`Rating: ${f.rating}+`, onRemove:()=>{ f.rating='any'; $('tRating').value='any'; apply(); }});
     renderActiveFilterChips('thingsActiveFilters', chips, clearAllThings);
-    $('thingsGrid').innerHTML = arr.length? arr.map(p=>placeCardHTML(p)).join('') : '<div class="empty">No attractions match those filters.</div>';
-    wirePlaceCards($('thingsGrid'));
+    renderPagedPlaceGrid('thingsGrid', arr, dest, 'attraction', p=>placeCardHTML(p));
   }
   ['tCat','tPrice','tRating','tSort'].forEach(id=>$(id).onchange=apply);
   apply();
@@ -1248,7 +1698,7 @@ function renderDestRestaurants(dest, body){
       <div class="pillRow" id="rDietary">${DIETARY_OPTIONS.map(d=>`<button class="pill" data-diet="${d}">${d.replace(/-/g,' ')}</button>`).join('')}</div>
     </div>
     <div class="activeFilters hidden" id="restActiveFilters"></div>
-    <div class="placeGrid" id="restGrid"></div>`;
+    <div id="restGrid"></div>`;
   $('rCuisine').value=f.cuisine; $('rPrice').value=f.price; $('rRating').value=f.rating; $('rSort').value=f.sort;
   $('rOpen').classList.toggle('active', f.open);
   $('rDietary').querySelectorAll('[data-diet]').forEach(b=>b.classList.toggle('active', f.dietary.has(b.dataset.diet)));
@@ -1271,7 +1721,7 @@ function renderDestRestaurants(dest, body){
     });
     if(f.sort==='rating') arr.sort((a,b)=>(b.rating||0)-(a.rating||0));
     else if(f.sort==='distance') arr.sort((a,b)=>haversine(dest,a)-haversine(dest,b));
-    else arr.sort((a,b)=>(b.reviews||0)-(a.reviews||0));
+    else arr = recommendedOrder(arr, dest);
     const chips = [];
     if(f.cuisine!=='all') chips.push({label:`Cuisine: ${f.cuisine}`, onRemove:()=>{ f.cuisine='all'; $('rCuisine').value='all'; apply(); }});
     if(f.price!=='any') chips.push({label:`Price: ${REST_PRICE_LABELS[f.price]||f.price}`, onRemove:()=>{ f.price='any'; $('rPrice').value='any'; apply(); }});
@@ -1279,12 +1729,11 @@ function renderDestRestaurants(dest, body){
     if(f.open) chips.push({label:'Open now', onRemove:()=>{ f.open=false; $('rOpen').classList.remove('active'); apply(); }});
     f.dietary.forEach(d=>chips.push({label:d.replace(/-/g,' '), onRemove:()=>{ f.dietary.delete(d); $('rDietary').querySelectorAll('[data-diet]').forEach(b=>b.classList.toggle('active', f.dietary.has(b.dataset.diet))); apply(); }}));
     renderActiveFilterChips('restActiveFilters', chips, clearAllRest);
-    $('restGrid').innerHTML = arr.length? arr.map(p=>{
+    renderPagedPlaceGrid('restGrid', arr, dest, 'restaurant', p=>{
       const distKm = haversine(dest,p).toFixed(1);
       const card = placeCardHTML(p);
       return card.replace('</div>\n      <div class="placeFoot">', `</div><div class="small">🚶 ${distKm} km from center</div>\n      <div class="placeFoot">`);
-    }).join('') : '<div class="empty">No restaurants match those filters. Try clearing a filter.</div>';
-    wirePlaceCards($('restGrid'));
+    });
   }
   ['rCuisine','rPrice','rRating','rSort'].forEach(id=>$(id).onchange=apply);
   $('rOpen').onclick=()=>{ f.open=!f.open; $('rOpen').classList.toggle('active',f.open); apply(); };
@@ -1357,7 +1806,7 @@ function renderDestHotels(dest, body){
       <div class="filterGroup"><label>Sort</label><select id="hSort"><option value="rec">Recommended</option><option value="price_low">Lowest price</option><option value="rating">Highest rated</option><option value="distance">Distance from center</option></select></div>
     </div>
     <div class="activeFilters hidden" id="hotelActiveFilters"></div>
-    <div class="placeGrid" id="hotelGrid"></div>`;
+    <div id="hotelGrid"></div>`;
   $('hPrice').value=f.price; $('hStars').value=f.stars; $('hGuest').value=f.guest; $('hAmenity').value=f.amenity; $('hSort').value=f.sort;
   const HOTEL_PRICE_LABELS = {'0-100':'Under $100','100-250':'$100–250','250-500':'$250–500','500-99999':'$500+'};
   function clearAllHotels(){
@@ -1368,28 +1817,35 @@ function renderDestHotels(dest, body){
   function apply(){
     f.price=$('hPrice').value; f.stars=$('hStars').value; f.guest=$('hGuest').value; f.amenity=$('hAmenity').value; f.sort=$('hSort').value;
     let arr = all.filter(p=>{
-      if(f.price!=='any'){ const [lo,hi]=f.price.split('-').map(Number); if(p.price<lo||p.price>hi) return false; }
-      if(f.stars!=='any'){ if(f.stars==='2'){ if(p.stars>2) return false; } else if(p.stars!==Number(f.stars)) return false; }
-      if(f.guest!=='any' && p.guestRating < Number(f.guest)) return false;
+      // A place with no published price cannot satisfy a price filter. Without this guard a
+      // null price slips through every bracket, because null<lo and null>hi are both false.
+      if(f.price!=='any'){
+        if(p.price == null) return false;
+        const [lo,hi]=f.price.split('-').map(Number); if(p.price<lo||p.price>hi) return false;
+      }
+      if(f.stars!=='any'){
+        if(p.stars == null) return false;
+        if(f.stars==='2'){ if(p.stars>2) return false; } else if(p.stars!==Number(f.stars)) return false;
+      }
+      if(f.guest!=='any' && !(p.guestRating >= Number(f.guest))) return false;
       if(f.amenity!=='all' && !(p.amenities||[]).includes(f.amenity)) return false;
       return true;
     });
-    if(f.sort==='price_low') arr.sort((a,b)=>(a.price||0)-(b.price||0));
-    else if(f.sort==='rating') arr.sort((a,b)=>b.guestRating-a.guestRating);
+    if(f.sort==='price_low') arr.sort((a,b)=>(a.price==null?Infinity:a.price)-(b.price==null?Infinity:b.price));
+    else if(f.sort==='rating') arr.sort((a,b)=>(b.guestRating||0)-(a.guestRating||0));
     else if(f.sort==='distance') arr.sort((a,b)=>haversine(dest,a)-haversine(dest,b));
-    else arr.sort((a,b)=>b.guestRating-a.guestRating);
+    else arr = recommendedOrder(arr, dest);
     const chips = [];
     if(f.price!=='any') chips.push({label:`Price: ${HOTEL_PRICE_LABELS[f.price]||f.price}`, onRemove:()=>{ f.price='any'; $('hPrice').value='any'; apply(); }});
     if(f.stars!=='any') chips.push({label:`Stars: ${f.stars==='2'?'2 & under':f.stars+' star'}`, onRemove:()=>{ f.stars='any'; $('hStars').value='any'; apply(); }});
     if(f.guest!=='any') chips.push({label:`Guest rating: ${f.guest}.0+`, onRemove:()=>{ f.guest='any'; $('hGuest').value='any'; apply(); }});
     if(f.amenity!=='all') chips.push({label:`Amenity: ${f.amenity}`, onRemove:()=>{ f.amenity='all'; $('hAmenity').value='all'; apply(); }});
     renderActiveFilterChips('hotelActiveFilters', chips, clearAllHotels);
-    $('hotelGrid').innerHTML = arr.length? arr.map(p=>{
+    renderPagedPlaceGrid('hotelGrid', arr, dest, 'hotel', p=>{
       const distKm = haversine(dest,p).toFixed(1);
       const card = placeCardHTML(p);
       return card.replace('</div>\n      <div class="placeFoot">', `</div><div class="small">🚶 ${distKm} km from center</div>\n      <div class="placeFoot">`);
-    }).join('') : '<div class="empty">No hotels match those filters.</div>';
-    wirePlaceCards($('hotelGrid'));
+    });
   }
   ['hPrice','hStars','hGuest','hAmenity','hSort'].forEach(id=>$(id).onchange=apply);
   apply();
@@ -1451,7 +1907,9 @@ function renderDestMap(dest, body){
       <div class="mapLegend" id="destMapLegend"></div>
       <div class="mapSplit">
         <div class="map" id="destMap" style="min-height:420px">
-          ${navigator.onLine===false ? mapUnavailableHTML() : `<iframe id="destMapFrame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen src="${gmapsSearchEmbedUrl(dest.name+(dest.country?', '+dest.country:''),13)}"></iframe>`}
+          ${navigator.onLine===false ? mapUnavailableHTML()
+            : !hasVerifiedGeo(dest) ? mapUnverifiedHTML(dest.name)
+            : `<iframe id="destMapFrame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen src="${gmapsCoordEmbedUrl(dest.lat, dest.lng, 13)}"></iframe>`}
         </div>
         <div class="mapPlaceList" id="destMapList"></div>
       </div>
@@ -1489,7 +1947,7 @@ function renderDestMap(dest, body){
   $('destMapCenter').onclick = ()=>{
     window.__destMapPlaceId = null;
     const frame = $('destMapFrame');
-    if(frame) frame.src = gmapsSearchEmbedUrl(dest.name+(dest.country?', '+dest.country:''),13);
+    if(frame && hasVerifiedGeo(dest)) frame.src = gmapsCoordEmbedUrl(dest.lat, dest.lng, 13);
     draw();
   };
 }
@@ -1497,7 +1955,12 @@ function focusDestMapPlace(p){
   const dest = window.__destMapDest || DESTINATIONS.find(d=>d.id===p.destId);
   window.__destMapPlaceId = p.id;
   const frame = $('destMapFrame');
-  if(frame) frame.src = gmapsSearchEmbedUrl(p.name+(dest?', '+dest.name:''),16);
+  // A discovered place carries its own OSM coordinates; prefer them over a name search, which
+  // can land on a same-named business in another country.
+  if(frame){
+    if(p.lat!=null && p.lng!=null && isFinite(p.lat)) frame.src = gmapsCoordEmbedUrl(p.lat, p.lng, 16);
+    else if(dest && hasVerifiedGeo(dest)) frame.src = gmapsCoordEmbedUrl(dest.lat, dest.lng, 14);
+  }
   const open = $('destMapOpen');
   if(open) open.href = gmapsExternalLink(p.name+(dest?', '+dest.name:''));
   $$('#destMapList .mapPlaceRow').forEach(row=>row.classList.toggle('active', row.dataset.mapplace===p.id));
@@ -2131,7 +2594,7 @@ function initCustomizeModal(){
 ============================================================ */
 function renderIdeasView(destIdParam){
   const auto = $('ideasDestAuto');
-  $('ideasDestInput').oninput = debounce(e=>renderDestAuto(e.target.value, auto, name=>{ $('ideasDestInput').value=name; auto.classList.remove('show'); }),120);
+  $('ideasDestInput').oninput = debounce(e=>renderDestAuto(e.target.value, auto, name=>{ $('ideasDestInput').value=name; auto.classList.remove('show'); }),220);
   $('ideasGenBtn').onclick = ()=>{
     const name = $('ideasDestInput').value.trim();
     if(!name){ toast('Type a destination first.'); return; }
@@ -2174,7 +2637,7 @@ function tripCardHTML(t){
   const over = planned>t.budget.total;
   const progress = computeTripProgress(t);
   return `<div class="tripCard2" data-trip="${t.id}">
-    <div class="tripCoverWrap"><img src="${t.cover||destHeroSrc(dest)}" alt="" data-photo-q="${esc(destPhotoQuery(dest))}"><span class="badge2">${dest.flag} ${esc(dest.name)}</span></div>
+    <div class="tripCoverWrap"><img src="${t.cover||destHeroSrc(dest)}" alt="" data-photo-dest="${esc(dest.id)}" data-photo-q="${esc(destPhotoQuery(dest))}"><span class="badge2">${dest.flag} ${esc(dest.name)}</span></div>
     <div class="tripCardBody">
       <h3>${esc(t.title)}</h3>
       <div class="tripMetaRow"><span>📅 ${fmtDateShort(t.start)} – ${fmtDateShort(t.end)}</span><span>${t.days.length} days</span></div>
@@ -2235,7 +2698,7 @@ function openNewTripModal(){
 }
 function initNewTripModal(){
   const auto = $('newTripDestAuto');
-  $('newTripDest').addEventListener('input', debounce(e=>renderDestAuto(e.target.value, auto, name=>{ $('newTripDest').value=name; auto.classList.remove('show'); }),120));
+  $('newTripDest').addEventListener('input', debounce(e=>renderDestAuto(e.target.value, auto, name=>{ $('newTripDest').value=name; auto.classList.remove('show'); }),220));
   $('createTripBtn').onclick = ()=>{
     const name = $('newTripDest').value.trim();
     if(!name){ toast('Enter a destination.'); return; }
@@ -2334,7 +2797,7 @@ function renderSavedView(collId){
   }).filter(Boolean);
   grid.innerHTML = items.map(p=>{
     if(p.__isDest){
-      return `<div class="placeCard"><div class="placeImgWrap"><img src="${destHeroSrc(p)}" alt="" data-photo-q="${esc(destPhotoQuery(p))}"><span class="placeCatBadge">Destination</span></div><div class="placeBody"><h4>${p.flag} ${esc(p.name)}</h4><p class="placeDesc">${esc(p.tagline)}</p><div class="placeFoot"><button class="btn primary block" data-godest="${p.id}">Explore</button><button class="btn" data-unsavedest="${p.id}">Remove</button></div></div></div>`;
+      return `<div class="placeCard"><div class="placeImgWrap"><img src="${destHeroSrc(p)}" alt="" data-photo-dest="${esc(p.id)}" data-photo-q="${esc(destPhotoQuery(p))}"><span class="placeCatBadge">Destination</span></div><div class="placeBody"><h4>${p.flag} ${esc(p.name)}</h4><p class="placeDesc">${esc(p.tagline)}</p><div class="placeFoot"><button class="btn primary block" data-godest="${p.id}">Explore</button><button class="btn" data-unsavedest="${p.id}">Remove</button></div></div></div>`;
     }
     return placeCardHTML(p,{showDest:true});
   }).join('');
@@ -2366,6 +2829,11 @@ function wireSavedViewToggle(collection, items){
 function renderSavedMap(collection, places, unmappable){
   const frame = $('savedMapFrame'), list = $('savedMapList');
   if(!frame || !list) return;
+  // Only plot pins whose coordinates are real. An unverified saved place would otherwise drag
+  // the map's centre — the average of the pins — somewhere nobody saved.
+  const withCoords = places.filter(p=>p && p.lat!=null && p.lng!=null && isFinite(p.lat) && isFinite(p.lng));
+  unmappable = (unmappable || 0) + (places.length - withCoords.length);
+  places = withCoords;
   if(!places.length){
     list.innerHTML = `<div class="empty">Nothing in this collection has a location to plot yet.</div>`;
     frame.src = gmapsSearchEmbedUrl('world', 1);
@@ -3766,6 +4234,17 @@ function openAddPlaceSearch(trip){
   setTimeout(()=>$('addPlaceSearchInput') && $('addPlaceSearchInput').focus(), 50);
 }
 
+/** Fail-safe for the case the spec calls out: geographic data could not be verified. Showing
+ *  no map is the correct outcome — a random map or a route between invented points is a
+ *  confident lie, and a traveller cannot tell it from the truth. */
+function mapUnverifiedHTML(what){
+  return `<div class="empty" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:0;padding:20px;text-align:center">
+    <div style="font-size:26px;margin-bottom:8px">📍</div>
+    <div>Unable to verify map location for ${esc(what || 'this destination')}.</div>
+    <div class="small" style="margin-top:4px">We only show a map once the coordinates are confirmed, so you never get sent to the wrong place.</div>
+  </div>`;
+}
+
 function mapUnavailableHTML(){
   return `<div class="empty" style="height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:0">
     <div style="font-size:26px;margin-bottom:8px">🗺️</div>
@@ -3801,14 +4280,25 @@ function renderPlannerMapInner(trip, day){
   const dest = destForTrip(trip);
   const stops = day.stops;
   let src, note = '';
-  if(stops.length===0){
+  // Rule 2: the map must centre on the verified destination. Rule 5: routes are only ever
+  // calculated between validated points. A stop that fails placeWithinDestination is not
+  // plotted at all rather than dragging the route across a continent.
+  if(!hasVerifiedGeo(dest)){
+    $('map2').innerHTML = mapUnverifiedHTML(dest && dest.name);
+    $('mapLegend2').innerHTML = '';
+    return;
+  }
+  const plottable = stops.filter(s=>placeWithinDestination(s, dest));
+  const dropped = stops.length - plottable.length;
+  if(dropped) note = `${dropped} stop${dropped===1?'':'s'} had no verified location and ${dropped===1?'is':'are'} not plotted.`;
+  if(plottable.length===0){
     src = gmapsCoordEmbedUrl(dest.lat, dest.lng, 13);
-  } else if(stops.length===1){
-    src = gmapsSearchEmbedUrl(stops[0].name+', '+dest.name, 15);
+  } else if(plottable.length===1){
+    src = gmapsCoordEmbedUrl(plottable[0].lat, plottable[0].lng, 15);
   } else {
-    const routed = stops.length>GMAPS_MAX_WAYPOINTS ? stops.slice(0,GMAPS_MAX_WAYPOINTS) : stops;
+    const routed = plottable.length>GMAPS_MAX_WAYPOINTS ? plottable.slice(0,GMAPS_MAX_WAYPOINTS) : plottable;
     src = gmapsDirectionsEmbedUrl(routed);
-    if(stops.length>GMAPS_MAX_WAYPOINTS) note = `Showing route for the first ${GMAPS_MAX_WAYPOINTS} of ${stops.length} stops.`;
+    if(plottable.length>GMAPS_MAX_WAYPOINTS) note = `Showing route for the first ${GMAPS_MAX_WAYPOINTS} of ${plottable.length} stops.`;
   }
   $('map2').innerHTML = navigator.onLine===false ? mapUnavailableHTML()
     : `<iframe id="map2Frame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen src="${src}"></iframe>`;
@@ -4112,7 +4602,11 @@ function renderCollabTab(trip){
 }
 
 /* ============================================================
-   AI ASSISTANT — rule-based intent engine + optional Gemini
+   AI ASSISTANT — chat surface
+   ------------------------------------------------------------
+   The language engine lives in assistant.js; this file owns the panel, the contextual
+   suggestion chips, and the optional provider-key path. The assistant answers every message
+   locally with no key and no network — a key only ever adds open-ended chat on top.
 ============================================================ */
 function initAI(){
   STATE.geminiKey = localStorage.getItem(LS_GEMINI) || '';
@@ -4123,7 +4617,7 @@ function initAI(){
   $('aiText').addEventListener('keydown', e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendAI(); } });
   $('apiSetupBtn').onclick = openApiKeysModal;
   renderAISuggestions();
-  pushAIMessage('ai', `Hi! I'm your TripFlow AI assistant ✨. I can actually edit your itinerary — try "Make Day 2 more relaxed", "Optimize my route", or "What should I do in Tokyo for 3 days?"`);
+  pushAIMessage('ai', `Hi! I'm your TripFlow assistant ✨ — no setup, no API key, works offline.\n\nI can edit your itinerary directly ("make day 2 more relaxed", "add Senso-ji to day 1", "optimise my route"), answer questions about any destination ("do I need a visa?", "how much per day?"), and find places ("hidden gems in Bali", "cheap eats under $15").\n\nAsk me for **help** to see everything.`);
 }
 function openAI(){ $('ai').classList.remove('hidden'); $('aiLauncher').style.display='none'; renderAISuggestions(); $('aiText').focus(); }
 function closeAI(){ $('ai').classList.add('hidden'); $('aiLauncher').style.display='flex'; }
@@ -4138,40 +4632,47 @@ function renderAISuggestions(){
     const dest = resolveDestFromId(decodeURIComponent(parts[1]||'')) || findDestination(decodeURIComponent(parts[1]||''));
     const tab = parts[2]||'overview';
     if(tab==='map'){
-      list = [`Find nearby attractions in ${dest.name}`, `Find restaurants near me in ${dest.name}`, `Optimize my locations in ${dest.name}`, `Plan my entire trip to ${dest.name}`];
+      list = [`What should I do in ${dest.name}?`, `Where should I eat in ${dest.name}?`, `Hidden gems in ${dest.name}`, `Plan 4 days in ${dest.name}`];
     } else {
-      list = [`Plan my entire trip to ${dest.name}`, `Best places for food in ${dest.name}`, `Find hidden gems in ${dest.name}`, `Instagrammable locations in ${dest.name}`];
+      list = [`Plan 4 days in ${dest.name}`, `Do I need a visa for ${dest.name}?`, `How much per day in ${dest.name}?`, `What if it rains in ${dest.name}?`];
     }
   } else if(trip && parts[0]==='trip'){
     const tab = parts[2]||'itinerary';
     if(tab==='budget'){
-      list = ['Rebalance my budget', 'Find cheaper alternatives', 'Reduce my spending', 'Make this trip cheaper'];
+      list = ['How is my budget?', 'Make this cheaper', 'What will this cost?', 'Make it luxury'];
     } else if(tab==='collab'){
       list = ['Add more nightlife to Day 1', 'Find romantic restaurants nearby', 'Find hidden gems for the group', 'Rearrange my itinerary to reduce travel time'];
     } else {
       list = [
-        'Rearrange my itinerary to reduce travel time',
-        'Make Day 1 more relaxed',
-        `Add more nightlife to Day ${Math.min(2,trip.days.length)}`,
-        'Find hidden gems',
+        'Optimise my route',
+        'Day 1 is too packed',
+        `Add more nightlife to day ${Math.min(2,trip.days.length)}`,
+        'What does my trip look like?',
       ];
     }
   } else {
     list = [
-      'What should I do in Tokyo for 3 days?',
-      'Build me a cheap itinerary',
-      'Find romantic restaurants in Paris',
-      'What can I do on a rainy day in Bangkok?',
+      'Plan 5 days in Rome',
+      'Hidden gems in Bali',
+      'Romantic restaurants in Paris',
+      'What can you do?',
     ];
   }
   $('aiSuggestions').innerHTML = list.map(s=>`<button class="suggestion">${esc(s)}</button>`).join('');
   $('aiSuggestions').querySelectorAll('.suggestion').forEach(b=>b.onclick=()=>{ $('aiText').value=b.textContent; sendAI(); });
 }
+/** The assistant writes light markdown (**bold**, bullet lines). Render just that much —
+ * escaping first, so a place name containing markup can never inject HTML. */
+function aiRichText(text){
+  return esc(String(text == null ? '' : text))
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+}
 function pushAIMessage(who, text){
   const msgs = $('messages');
   const div = document.createElement('div');
   div.className = `msg ${who}`;
-  div.innerHTML = esc(text).replace(/\n/g,'<br>');
+  div.innerHTML = aiRichText(text);
   msgs.appendChild(div);
   msgs.scrollTop = msgs.scrollHeight;
   return div;
@@ -4331,9 +4832,12 @@ async function sendAI(){
   $('aiText').value = '';
   const typing = pushAIMessage('ai', '💭 Thinking…');
   const trip = getTrip(plannerState.tripId);
-  const result = handleIntent(text, trip);
-  if(result.handled){
-    typing.innerHTML = esc(result.reply).replace(/\n/g,'<br>');
+  // The local engine answers everything — it has no key, no network and no model to load,
+  // so it is the primary path rather than a fallback. A provider key, if the user has added
+  // one, is consulted only for the open-ended questions the local engine flags as unhandled.
+  const result = assistantRespond(text, trip);
+  if(!result.openEnded){
+    typing.innerHTML = aiRichText(result.reply);
     renderAISuggestions();
     return;
   }
@@ -4343,25 +4847,16 @@ async function sendAI(){
     const prompt = `You are TripFlow's travel planning assistant. ${context} Answer concisely with short, practical bullet points, using real place names when relevant. User: ${text}`;
     const gemini = await callGemini(prompt, STATE.geminiKey);
     if(gemini.text){
-      typing.innerHTML = esc(gemini.text).replace(/\n/g,'<br>');
+      typing.innerHTML = aiRichText(gemini.text);
     } else {
-      typing.innerHTML = esc(`Couldn't reach Gemini (${gemini.error || 'unknown error'}). Meanwhile: ` + result.reply);
+      typing.innerHTML = aiRichText(result.reply);
     }
   } else {
-    typing.innerHTML = esc(result.reply).replace(/\n/g,'<br>');
+    typing.innerHTML = aiRichText(result.reply);
   }
   renderAISuggestions();
 }
 
-function guessDestFromText(t){
-  // Matches any destination already known this session (curated or previously-searched
-  // generic ones) — not just curated — since AI suggestion chips on a destination page embed
-  // that exact destination's name. Prefers the longest/most-specific match to avoid a short
-  // name accidentally matching inside an unrelated longer phrase.
-  const matches = DESTINATIONS.filter(d=>d.name.length>2 && t.includes(d.name.toLowerCase()));
-  matches.sort((a,b)=>b.name.length-a.name.length);
-  return matches[0];
-}
 function adjustDayCount(trip, n){
   n = clamp(n,1,14);
   while(trip.days.length<n){
@@ -4406,159 +4901,6 @@ function makeDayRelaxed(day){
   return removedNames;
 }
 
-function handleIntent(text, trip){
-  const t = text.toLowerCase().trim();
-  const dest = trip ? destForTrip(trip) : null;
-
-  // Accepts both word orders — "what should I do in Tokyo for 3 days" AND
-  // "what should I do for 3 days in Tokyo" — plus a few common rephrasings ("what to do
-  // in", "things to do in", "what can I do in") rather than one rigid fixed phrase.
-  const dayM = t.match(/for (\d+)\s*days?/);
-  const daysFromText = dayM ? parseInt(dayM[1],10) : null;
-  const withoutDays = dayM ? t.slice(0,dayM.index).trim()+' '+t.slice(dayM.index+dayM[0].length).trim() : t;
-  let m = withoutDays.match(/(?:what should i do|what to do|what can i do|things to do|plan (?:my |an? )?(?:entire )?trip)\s+(?:in|to|for) ([a-z\s,]+?)[.?!]?$/);
-  if(m && m[1].trim().length>1){
-    const name = m[1].trim();
-    const days = daysFromText;
-    const d = findDestination(name);
-    if(!trip || trip.destId!==d.id){
-      const nDays = days||4;
-      const start = toDateInput(new Date(Date.now()+21*86400000));
-      const newTrip = buildAutoTrip(d.id, `${d.name} Trip`, start, addDays(start,nDays-1), 2, 'moderate');
-      STATE.trips.unshift(newTrip); saveState();
-      navigate(`#/trip/${newTrip.id}`);
-      return {handled:true, reply:`I put together a ${nDays}-day starter itinerary for ${d.name} — take a look! You can drag stops around, swap places, or ask me to adjust the pace.`};
-    } else if(days){
-      adjustDayCount(trip, days);
-      if(plannerState.tripId===trip.id) renderPlannerView(trip.id, 'itinerary');
-      return {handled:true, reply:`Updated "${trip.title}" to ${days} days and filled in top-rated picks for ${d.name}.`};
-    }
-  }
-
-  if(/\bcheap(er)?\b|budget[- ]friendly|build me a cheap|reduce (my )?spending|rebalance( my)? budget|(make|save).*(trip|itinerary).*(cheap|money)/.test(t)){
-    if(trip){
-      trip.budget.style='budget';
-      trip.budget.total = Math.round(dest.avgDailyBudget.budget*trip.days.length*trip.travelers);
-      const changed = swapForCheaperAlternatives(trip, plannerState.day, 3);
-      saveState();
-      if(plannerState.tripId===trip.id) renderPlannerView(trip.id, location.hash.split('/')[3] || 'itinerary');
-      return {handled:true, reply:`Switched "${trip.title}" to Budget style (~${fmt$(trip.budget.total)} total)${changed.length?` and swapped in ${changed.length} cheaper pick(s) for Day ${plannerState.day+1}`:''}.`};
-    } else {
-      const pool = DESTINATIONS.filter(d=>d.tags.includes('affordable'));
-      const d = pool[Math.floor(Math.random()*pool.length)] || DESTINATIONS[0];
-      const start = toDateInput(new Date(Date.now()+21*86400000));
-      const newTrip = buildAutoTrip(d.id, `${d.name} on a Budget`, start, addDays(start,3), 2, 'budget');
-      STATE.trips.unshift(newTrip); saveState();
-      navigate(`#/trip/${newTrip.id}`);
-      return {handled:true, reply:`I built a 4-day budget-friendly trip to ${d.name} (~${fmt$(newTrip.budget.total)} total). Open a specific destination first if you had somewhere else in mind!`};
-    }
-  }
-
-  if(/romantic (restaurants?|dinner|dining)/.test(t) || /find romantic/.test(t)){
-    const d = dest || guessDestFromText(t) || DESTINATIONS[0];
-    const picks = placesFor(d.id,'restaurant').filter(p=>(p.tags||[]).includes('romantic')).sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,3);
-    const list = picks.length ? picks : placesFor(d.id,'restaurant').sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,3);
-    return {handled:true, reply:`Romantic dinner spots in ${d.name}:\n` + list.map(p=>`• ${p.name} (${p.cuisine}, ★${p.rating}) — ${p.desc}`).join('\n') + `\n\nTry "add ${list[0].name} to day 1" and I'll drop it into your itinerary.`};
-  }
-
-  if(/rainy day|it'?s raining|raining outside/.test(t)){
-    const d = dest || guessDestFromText(t) || DESTINATIONS[0];
-    const outdoorCats = ['Beach','Viewpoint','Hiking','Nature','Wine','Adventure'];
-    const indoor = placesFor(d.id,'attraction').filter(p=>!outdoorCats.includes(p.category)).sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,4);
-    return {handled:true, reply:`Good indoor options in ${d.name} for a rainy day:\n` + indoor.map(p=>`• ${p.name} (${p.category})`).join('\n')};
-  }
-
-  if(/hidden gems?|off[- ]the[- ]beaten|lesser[- ]known|local favorites?/.test(t)){
-    const d = dest || guessDestFromText(t) || DESTINATIONS[0];
-    const picks = placesFor(d.id,'attraction').filter(p=>(p.tags||[]).includes('hidden')).sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,4);
-    const list = picks.length ? picks : placesFor(d.id,'attraction').sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,4);
-    return {handled:true, reply:`Hidden gems in ${d.name}:\n` + list.map(p=>`• ${p.name} — ${p.desc}`).join('\n') + `\n\nTry "add ${list[0].name} to day 1" and I'll drop it into your itinerary.`};
-  }
-
-  if(/instagrammable|photogenic|photo spots?|photography spots?/.test(t)){
-    const d = dest || guessDestFromText(t) || DESTINATIONS[0];
-    const picks = placesFor(d.id,'attraction').filter(p=>(p.tags||[]).includes('photography')).sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,4);
-    const list = picks.length ? picks : placesFor(d.id,'attraction').sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,4);
-    return {handled:true, reply:`Most photogenic spots in ${d.name}:\n` + list.map(p=>`• ${p.name} — ${p.desc}`).join('\n') + `\n\nTry "add ${list[0].name} to day 1" and I'll drop it into your itinerary.`};
-  }
-
-  if(/find (nearby )?attractions?/.test(t)){
-    const d = dest || guessDestFromText(t) || DESTINATIONS[0];
-    const list = placesFor(d.id,'attraction').sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,5);
-    return {handled:true, reply:`Top attractions in ${d.name}:\n` + list.map(p=>`• ${p.name} (★${p.rating}) — ${p.desc}`).join('\n')};
-  }
-
-  if(/find restaurants? (near me|nearby)/.test(t)){
-    const d = dest || guessDestFromText(t) || DESTINATIONS[0];
-    const list = placesFor(d.id,'restaurant').sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,5);
-    return {handled:true, reply:`Top restaurants in ${d.name}:\n` + list.map(p=>`• ${p.name} (${p.cuisine}, ★${p.rating})`).join('\n')};
-  }
-
-  if(/(optimize|reduce travel time|rearrange)/.test(t) && /(itinerary|trip|route|day)/.test(t) && trip){
-    const day = trip.days[plannerState.day];
-    if(day.stops.length<3) return {handled:true, reply:`Day ${plannerState.day+1} only has ${day.stops.length} stop(s) — add a couple more and I can optimize the route.`};
-    const before = totalDistance(day.stops);
-    day.stops = nearestNeighborOrder(day.stops);
-    recomputeDayTimes(day);
-    const after = totalDistance(day.stops);
-    logActivity(trip, `AI optimized the route for Day ${plannerState.day+1}.`);
-    saveState();
-    if(plannerState.tripId===trip.id) renderPlannerItinerary(trip);
-    return {handled:true, reply:`Reordered Day ${plannerState.day+1} — travel distance dropped from ${before.toFixed(1)} km to ${after.toFixed(1)} km.`};
-  }
-
-  m = t.match(/add (?:more )?nightlife to day (\d+)/);
-  if(m && trip){
-    const idx = parseInt(m[1],10)-1;
-    if(idx<0||idx>=trip.days.length) return {handled:true, reply:`This trip only has ${trip.days.length} days.`};
-    const used = new Set(trip.days.flatMap(d=>d.stops.map(s=>s.placeId)));
-    const picks = PLACES.filter(p=>p.destId===trip.destId && !used.has(p.id) && (p.tags||[]).includes('nightlife')).sort((a,b)=>(b.rating||0)-(a.rating||0)).slice(0,2);
-    if(!picks.length) return {handled:true, reply:`I couldn't find more unused nightlife spots in ${dest.name} for this trip.`};
-    picks.forEach(p=>addPlaceToTripSilent(trip, idx, p));
-    logActivity(trip, `AI added nightlife picks to Day ${idx+1}.`);
-    saveState();
-    if(plannerState.tripId===trip.id) renderPlannerItinerary(trip);
-    return {handled:true, reply:`Added ${picks.map(p=>p.name).join(' and ')} to Day ${idx+1}.`};
-  }
-
-  if(/cheaper alternatives?|find cheaper/.test(t) && trip){
-    const changed = swapForCheaperAlternatives(trip, plannerState.day, 2);
-    saveState();
-    if(plannerState.tripId===trip.id) renderPlannerItinerary(trip);
-    return {handled:true, reply: changed.length ? `Swapped ${changed.map(c=>`${c.from} → ${c.to}`).join(', ')} on Day ${plannerState.day+1} for cheaper picks.` : `Day ${plannerState.day+1} is already pretty budget-friendly — nothing worth swapping.`};
-  }
-
-  m = t.match(/add (.+) to day (\d+)/);
-  if(m && trip){
-    const name = m[1].trim().toLowerCase();
-    const idx = parseInt(m[2],10)-1;
-    const p = PLACES.find(x=>x.destId===trip.destId && x.name.toLowerCase().includes(name));
-    if(p && idx>=0 && idx<trip.days.length){
-      addPlaceToTripSilent(trip, idx, p);
-      logActivity(trip, `AI added ${p.name} to Day ${idx+1}.`);
-      saveState();
-      if(plannerState.tripId===trip.id) renderPlannerItinerary(trip);
-      return {handled:true, reply:`Added ${p.name} to Day ${idx+1}.`};
-    }
-  }
-
-  m = t.match(/make day (\d+) more relax/);
-  if(m && trip){
-    const idx = parseInt(m[1],10)-1;
-    if(idx<0||idx>=trip.days.length) return {handled:true, reply:`This trip only has ${trip.days.length} days.`};
-    const day = trip.days[idx];
-    const removedNames = makeDayRelaxed(day);
-    recomputeDayTimes(day);
-    logActivity(trip, `AI made Day ${idx+1} more relaxed.`);
-    saveState();
-    if(plannerState.tripId===trip.id) renderPlannerItinerary(trip);
-    return {handled:true, reply: removedNames.length ? `Lightened up Day ${idx+1} — removed ${removedNames.join(', ')} so you have more breathing room.` : `Day ${idx+1} is already relaxed with just ${day.stops.length} stops.`};
-  }
-
-  return {handled:false, reply: dest
-    ? `${dest.name}'s best time to visit is ${dest.bestTime}, and the average daily budget is ${fmt$(dest.avgDailyBudget.moderate)}. Ask me to optimize your route, adjust a day, or find cheaper picks!`
-    : `Try opening a destination or a trip first, or ask me things like "Build me a cheap itinerary", "Find romantic restaurants in Paris", or "What can I do on a rainy day in Bangkok?"`};
-}
 
 /* ============================================================
    INIT

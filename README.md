@@ -25,13 +25,15 @@ Then open `http://localhost:8080`.
 - **Budget tracker** — auto-calculated category breakdown, manual expenses, budget style (Budget/Moderate/Luxury), over-budget warnings
 - **My Trips** — dashboard of all trips with open/edit/duplicate/share/delete
 - **Saved** — Google Maps-style collections
-- **AI assistant** — floating chat that can actually modify your itinerary (optimize routes, adjust budget, rearrange days, find alternatives); works out of the box with a rule-based engine, or connect a free Gemini API key for open-ended Q&A
+- **Assistant** — a floating chat that needs **no API key, no account and no network**. It answers from the app's own data and edits your itinerary directly: "plan 5 days in Rome", "add Senso-ji to day 2", "day 1 is too packed", "optimise my route", "how's my budget?", "do I need a visa?", "hidden gems in Bali", "cheap eats under $15". It remembers the conversation, so "add the second one to day 2" works. Optionally connect your own provider key for open-ended chat on top — the assistant is fully functional without one. See `assistant.js`.
 
 ## Data
 
 Twelve real destinations ship with rich hand-authored data (attractions, restaurants, hotels, reviews) **and real photography committed to the repo** under `images/` — every destination and every place on it gets a different photograph, none repeated — so the site is photography-first on first paint, with no placeholder flash, and it looks the same with the network blocked, throttled or offline. `photos.js` indexes those files and `CREDITS.md` carries the author and licence for every one; see `tools/README.md` for how each photo is matched and verified.
 
-Type in **any other city worldwide** and TripFlow shows an instant starter page, then upgrades itself in the background using free, keyless public APIs:
+**Destination search is global.** The autocomplete searches every city, town, island, region, country, national park and landmark on Earth as you type — nothing about them is stored in the repo. Type "Bei" and Beijing is the first suggestion, with its flag, country and place type. See `geo.js` and `tools/README.md` for the two-provider architecture (Photon for type-ahead, Wikipedia for loose regions and abbreviations like "NYC").
+
+Picking a suggestion creates the destination with its **real coordinates, country, flag and currency** immediately. TripFlow then upgrades the page in the background using free, keyless public APIs:
 
 - **Nominatim (OpenStreetMap)** geocodes the destination for accurate placement.
 - **Wikipedia's GeoSearch API** finds real nearby landmarks — real names, descriptions and photos — no fictional attractions for real cities.

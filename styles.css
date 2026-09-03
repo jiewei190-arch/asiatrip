@@ -663,3 +663,73 @@ input:checked+.slider:before{transform:translateX(18px)}
 .keyRow input{width:100%;border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-size:13px;background:var(--surface);outline:0}
 .keyRow input:focus{border-color:var(--green)}
 .keyWhere{margin:6px 0 0;color:var(--muted)}
+
+/* ---- global destination autocomplete rows ---- */
+.autolist-row{display:flex;align-items:center;gap:10px;width:100%}
+.autoFlag{font-size:17px;line-height:1;flex-shrink:0}
+.autoText{display:flex;flex-direction:column;min-width:0;flex:1;text-align:left}
+.autoName{font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.autoSub{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.autoType{flex-shrink:0;font-size:10px;font-weight:800;letter-spacing:.03em;text-transform:uppercase;
+  color:var(--muted);background:var(--soft);border-radius:99px;padding:3px 7px}
+.gsearch-row .globeIc{display:flex;align-items:center;justify-content:center;font-size:19px}
+
+/* A quiet mark on cards whose picture is a category stand-in rather than the place itself. */
+.illusBadge{position:absolute;bottom:8px;right:8px;z-index:1;
+  background:rgba(16,37,30,.72);color:#fff;font-size:9.5px;font-weight:800;
+  letter-spacing:.05em;text-transform:uppercase;padding:3px 7px;border-radius:99px;
+  backdrop-filter:blur(3px)}
+
+/* ---------------- discovered places: honest states ---------------- */
+/* Places load asynchronously from OpenStreetMap, so the UI has to be able to say "still
+   looking" and "found nothing" as clearly as it says "here they are". */
+.discNotice{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  margin:0 0 14px; padding:10px 14px; border-radius:12px;
+  background:var(--surface-2,rgba(255,255,255,.04));
+  border:1px solid var(--border,rgba(255,255,255,.08));
+  font-size:13px; color:var(--text-dim,#9aa4b2);
+}
+.discNotice.discErr{ border-color:rgba(240,120,90,.35); }
+.discSpinner{
+  width:14px; height:14px; flex:0 0 auto; border-radius:50%;
+  border:2px solid var(--border,rgba(255,255,255,.18));
+  border-top-color:var(--accent,#22c55e);
+  animation:discSpin .8s linear infinite;
+}
+@keyframes discSpin{ to{ transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce){
+  .discSpinner{ animation:none; border-top-color:var(--border,rgba(255,255,255,.18)); }
+}
+.showMoreRow{ display:flex; justify-content:center; align-items:center; padding:18px 0 4px; }
+.showMoreRow .btn{ min-width:220px; justify-content:center; }
+
+/* The local price leads and the converted one follows in a lighter weight, because the local
+   price is the one that will actually be charged. */
+.priceLocal{ font-weight:600; }
+.priceConverted{ color:var(--text-dim,#9aa4b2); font-weight:400; }
+.priceStale{ color:var(--warn,#e0a34a); }
+
+/* Skeleton cards while places are being discovered. They hold the grid at its final height so
+   the page does not jump when the real cards arrive. */
+.skelCard{ pointer-events:none; }
+.skelImg{
+  aspect-ratio:4/3; width:100%; border-radius:12px 12px 0 0;
+  background:var(--surface-2,rgba(255,255,255,.05));
+}
+.skelLine{
+  height:11px; margin:9px 0; border-radius:6px;
+  background:var(--surface-2,rgba(255,255,255,.06));
+}
+.skelTitle{ height:15px; width:70%; }
+.skelShort{ width:45%; }
+.skelCard .skelImg, .skelCard .skelLine{
+  background-image:linear-gradient(90deg,
+    transparent 0%, var(--surface-3,rgba(255,255,255,.09)) 50%, transparent 100%);
+  background-size:200% 100%;
+  animation:skelShimmer 1.4s ease-in-out infinite;
+}
+@keyframes skelShimmer{ from{ background-position:200% 0; } to{ background-position:-200% 0; } }
+@media (prefers-reduced-motion:reduce){
+  .skelCard .skelImg, .skelCard .skelLine{ animation:none; background-image:none; }
+}
