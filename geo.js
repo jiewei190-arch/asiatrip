@@ -189,15 +189,41 @@ async function geoReverse(lat, lng, signal){
    an exact-name bonus put Roma, Texas (population 11,000) above Rome, because "Roma" matches
    one letter-for-letter and "Rome" does not. Type weight and a modest string bonus adjust
    the provider's order rather than replacing it. */
+/** Folds accents so a name typed on an English keyboard matches the place as it is spelled.
+ *  Without this "Medellin" never exactly matches "Medellín", "Malaga" never matches "Málaga"
+ *  and "Zurich" never matches "Zürich" — and the exact-match bonus goes to whichever unaccented
+ *  namesake happens to exist somewhere else in the world. */
+function geoFold(s){
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
 function geoRank(results, query){
-  const q = query.trim().toLowerCase();
+  const q = geoFold(query.trim());
   return results.map(r => {
-    const name = (r.name || '').toLowerCase();
-    let s = 200 - (r.providerIndex || 0) * 20;      // provider order dominates
-    s += (r.typeRank || 0) * 0.5;                   // a city outranks a hamlet at equal position
-    if(name === q) s += 20;
+    const name = geoFold(r.name);
+    /* What decides the winner, in order of how much it should matter:
+     *
+     * Provider order used to dominate at x20 against a x0.5 weight on the kind of place, which
+     * meant Photon's string-similarity ranking decided everything. Typing "Medellin" returned a
+     * town of 50,000 in the Philippines above the Colombian city of two and a half million,
+     * because the Philippine spelling carries no accent and therefore matched the typed string
+     * more literally. Photon does not know which place a traveller means; what kind of place it
+     * is, and whether it is a mapped administrative area at all, are much better evidence. */
+    let s = 120 - (r.providerIndex || 0) * 3;   // still counts, no longer decides
+    s += (r.typeRank || 0);                     // a city genuinely outranks a hamlet
+
+    /* No bonus for carrying a boundary box, tempting though it looks. Whether OSM happens to
+     * hold an extent for a place says more about mapping effort than importance: Gothenburg in
+     * Sweden has none while Gothenburg, Nebraska does, and an 18-point bonus for it put a
+     * village of 3,500 above a city of 600,000. What KIND of place it is already carries that
+     * meaning, honestly. */
+
+    if(name === q) s += 25;                     // the strongest signal there is
     else if(name.startsWith(q)) s += 12;
-    if(r.country && r.country.toLowerCase() === q) s += 30;
+    // "Tokyo" should not return "Tokyo International Airport". A result whose name is much
+    // longer than what was typed is a different, more specific thing that merely contains it.
+    if(name !== q && name.length > q.length * 1.6) s -= 10;
+    if(r.country && geoFold(r.country) === q) s += 30;
     return Object.assign({}, r, { score: s });
   }).sort((a,b) => b.score - a.score);
 }
@@ -207,7 +233,8 @@ function geoRank(results, query){
  *  letters — which looked like a hit and suppressed the fallback that would have found New
  *  York City. A prefix only counts when the result is not wildly longer than the query. */
 function geoStrongMatch(name, q){
-  const n = (name || '').toLowerCase();
+  const n = geoFold(name);
+  q = geoFold(q);
   if(!n || !q) return false;
   if(n === q) return true;
   if(n.startsWith(q) && n.length <= q.length + 4) return true;

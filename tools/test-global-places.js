@@ -78,7 +78,7 @@ const CASES = [
   {q:'Bali',                   kind:'island',       country:'Indonesia',   currency:'IDR'},
   {q:'Santorini',              kind:'island',       country:'Greece',      currency:'EUR'},
   {q:'Madeira',                kind:'island',       country:'Portugal',    currency:'EUR'},
-  {q:'Cape Verde',             kind:'country',      country:'Cabo Verde',  currency:'CVE'},
+  {q:'Cape Verde',             kind:'country',      country:'Cape Verde',  currency:'CVE'},
   {q:'Morocco',                kind:'country',      country:'Morocco',     currency:'MAD'},
   {q:'Indonesia',              kind:'country',      country:'Indonesia',   currency:'IDR'},
   {q:'Ushuaia',                kind:'remote town',  country:'Argentina',   currency:'ARS'},
