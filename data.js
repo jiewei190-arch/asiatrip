@@ -1693,6 +1693,94 @@ function recallGenericDestGeo(id){
   return (hit && typeof hit === 'object' && hit.geo) ? hit.geo : null;
 }
 /** Upgrades a destination that was created before its real geography was known. */
+/* ---------------- Calendar arithmetic: one source of truth ----------------
+ *
+ * Two bugs lived here, and both were invisible in a UTC test environment.
+ *
+ * 1. Trip length came from whichever code path happened to build the days. A trip created from
+ *    a trip idea took its length from the IDEA rather than the dates the traveller picked, so
+ *    choosing 24-29 September and tapping a two-day idea produced a two-day itinerary. The end
+ *    date was captured correctly all along; nothing read it.
+ *
+ * 2. `addDays` built LOCAL midnight and then formatted through toISOString(), which is UTC. At
+ *    or east of UTC that lands on the previous day: addDays('2026-09-24', 0) returned
+ *    2026-09-23 in Seoul, Kuala Lumpur, Auckland — and in London on summer time. Every day tab
+ *    was labelled a day early for a large share of the world.
+ *
+ * All calendar arithmetic below is done in UTC, where a day is always exactly 86400000 ms and
+ * no daylight-saving transition can add or remove one. A date-only string is a calendar date,
+ * not an instant, so it should never have been passed through a local-time constructor. */
+
+/** 'YYYY-MM-DD' (or a Date) -> UTC midnight in ms. NaN when it cannot be read as a date. */
+function parseDateOnly(value){
+  if(value instanceof Date){
+    return isNaN(value.getTime()) ? NaN
+      : Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate());
+  }
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value == null ? '' : value).trim());
+  if(m) return Date.UTC(+m[1], +m[2] - 1, +m[3]);
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? NaN
+    : Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
+/** A calendar date as 'YYYY-MM-DD'. */
+function toDateInput(value){
+  const ms = parseDateOnly(value);
+  if(isNaN(ms)) return '';
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/** n days after a calendar date. n may be negative. */
+function addDays(dateStr, n){
+  const ms = parseDateOnly(dateStr);
+  if(isNaN(ms)) return '';
+  return new Date(ms + (Number(n) || 0) * 86400000).toISOString().slice(0, 10);
+}
+
+/* A trip longer than this is a data-entry slip, not a holiday. Without a cap, one mistyped year
+ * asks the browser to build 365,000 day tabs and the tab stops responding. */
+const TRIP_MAX_DAYS = 365;
+
+/** THE trip length, in days, counted the way a traveller counts: leaving on the 24th and
+ *  returning on the 29th is six days. Every day tab, itinerary, route, schedule and budget in
+ *  the app derives from this one function, so they can never disagree with each other. */
+function tripDurationDays(start, end){
+  const a = parseDateOnly(start), b = parseDateOnly(end);
+  if(isNaN(a) && isNaN(b)) return 1;
+  if(isNaN(a) || isNaN(b)) return 1;
+  const days = Math.round((b - a) / 86400000) + 1;
+  if(!isFinite(days) || days < 1) return 1;      // an end before the start is not a negative trip
+  return Math.min(days, TRIP_MAX_DAYS);
+}
+
+/** The calendar date of every day in the trip, in order. */
+function tripDayDates(start, count){
+  const n = Math.max(1, Math.min(Number(count) || 1, TRIP_MAX_DAYS));
+  const out = [];
+  for(let i = 0; i < n; i++) out.push(addDays(start, i));
+  return out;
+}
+
+/** Forces a trip's `days` array to match its own dates: adds missing days, drops extra ones and
+ *  re-dates them all in order. Existing stops are preserved. Anything that changes a trip's
+ *  dates calls this, so a trip cannot drift out of agreement with itself. */
+function normalizeTripDays(trip){
+  if(!trip) return trip;
+  const wanted = tripDurationDays(trip.start, trip.end);
+  if(!Array.isArray(trip.days)) trip.days = [];
+  while(trip.days.length < wanted) trip.days.push({ date: '', stops: [] });
+  if(trip.days.length > wanted) trip.days.length = wanted;
+  const dates = tripDayDates(trip.start, wanted);
+  trip.days.forEach((d, i) => {
+    d.date = dates[i];
+    if(!Array.isArray(d.stops)) d.stops = [];
+  });
+  // Keep the end date consistent with the number of days actually held.
+  trip.end = dates[dates.length - 1];
+  return trip;
+}
+
 /* ---------------- Geographic integrity ----------------
  * Rule 1 of the spec: never use a destination name alone; always use canonical ID +
  * coordinates. These are the guards every map, route and place list has to pass through. */

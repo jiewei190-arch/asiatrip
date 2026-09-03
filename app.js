@@ -103,11 +103,14 @@ function stars(rating){
 }
 function priceLevelStr(lvl){ return lvl>0 ? '$'.repeat(clamp(lvl,1,4)) : 'Free'; }
 function debounce(fn,ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; }
-function toDateInput(d){ if(!(d instanceof Date)) d=new Date(d); return d.toISOString().slice(0,10); }
-function addDays(dateStr, n){ const d=new Date(dateStr+'T00:00:00'); d.setDate(d.getDate()+n); return toDateInput(d); }
+/* toDateInput and addDays live in data.js, which loads first. They used to be redeclared here
+ * with local-time arithmetic, and because app.js loads later that buggy pair won: addDays(x, 0)
+ * returned the day BEFORE x anywhere at or east of UTC. Do not reintroduce them. */
 function fmtDateShort(dateStr){ if(!dateStr) return ''; const d=new Date(dateStr+'T00:00:00'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
 function fmtDateFull(dateStr){ if(!dateStr) return ''; const d=new Date(dateStr+'T00:00:00'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
-function daysBetween(a,b){ return Math.max(1, Math.round((new Date(b)-new Date(a))/86400000)+1); }
+/** Kept as the name the rest of app.js already uses; the calculation itself is the single
+ *  centralized one in data.js. */
+function daysBetween(a, b){ return tripDurationDays(a, b); }
 function initialsOf(name){ return (name||'?').split(' ').filter(Boolean).slice(0,2).map(w=>w[0].toUpperCase()).join(''); }
 function isOpenNow(hours){
   if(!hours) return true;
@@ -369,7 +372,7 @@ function mkCollaborator(name,email,role){ return {id:uid('collab'), name, email,
 
 function buildAutoTrip(destId, title, start, end, travelers, style){
   const dest = DESTINATIONS.find(d=>d.id===destId);
-  const nDays = daysBetween(start,end);
+  const nDays = tripDurationDays(start, end);
   const attractions = placesFor(destId,'attraction').slice().sort((a,b)=>(b.rating||0)-(a.rating||0));
   const restaurants = placesFor(destId,'restaurant').slice().sort((a,b)=>(b.rating||0)-(a.rating||0));
   const days = [];
@@ -439,11 +442,12 @@ function getOrCreateDraftTrip(destId){
   if(trip) return trip;
   const dest = DESTINATIONS.find(d=>d.id===destId);
   const start = toDateInput(new Date(Date.now()+30*86400000));
-  const end = addDays(start,3);
+  const end = addDays(start, 3);
+  const draftDays = tripDayDates(start, tripDurationDays(start, end));
   trip = {
     id: uid('trip'), destId, destName: dest.name+(dest.country?', '+dest.country:''), title:`${dest.name} Trip`, start, end, travelers:2, cover: dest.hero,
-    days:[{date:start,stops:[]},{date:addDays(start,1),stops:[]},{date:addDays(start,2),stops:[]},{date:addDays(start,3),stops:[]}],
-    budget:{ total: Math.round((dest.avgDailyBudget.moderate)*4*2), style:'moderate', expenses:[] },
+    days: draftDays.map(date => ({date, stops: []})),
+    budget:{ total: Math.round(dest.avgDailyBudget.moderate * draftDays.length * 2), style:'moderate', expenses:[] },
     collaborators:[ mkCollaborator('Jie Wei (you)', STATE.settings.email, 'Owner') ],
     activity:[ {id:uid('act'), author:'You', text:`created a draft trip to ${dest.name}.`, ts:Date.now()} ],
     createdAt: Date.now(),
@@ -2539,20 +2543,39 @@ function openItineraryPreview(ideaId){
 
 function createTripFromIdea(idea, precomputedDays){
   const dest = DESTINATIONS.find(d=>d.id===idea.destId);
-  const days = precomputedDays || distributeIntoDays(idea.places, idea.days);
   const hp = window.__heroParams;
   const start = (hp && hp.start) || toDateInput(new Date(Date.now()+21*86400000));
   const travelers = (hp && hp.travelers) || 2;
-  const total = Math.round((dest.avgDailyBudget[idea.budgetStyle]||dest.avgDailyBudget.moderate) * idea.days * travelers);
+
+  // THE trip is as long as the traveller said it was. A trip idea is a theme, not a duration:
+  // this used to size the whole itinerary from `idea.days` and overwrite the chosen end date,
+  // so picking 24-29 September and tapping a two-day idea produced two days for a six-day trip.
+  // The dates the user picked win; the idea's own length is only a fallback for when no dates
+  // were chosen at all.
+  const end = (hp && hp.end && hp.end >= start) ? hp.end : addDays(start, Math.max(1, idea.days) - 1);
+  const nDays = tripDurationDays(start, end);
+
+  // Spread the idea's places across however many days the trip actually has, rather than
+  // however many the idea assumed.
+  const days = (precomputedDays && precomputedDays.length === nDays)
+    ? precomputedDays
+    : distributeIntoDays(idea.places, nDays);
+
+  const dayDates = tripDayDates(start, nDays);
+  const total = Math.round((dest.avgDailyBudget[idea.budgetStyle]||dest.avgDailyBudget.moderate) * nDays * travelers);
   const trip = {
-    id: uid('trip'), destId: dest.id, destName: dest.name+(dest.country?', '+dest.country:''), title: idea.title, start, end: addDays(start, idea.days-1), travelers,
+    id: uid('trip'), destId: dest.id, destName: dest.name+(dest.country?', '+dest.country:''), title: idea.title, start, end, travelers,
     cover: (idea.places[0] && idea.places[0].image) || dest.hero,
-    days: days.map((dayPlaces,i)=>({ date: addDays(start,i), stops: dayPlaces.map(({place,time})=>mkStopFromPlace(place,time)) })),
+    days: dayDates.map((date, i) => ({
+      date,
+      stops: ((days[i] || [])).map(({place, time}) => mkStopFromPlace(place, time)),
+    })),
     budget:{ total, style: idea.budgetStyle, expenses:[] },
     collaborators:[ mkCollaborator('Jie Wei (you)', STATE.settings.email, 'Owner') ],
     activity:[ {id:uid('act'), author:'You', text:`created this trip from the "${idea.title}" trip idea.`, ts:Date.now()} ],
     createdAt: Date.now(),
   };
+  normalizeTripDays(trip);
   STATE.trips.unshift(trip);
   window.__heroParams = null;
   saveState();
@@ -2733,10 +2756,7 @@ function initEditTripModal(){
     const newStart = $('editTripStart').value, newEnd = $('editTripEnd').value;
     if(newStart) t.start = newStart;
     if(newEnd && newEnd >= t.start) t.end = newEnd;
-    const wanted = Math.max(1, daysBetween(t.start, t.end));
-    while(t.days.length < wanted) t.days.push({date: addDays(t.start, t.days.length), stops:[]});
-    while(t.days.length > wanted) t.days.pop();
-    t.days.forEach((d,i)=> d.date = addDays(t.start,i));
+    normalizeTripDays(t);   // one repair, shared by every path that changes trip dates
     saveState();
     closeModal('modal-editTrip');
     toast('Trip updated.');
