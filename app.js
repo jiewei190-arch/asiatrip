@@ -2366,7 +2366,22 @@ function recommendedOrder(arr, dest){
 /** Re-render the open destination tab when discovery lands. */
 window.addEventListener('tripflow:places', function(ev){
   const d = ev && ev.detail;
-  if(!d || !destState || destState.id !== d.destId) return;
+  if(!d) return;
+  /* The trip page needs this as much as the destination page does. It reruns discovery on open,
+   * because a trip opened on a second device arrives with its stops but without the destination's
+   * place store — and until this listener knew about the planner, the answer landed twenty
+   * seconds later into a view that never asked again. More ideas stayed empty on a screen that
+   * had the ideas in memory. Only the dashboard, and only on a real merge, so nobody's editing
+   * is interrupted by a re-render that changes nothing. */
+  if(d.added && plannerState && plannerState.tripId && location.hash.includes('/trip/')){
+    const ptab = location.hash.split('/')[3] || 'dashboard';
+    const trip = getTrip(plannerState.tripId);
+    if(ptab === 'dashboard' && trip && destForTrip(trip).id === d.destId){
+      renderPlannerView(plannerState.tripId, ptab);
+    }
+    return;
+  }
+  if(!destState || destState.id !== d.destId) return;
   if(!location.hash.includes('/destination/')) return;
   const tabForKind = {restaurant:'restaurants', hotel:'hotels', attraction:'things'};
   if(destState.tab === tabForKind[d.kind] || destState.tab === 'overview' || destState.tab === 'map'){
@@ -3966,6 +3981,16 @@ function renderPlannerView(tripId, ptab){
   const refreshPlanner = ()=>{ if(plannerState.tripId===trip.id) renderPlannerView(trip.id, location.hash.split('/')[3]||'dashboard'); };
   if(dest.id.startsWith('gen-')) enrichDestinationInBackground(dest, refreshPlanner);
   else supplementDestinationInBackground(dest, refreshPlanner);
+  /* And find the destination's real places again, because this device may never have had them.
+   *
+   * A trip carries its own stops, so a saved itinerary reopens intact on a new phone. What does
+   * not travel with it is the destination's place store — that lives in memory and is rebuilt by
+   * discovery — so More ideas, Add a stop and the map search all came up empty for anyone who
+   * opened a trip they had not generated on that device. The trip looked complete and every way
+   * to add to it was blank. Fire-and-forget: the panel fills in when the answer arrives. */
+  if(typeof discoverPlacesFor === 'function'){
+    try { discoverPlacesFor(dest, ['attraction', 'restaurant']); } catch(e){ /* view still renders */ }
+  }
 
   $('plannerEyebrow').textContent = `${dest.flag} ${dest.name} trip workspace`;
   $('plannerTitle').textContent = trip.title;
@@ -4058,7 +4083,15 @@ function renderMoreIdeasHTML(trip, dest){
   /* Discovery may still be running, and "nothing to suggest" and "still looking" are different
    * statements. Saying the wrong one is how the app used to claim a city had no restaurants. */
   if(!ideas.length){
-    const stillLooking = !PLACES.some(p => p.destId === dest.id);
+    /* Ask discovery whether it is still working, rather than guessing from an empty store.
+     *
+     * The guess was "no places yet means still looking", which is wrong in both directions: a
+     * destination with six seed places and discovery running looked finished, and one where
+     * discovery had failed outright looked busy forever. placesStatus knows. */
+    const status = (typeof placesStatus === 'function')
+      ? [placesStatus(dest.id, 'attraction'), placesStatus(dest.id, 'restaurant')] : [];
+    const stillLooking = status.includes('loading') || status.includes('idle')
+      || !PLACES.some(p => p.destId === dest.id);
     return `<h3 style="margin:26px 0 12px">More ideas for your trip</h3>
       <div class="card"><div class="empty">${stillLooking
         ? 'Finding real places in ' + esc(dest.name) + '…'

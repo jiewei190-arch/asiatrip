@@ -705,6 +705,26 @@ async function geocodeCity(query){
       }
     }
   }catch(e){}
+
+  /* Nominatim asks for no more than one request a second and enforces it, so a traveller who
+   * types a few destinations in quick succession gets nothing back — and until now nothing back
+   * meant a destination with no coordinates, which means no discovery, which means an itinerary
+   * with empty days. One geocoder was a single point of failure for the whole product.
+   *
+   * geo.js already talks to Photon, with a ranker that has been calibrated against a holdout set
+   * and knows that Salvador is a city in Brazil rather than a country in Central America. It is
+   * the better answer; it is second here only because Nominatim's address breakdown gives a
+   * cleaner country name, and geoResolve is asked for exactly the same shape. */
+  if(!result && typeof geoResolve === 'function'){
+    try {
+      const hit = await geoResolve(query);
+      if(hit && hit.lat != null && hit.lng != null){
+        result = { lat: hit.lat, lng: hit.lng,
+                   city: hit.name || query, country: hit.country || '' };
+      }
+    }catch(e){}
+  }
+
   // Same rule as the photo cache: only persist a confirmed real result, so a transient failure
   // retries next time instead of permanently sticking.
   if(result){ cache[key] = result; writeJSONCache(GEOCODE_CACHE_KEY, cache); }

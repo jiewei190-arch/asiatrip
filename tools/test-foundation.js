@@ -41,10 +41,14 @@ function check(name, cond, detail){
 
 /* Node has network here; the browser does not. Every cross-origin request the page makes is
  * performed by Node and the real response handed back, so this runs against live services. */
-function installBridge(page){
+function installBridge(page, blockPattern){
   return page.route('**/*', async route => {
     const req = route.request(), url = req.url();
     if(url.startsWith(BASE)) return route.continue();
+    // Used to prove the app survives one geocoder going away, by taking it away.
+    if(blockPattern && url.includes(blockPattern)){
+      return route.fulfill({status: 429, contentType: 'text/plain', body: 'rate limited'});
+    }
     try{
       const headers = Object.assign({}, req.headers());
       delete headers['host']; delete headers['origin']; delete headers['referer'];
@@ -256,6 +260,55 @@ function installBridge(page){
           `${res.stops} stops, ${res.empty} empty`);
   }
 
+  console.log('\n A trip opened on a device that did not build it');
+  {
+    /* A trip carries its own stops, so a saved itinerary reopens intact anywhere. What does not
+     * travel with it is the destination's place store — that lives in memory and is rebuilt by
+     * discovery — so on any other device More ideas, Add a stop and the map search were empty.
+     * The itinerary looked complete and every way to add to it was blank, with no explanation. */
+    const res = await page.evaluate(async () => {
+      const d = findDestination('Porto, Portugal');
+      const trip = await buildPlannedTrip(d, normalizeTripPreferences({pace:'balanced'}),
+                                          '2026-11-02', '2026-11-06', 2);
+      // Exactly what the second device has: the saved trip, and a place store holding the seed.
+      const destId = destForTrip(trip).id;
+      for(let i = PLACES.length - 1; i >= 0; i--) if(PLACES[i].destId === destId) PLACES.splice(i, 1);
+      placesDiscoveryState.delete(destId);
+      const emptied = placesFor(destId).length;
+      location.hash = '#/trip/' + trip.id; route();
+      await new Promise(r => setTimeout(r, 400));
+      const ideasBefore = document.querySelectorAll('#moreIdeasGrid [data-place]').length;
+      const dash = document.getElementById('ptab-dashboard').innerHTML;
+      const saysLooking = /Finding real places/i.test(dash);
+      const claimsNothing = /already on your itinerary/i.test(dash);
+      // Opening the trip should have started discovery; wait for it the way a traveller would.
+      const deadline = Date.now() + 40000;
+      while(Date.now() < deadline && document.querySelectorAll('#moreIdeasGrid [data-place]').length === 0){
+        await new Promise(r => setTimeout(r, 500));
+      }
+      const ideasAfter = document.querySelectorAll('#moreIdeasGrid [data-place]').length;
+      const stops = trip.days.reduce((a, x) => a + x.stops.length, 0);
+      STATE.trips = STATE.trips.filter(x => x.id !== trip.id);
+      return { emptied, ideasBefore, ideasAfter, saysLooking, claimsNothing, stops,
+               pool: placesFor(destId).length };
+    });
+    check('the store really was empty to start with', res.emptied === 0, `${res.emptied} places`);
+    check('the itinerary itself survives — the stops are on the trip', res.stops > 20, `${res.stops}`);
+    /* Whether it has time to say "looking" depends on whether this device has the destination
+     * cached, which is not the point. The point is that it must never announce there is nothing
+     * left to suggest while it is still finding out — that message was what made a working
+     * destination look exhausted. */
+    check('it never claims the city is exhausted while it is still looking',
+          !res.claimsNothing || res.ideasBefore > 0,
+          res.claimsNothing ? 'said "already on your itinerary" with nothing found' : '');
+    check('it either shows ideas or says it is looking',
+          res.saysLooking || res.ideasBefore > 0,
+          `looking:${res.saysLooking} ideas:${res.ideasBefore}`);
+    check('opening the trip finds the destination again', res.pool > 100, `${res.pool} places`);
+    check('and More ideas fills in without a reload', res.ideasAfter > 0,
+          `${res.ideasBefore} -> ${res.ideasAfter}`);
+  }
+
   console.log('\n Two places with the same name are two places');
   {
     /* "Salvador, Brazil" and "Salvador, El Salvador" resolved to one destination — whichever was
@@ -276,6 +329,34 @@ function installBridge(page){
           `${res.aCountry} / ${res.bCountry}`);
     check('and coordinates thousands of km apart, as the real ones are',
           res.km > 3000, `${res.km} km apart`);
+  }
+
+  console.log('\n One geocoder refusing is not the whole product failing');
+  {
+    /* Nominatim allows one request a second and enforces it, so a traveller who types a few
+     * destinations in a row gets nothing back — and nothing back used to mean a destination with
+     * no coordinates, which means no discovery, which means an itinerary of empty days. A single
+     * point of failure for the entire product, hit by ordinary use rather than an outage. This
+     * page has Nominatim replaced by a hard 429 on every request. */
+    const dead = await browser.newPage({viewport:{width:1280, height:1000}});
+    await installBridge(dead, 'nominatim');
+    await dead.goto(BASE + '/index.html', {waitUntil:'domcontentloaded'});
+    await dead.waitForFunction(() => typeof window.discoverPlacesFor === 'function', null, {timeout:25000});
+    const res = await dead.evaluate(async () => {
+      const out = [];
+      for(const q of ['Lisbon, Portugal', 'Salvador, Brazil', 'Almaty, Kazakhstan']){
+        const d = findDestination(q);
+        await enrichGenericDestination(d);
+        out.push({q, verified: hasVerifiedGeo(d), country: d.country, lat: d.lat, lng: d.lng});
+      }
+      return out;
+    });
+    await dead.close();
+    check('every destination still resolves', res.every(r => r.verified),
+          res.filter(r => !r.verified).map(r => r.q).join(', '));
+    check('and to the right country, not a same-named one',
+          res[1] && /brazil|brasil/i.test(res[1].country || ''), res[1] && res[1].country);
+    check('with real coordinates', res.every(r => r.lat != null && r.lng != null));
   }
 
   console.log('\n Discovery survives being asked for again while it is running');
