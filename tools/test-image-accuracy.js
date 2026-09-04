@@ -213,6 +213,48 @@ console.log('\n6. Live: real venues of each category resolve to photographs of t
           typeof I.IMAGE_MIN_CAPTURE_YEAR === 'number' || I.IMAGE_MIN_CAPTURE_YEAR === null);
   }
 
+  console.log('\n9b. Recent first — and a verified older photograph rather than a blank');
+  {
+    /* The window is a preference, not a wall. It rejected correct, verified photographs of the
+     * exact right place purely for their age: measured against three Tokyo museums, the strict
+     * rule found a picture for one of them and refused two that had good photographs from 2017
+     * and 2014. A building photographed in 2014 is still that building, and an empty card is not
+     * the more honest answer — it is the same claim about the place, made by omission.
+     *
+     * What must NOT move is identity. An older photograph is admissible; a photograph of
+     * somewhere else is not, at any age. */
+    const cases = [
+      {name:'Mori Art Museum',        wikidata:'Q1152144',  osmCommons:'Category:Mori Art Museum'},
+      {name:'Yamatane Museum of Art', wikidata:'Q11592234', osmCommons:'Category:Yamatane Museum of Art'},
+      {name:'Nezu Museum',            wikidata:'Q1339730',  osmCommons:'Category:Nezu Museum'},
+    ];
+    const out = [];
+    for(const c of cases){
+      let r = null;
+      try{ r = await IM.resolveEntityImage(Object.assign({
+        placeId: 'osm:recency-' + c.wikidata, kind: 'attraction', subtype: 'museum',
+        city: 'Tokyo', country: 'Japan', countryCode: 'JP', lat: 35.6762, lng: 139.6503,
+      }, c), {width: 720}); }catch(e){ /* counted as a miss below */ }
+      out.push({name: c.name, got: !!(r && r.url), year: r && r.captureYear,
+                older: !!(r && r.olderThanWindow), confidence: r && r.confidence});
+      console.log(`        ${c.name.padEnd(24)} ${out[out.length-1].got
+        ? `${out[out.length-1].year || 'undated'}${out[out.length-1].older ? ' (older than the window)' : ''}`
+        : 'no verified photograph'}`);
+    }
+    const got = out.filter(r => r.got);
+    check('most of these resolve to a photograph now, not one in three',
+          got.length >= 2, out.map(r => `${r.name}:${r.got ? (r.year || 'undated') : 'none'}`).join(', '));
+    check('at least one is an older photograph the strict window refused',
+          out.some(r => r.older), out.map(r => `${r.name}:${r.older ? 'older' : '-'}`).join(', '));
+    check('an older photograph carries its year, so it cannot read as current',
+          out.every(r => !r.older || r.year != null));
+    check('the identity bar did not move — nothing below it is shown',
+          got.every(r => r.confidence >= IM.IMAGE_MIN_CONFIDENCE_ENTITY),
+          got.map(r => `${r.name}:${r.confidence}`).join(', '));
+    check('a recent photograph still wins where one exists',
+          out.some(r => r.got && !r.older),
+          out.map(r => `${r.name}:${r.year || '-'}${r.older ? '(older)' : ''}`).join(', '));
+  }
 
   console.log(`\n${pass} passed, ${fail} failed\n`);
   /* process.exitCode rather than process.exit(): when stdout is redirected to a file or a pipe,

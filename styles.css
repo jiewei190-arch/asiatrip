@@ -934,3 +934,12 @@ input:checked+.slider:before{transform:translateX(18px)}
    they read as two measurements of the same thing. */
 .budgetBasis{ margin-top:12px; color:var(--muted); line-height:1.55; display:flex;
   flex-direction:column; gap:6px; }
+
+/* The year on a photograph shown because nothing newer exists. Small and unobtrusive — it is a
+   caveat, not a headline — but present, because the whole basis for showing an older picture is
+   that nobody mistakes it for a current one. */
+/* Top-right on a hero, where the caption block owns the bottom edge. */
+.destHero > .photoAge{ top:14px; right:14px; bottom:auto; }
+.photoAge{ position:absolute; right:8px; bottom:8px; z-index:2; padding:2px 7px; border-radius:99px;
+  background:rgba(17,17,17,.62); color:#fff; font-size:10.5px; font-weight:700; letter-spacing:.02em;
+  backdrop-filter:blur(2px); pointer-events:none; }

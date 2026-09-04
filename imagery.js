@@ -834,6 +834,33 @@ async function resolveEntityImage(entity, opts){
     result = eligible.sort((a, b) =>
       (b.confidence + captureRecencyBonus(b.captureYear)) -
       (a.confidence + captureRecencyBonus(a.captureYear)))[0] || null;
+
+    /* Recent first — and a verified older photograph rather than nothing.
+     *
+     * The window above decides what is admissible, and for a landmark or a museum it usually has
+     * something current to offer. For an individual venue it often does not: measured against
+     * four Tokyo museums, the strict window found a photograph for one of them, and the three it
+     * refused had perfectly good pictures taken in 2017 and 2014. A building photographed in 2014
+     * is still that building, and a blank card is not the more honest answer — it is the same
+     * claim about the place, made by omission.
+     *
+     * So the window keeps its full force as a PREFERENCE and stops being a wall: nothing here
+     * outranks a photograph that meets it, and this only runs when the eligible set is empty.
+     * Identity confidence is untouched — every candidate reaching this point has already been
+     * verified as this exact place, and one that has not is still rejected. What is relaxed is
+     * recency alone, and the year is put on the card so nothing is passed off as current. */
+    if(!result && ranked.length && IMAGE_MIN_CAPTURE_YEAR != null){
+      const verified = ranked.filter(c => c.confidence >= IMAGE_MIN_CONFIDENCE_ENTITY);
+      const fallback = verified.sort((a, b) =>
+        (b.confidence + captureRecencyBonus(b.captureYear)) -
+        (a.confidence + captureRecencyBonus(a.captureYear)))[0];
+      if(fallback){
+        result = fallback;
+        result.olderThanWindow = true;
+        result.reasons = (result.reasons || [])
+          .concat(`no photograph since ${IMAGE_MIN_CAPTURE_YEAR}; this one is verified but older`);
+      }
+    }
     if(result && result.captureYear){
       result.reasons = (result.reasons || []).concat(`taken ${result.captureYear}`);
     }
@@ -879,6 +906,40 @@ async function resolveEntityImage(entity, opts){
     } catch(err){ if(err.name === 'AbortError') throw err; }
   }
 
+  /* Same rule for the hero, same fallback. A destination page with no photograph at the top is
+   * the most visible version of this gap, and these rungs each rejected their candidate outright
+   * when it fell outside the window. Recent first; a verified older picture of the place rather
+   * than an empty frame; and the year is carried so the credit line can say when it was taken. */
+  if(!result && isDestination && IMAGE_MIN_CAPTURE_YEAR != null){
+    const older = [];
+    try {
+      const url = await resolveDestinationPhoto(entity);
+      if(url){
+        const tier = destPhotoTierFor(entity.placeId || entity.id);
+        const source = tier === 'article' ? 'wikipedia_verified' : 'landmark_inside';
+        older.push({ url, source, confidence: IMAGE_CONFIDENCE[source],
+                     captureYear: (await datedOk(url)).year });
+      }
+    } catch(err){ if(err.name === 'AbortError') throw err; }
+    try {
+      const img = await destinationWikidataImage(entity, o.width || 720);
+      if(img){
+        const source = img.prop === 'P948' ? 'wikivoyage_banner' : 'wikidata_p18';
+        older.push({ url: img.url, source, confidence: IMAGE_CONFIDENCE[source],
+                     captureYear: (await datedOk(img.url)).year });
+      }
+    } catch(err){ if(err.name === 'AbortError') throw err; }
+    const best = older.sort((a, b) =>
+      (b.confidence + captureRecencyBonus(b.captureYear)) -
+      (a.confidence + captureRecencyBonus(a.captureYear)))[0];
+    if(best){
+      result = best;
+      result.olderThanWindow = true;
+      result.reasons = (result.reasons || [])
+        .concat(`no photograph since ${IMAGE_MIN_CAPTURE_YEAR}; this one is verified but older`);
+    }
+  }
+
   /* The bar. A named entity must be DEPICTED, not approximated.
    *
    *   high      display it
@@ -920,6 +981,29 @@ function applyResolvedImage(imgEl, entity, opts){
     imgEl.hidden = false;
     imgEl.dataset.imageSource = res.source;
     imgEl.dataset.imageConfidence = String(res.confidence);
+    // So the credit can say when it was taken — the point of allowing an older photograph at all
+    // is that the traveller can see it is older rather than assume it is current.
+    if(res.captureYear) imgEl.dataset.imageYear = String(res.captureYear);
+    if(res.olderThanWindow) imgEl.dataset.imageOlder = '1';
+
+    /* A photograph shown because nothing newer exists says so on its face.
+     *
+     * Relaxing the window is only defensible if the traveller can tell. Every picture here is
+     * still verified as this exact place — that bar did not move — but one taken in 2014 should
+     * not be read as how the place looks today, and a small year in the corner is the difference
+     * between an older photograph and a misleading one. */
+    if(res.olderThanWindow && res.captureYear){
+      try{
+        const wrap = imgEl.closest && imgEl.closest('.placeImgWrap, .destHero');
+        if(wrap && !wrap.querySelector('.photoAge')){
+          const tag = document.createElement('span');
+          tag.className = 'photoAge';
+          tag.textContent = res.captureYear;
+          tag.title = `The most recent verified photograph of this place is from ${res.captureYear}`;
+          wrap.appendChild(tag);
+        }
+      }catch(e){ /* the picture is the point; the label is a bonus */ }
+    }
     // The empty state was telling the truth until now; a verified photograph replaces it.
     try{
       const wrap = imgEl.closest && imgEl.closest('.placeImgWrap');
