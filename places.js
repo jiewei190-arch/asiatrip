@@ -637,11 +637,33 @@ async function discoverPlaces(dest, kind, opts){
       attempts.push(`${rungs[0].label}:${elements.length}${overpassSettled ? '' : ' (photon first)'}`);
 
       if(!overpassSettled){
-        // Give the richer source its remaining time; its tags are worth the wait.
+        /* Give the richer source its remaining time, and KEEP WHAT IT SAYS even when it says
+         * less.
+         *
+         * This used to replace the Photon results only when Overpass returned MORE of them, and
+         * otherwise threw the whole response away — a response already in hand, already paid
+         * for. What went with it was every OSM identity tag: wikidata, wikimedia_commons,
+         * image, wikipedia. Those are the top rungs of the imagery ladder, so on any run Photon
+         * won the race, cards fell back to searching Commons by name and roughly a third of them
+         * ended up with no photograph at all. Measured on Tokyo: 40 of 40 attractions arrived
+         * with zero identity tags, and the resolver found one photograph between them.
+         *
+         * Merged by OSM identity instead. Overpass's tagged element wins for anything it
+         * describes, Photon's contribution survives for anything Overpass did not return, and
+         * nobody loses a card to a merge. */
         const late = await Promise.race([overpassP, delay(OVERPASS_GRACE_MS).then(() => null)]);
-        if(late && late.length > elements.length){
-          attempts.push(`overpass-late:${late.length}`);
-          elements = late;
+        if(late && late.length){
+          const idOf = e => `${e.type || ''}${e.id || ''}`;
+          const richer = new Map(late.map(e => [idOf(e), e]));
+          let upgraded = 0;
+          const merged = elements.map(e => {
+            const hit = richer.get(idOf(e));
+            if(hit){ richer.delete(idOf(e)); upgraded++; return hit; }
+            return e;
+          });
+          for(const leftover of richer.values()) merged.push(leftover);
+          attempts.push(`overpass-late:${late.length} (merged, ${upgraded} upgraded, ${merged.length} total)`);
+          elements = merged;
         }
       }
     }catch(e){ elements = []; }
