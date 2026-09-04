@@ -1676,8 +1676,8 @@ function initHero(){
     // With dates chosen, the traveller is planning a trip rather than browsing: ask what they
     // enjoy and build the itinerary around it, instead of generating something at random.
     if(hp.start && hp.end){
-      openTripPreferences(d, prefs => {
-        const trip = buildPlannedTrip(d, prefs, hp.start, hp.end, hp.travelers);
+      openTripPreferences(d, async prefs => {
+        const trip = await buildPlannedTrip(d, prefs, hp.start, hp.end, hp.travelers);
         window.__heroParams = null;
         navigate(`#/trip/${encodeURIComponent(trip.id)}`);
       });
@@ -1755,6 +1755,27 @@ function readPrefTextarea(id){
 function openTripPreferences(dest, onDone){
   __prefsDraft = loadTripPreferences();
   __prefsOnDone = onDone;
+  /* Start finding real places NOW, while the traveller answers six questions.
+   *
+   * Discovery for a city takes around twenty seconds — genuinely, because it is querying
+   * OpenStreetMap for every restaurant and landmark in range rather than reading a bundled list.
+   * Twenty seconds after pressing Generate is a broken product; twenty seconds spent while
+   * somebody picks their interests is free. buildPlannedTrip joins this same run rather than
+   * starting its own, so by the time it asks, the answer is usually already there. */
+  if(dest){
+    (async () => {
+      try {
+        /* A typed destination has no confirmed coordinates yet and discovery will not run without
+         * them, so resolving them has to come first or this prefetch quietly does nothing for
+         * exactly the destinations that need it most. buildPlannedTrip then finds the work
+         * already done and joins it instead of starting again. */
+        if(dest.id && dest.id.startsWith('gen-') && !dest.__enriched && typeof enrichGenericDestination === 'function'){
+          await enrichGenericDestination(dest);
+        }
+        if(typeof discoverPlacesFor === 'function') discoverPlacesFor(dest, ['attraction', 'restaurant']);
+      } catch(e){ /* the trip is planned from whatever is known; the warnings say so */ }
+    })();
+  }
   const sub = $('prefsSubtitle');
   if(sub) sub.textContent = dest && dest.name
     ? `Tell us what you enjoy and we will build ${dest.name} around it.`
@@ -1788,7 +1809,7 @@ function openTripPreferences(dest, onDone){
 function initTripPreferences(){
   const btn = $('prefGenerateBtn');
   if(!btn) return;
-  btn.onclick = () => {
+  btn.onclick = async () => {
     if(!__prefsDraft) return;
     __prefsDraft.mustSee = readPrefTextarea('prefMustSee');
     __prefsDraft.mustAvoid = readPrefTextarea('prefMustAvoid');
@@ -1797,15 +1818,87 @@ function initTripPreferences(){
       ? Number(custom.value) : null;
     const prefs = normalizeTripPreferences(__prefsDraft);
     saveTripPreferences(prefs);
-    closeModal('modal-tripPrefs');
-    if(typeof __prefsOnDone === 'function') __prefsOnDone(prefs);
+    /* Stay open, with a live count, until the itinerary exists.
+     *
+     * Building can take most of half a minute the first time, because it is waiting on real
+     * queries to OpenStreetMap rather than reading a bundled list. Closing the step and leaving
+     * the traveller on a home page that does nothing for twenty seconds reads as a dead button,
+     * and the honest answer — it is finding real places, here is how many so far — is also the
+     * one that makes the wait feel like work rather than a hang. */
+    const label = btn.innerHTML;
+    const status = $('prefsBuildStatus');
+    let found = 0;
+    const onPlaces = e => {
+      if(!e.detail || !e.detail.added) return;
+      found += e.detail.added;
+      if(status) status.textContent = `${found} real places found so far…`;
+    };
+    window.addEventListener('tripflow:places', onPlaces);
+    btn.disabled = true;
+    btn.innerHTML = '<span class="prefsSpinner" aria-hidden="true"></span> Finding real places…';
+    if(status){ status.textContent = 'Looking up this destination…'; status.classList.remove('hidden'); }
+    try {
+      if(typeof __prefsOnDone === 'function') await __prefsOnDone(prefs);
+    } finally {
+      window.removeEventListener('tripflow:places', onPlaces);
+      btn.disabled = false;
+      btn.innerHTML = label;
+      if(status){ status.textContent = ''; status.classList.add('hidden'); }
+      closeModal('modal-tripPrefs');
+    }
   };
 }
 
-/** Builds a trip through planner.js, from real places, for exactly the chosen dates. */
-function buildPlannedTrip(dest, prefs, start, end, travelers){
+/** How many attractions and restaurants a trip of this length actually needs.
+ *  Roughly a day's worth of stops per day plus a little slack, so the planner has something to
+ *  choose between rather than something to ration. */
+function tripPlaceTarget(nDays, prefs){
+  const perDay = (prefs && prefs.pace === 'packed') ? 6 : (prefs && prefs.pace === 'relaxed') ? 3 : 4;
+  return Math.max(12, Math.round(nDays * perDay * 1.4));
+}
+
+/** Generation waits for discovery when the store is too thin to fill the days.
+ *
+ *  Every destination ships with 6 attractions and 5 restaurants — a seed, not a catalogue. A
+ *  seven-day trip planned from eleven places gives days of one stop, and a ten-day trip gives
+ *  four days of nothing, which is what the generator was doing: not a planning bug, a starvation
+ *  one. Discovery already finds hundreds of real places anywhere on earth; it was simply never
+ *  waited for, because the destination page happens to run it first and generation quietly relied
+ *  on that. Any path that plans without passing through that page — the home-page date box, a
+ *  saved trip reopened on a new device — got the seed.
+ *
+ *  Bounded, and it degrades to exactly the old behaviour: if discovery is slow or unreachable the
+ *  trip is planned from what is there, and planTrip's own warnings say the days are light. Never
+ *  invents a place to fill a gap. Builds through planner.js, from real places, for exactly the
+ *  chosen dates. */
+async function buildPlannedTrip(dest, prefs, start, end, travelers){
   const nDays = tripDurationDays(start, end);
-  const places = placesFor(dest.id).filter(p => p.type === 'attraction' || p.type === 'restaurant');
+  const pool = () => placesFor(dest.id).filter(p => p.type === 'attraction' || p.type === 'restaurant');
+
+  /* A destination the traveller typed rather than picked from the bundled thirty arrives with a
+   * name and little else: no confirmed coordinates, and six places. Discovery declines to run
+   * without verified coordinates, so generation returned in half a second with SEVEN EMPTY DAYS
+   * and called it an itinerary. Both of these already existed and both already fetch real data —
+   * enrichGenericDestination resolves the coordinates and pulls real landmarks from Wikipedia,
+   * ensureRealAttractionSupply tops any destination up from the same source. Neither was ever on
+   * the path that builds the trip; they ran in the background AFTERWARDS and only re-rendered a
+   * plan that had already been made without them. */
+  if(dest.id && dest.id.startsWith('gen-') && !dest.__enriched && typeof enrichGenericDestination === 'function'){
+    try { await enrichGenericDestination(dest); } catch(e){ /* fall through to whatever is known */ }
+  }
+  if(pool().length < tripPlaceTarget(nDays, prefs) && typeof ensureRealAttractionSupply === 'function'){
+    try { await ensureRealAttractionSupply(dest); } catch(e){ /* same */ }
+  }
+
+  if(pool().length < tripPlaceTarget(nDays, prefs) && typeof awaitPlacesFor === 'function'){
+    /* 25s, not because anybody should wait that long, but because openTripPreferences has
+     * usually been running this same query for longer than that already and this is only the
+     * tail of it. A path that has not had that head start pays the full price once, and then
+     * the store is warm for every trip after it. */
+    try { await awaitPlacesFor(dest, ['attraction', 'restaurant'], 25000); }
+    catch(e){ /* plan with the seed; the warnings below tell the truth about it */ }
+  }
+  const places = pool();
   const plan = planTrip({dest, places, days: nDays, start, preferences: prefs});
 
   const budgetKey = TRIP_BUDGET[prefs.budget] ? prefs.budget : 'moderate';
@@ -3878,6 +3971,7 @@ function renderPlannerView(tripId, ptab){
   $('plannerTitle').textContent = trip.title;
   $('plannerSub').textContent = `${fmtDateFull(trip.start)} – ${fmtDateFull(trip.end)} · ${trip.days.length} days · ${trip.travelers} travelers`;
   renderCollabStack(trip);
+  renderTripWarnings(trip);
   renderTripProgress(trip);
   renderTripSearch(trip);
 
@@ -3905,6 +3999,40 @@ function renderPlannerView(tripId, ptab){
   else if(ptab==='itinerary') renderPlannerItinerary(trip);
   else renderDashboardTab(trip);
 }
+/** Shows the planner's own warnings on the trip.
+ *
+ *  planTrip has always produced these — a must-see it could not find, a day that runs past
+ *  midnight, a stop that is probably closed when you arrive, and now a day it could not fill —
+ *  and buildPlannedTrip has always stored them on the trip. Nothing ever displayed them. The
+ *  itinerary that knew it had a problem looked exactly like the one that did not, which is the
+ *  version of this bug that matters: the traveller finds out on the day.
+ *
+ *  Dismissible, and the dismissal sticks with the trip: a warning you have read and decided
+ *  about should not follow you around, but it should still be there for anyone else opening it. */
+function renderTripWarnings(trip){
+  const el = $('tripWarnings');
+  if(!el) return;
+  const seen = new Set(trip.dismissedWarnings || []);
+  const list = (trip.warnings || []).filter(w => w && w.text && !seen.has(warningKey(w)));
+  if(!list.length){ el.classList.add('hidden'); el.innerHTML = ''; return; }
+  el.classList.remove('hidden');
+  el.innerHTML = list.map(w => `
+    <div class="tripWarn" data-warn="${esc(warningKey(w))}">
+      <span class="tripWarnIcon">${w.kind === 'emptyDay' ? '📭' : w.kind === 'closed' ? '🕒' : '⚠️'}</span>
+      <span class="tripWarnText">${esc(w.text)}</span>
+      <button class="tripWarnX" type="button" aria-label="Dismiss this warning">✕</button>
+    </div>`).join('');
+  el.querySelectorAll('.tripWarn').forEach(row => {
+    row.querySelector('.tripWarnX').onclick = () => {
+      trip.dismissedWarnings = (trip.dismissedWarnings || []).concat(row.dataset.warn);
+      saveState();
+      renderTripWarnings(trip);
+    };
+  });
+}
+/* Stable across re-plans: the same problem on the same day is the same warning. */
+function warningKey(w){ return `${w.kind}:${w.day != null ? w.day : (w.days ? w.days.join('-') : '')}`; }
+
 function renderCollabStack(trip){ $('collabStack').innerHTML = trip.collaborators.map(c=>`<div class="avatar sm" title="${esc(c.name)}">${esc(c.initials)}</div>`).join(''); }
 
 /* ---------------- More ideas for your trip ----------------

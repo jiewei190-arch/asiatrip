@@ -216,6 +216,7 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
         </div>
       </div>
 
+      <div class="tripWarnings hidden" id="tripWarnings"></div>
       <div class="tripProgress" id="tripProgress"></div>
 
       <div class="plannerTabs" id="plannerTabs">
@@ -528,6 +529,7 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
       </div>
     </div>
 
+    <div class="prefBuildStatus small hidden" id="prefsBuildStatus" aria-live="polite"></div>
     <div class="prefFoot">
       <span class="small" id="prefSummary"></span>
       <div style="display:flex;gap:8px">

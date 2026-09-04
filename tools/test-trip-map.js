@@ -86,9 +86,9 @@ function check(name, cond, detail){
   check('dropped stops are reported rather than silently discarded', pure.droppedNames.length === 2);
 
   console.log('\nThe rendered map');
-  const tripId = await page.evaluate(() => {
+  const tripId = await page.evaluate(async () => {
     const dest = DESTINATIONS.find(d => d.id === 'paris');
-    const t = buildPlannedTrip(dest, loadTripPreferences(), '2026-10-01', '2026-10-04', 2);
+    const t = await buildPlannedTrip(dest, loadTripPreferences(), '2026-10-01', '2026-10-04', 2);
     STATE.trips.unshift(t); saveState(); return t.id;
   });
   await page.evaluate(id => { location.hash = `#/trip/${id}/tripmap`; }, tripId);

@@ -888,3 +888,24 @@ input:checked+.slider:before{transform:translateX(18px)}
    the link inside it gets a real target rather than a 14px line of text. */
 .photoCredit a{ display:inline-block; padding:6px 2px; }
 .photoCredit{ padding:1px 8px; }
+
+/* Planner warnings — the itinerary telling the truth about itself. Amber, not red: these are
+   things to know about a plan that still works, not errors. */
+.tripWarnings{ display:flex; flex-direction:column; gap:8px; margin:12px 0 0; }
+.tripWarn{ display:flex; align-items:flex-start; gap:10px; padding:10px 12px; border-radius:10px;
+  background:var(--warn-bg,#fff6e5); border:1px solid var(--warn-bd,#f0d3a0); color:var(--warn-fg,#5c4413); }
+.tripWarnIcon{ flex-shrink:0; line-height:1.4; }
+.tripWarnText{ flex:1; font-size:.9rem; line-height:1.45; }
+.tripWarnX{ flex-shrink:0; background:none; border:0; cursor:pointer; color:inherit; opacity:.6;
+  font-size:.95rem; line-height:1; padding:4px; min-width:32px; min-height:32px; }
+.tripWarnX:hover{ opacity:1; }
+[data-theme="dark"] .tripWarn{ --warn-bg:#3a2f14; --warn-bd:#5c4a1e; --warn-fg:#f5e2ba; }
+
+/* Building an itinerary waits on real OpenStreetMap queries, so the step says what it is doing
+   and counts what it has actually found rather than showing an indeterminate bar. */
+.prefBuildStatus{ padding:8px 0 0; color:var(--muted); }
+.prefsSpinner{ display:inline-block; width:12px; height:12px; border:2px solid currentColor;
+  border-right-color:transparent; border-radius:50%; animation:prefsSpin .7s linear infinite;
+  vertical-align:-1px; margin-right:6px; }
+@keyframes prefsSpin{ to{ transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce){ .prefsSpinner{ animation-duration:2.4s; } }

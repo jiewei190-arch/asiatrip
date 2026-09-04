@@ -53,9 +53,9 @@ const check = (name, cond, detail) => {
   await page.evaluate(() => { const b = document.getElementById('onboardSkip'); if(b) b.click(); });
   await page.waitForTimeout(400);
 
-  const r = await page.evaluate(() => {
+  const r = await page.evaluate(async () => {
     const dest = DESTINATIONS.find(d => d.id === 'paris');
-    const trip = buildPlannedTrip(dest, loadTripPreferences(), '2026-10-01', '2026-10-03', 2);
+    const trip = await buildPlannedTrip(dest, loadTripPreferences(), '2026-10-01', '2026-10-03', 2);
     // Fill in the things a real trip carries, so search is tested against all of them.
     trip.days[0].stops[0].name = 'Café de Flore';
     trip.days[0].stops[0].note = 'window table if possible';

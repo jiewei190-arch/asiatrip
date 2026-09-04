@@ -482,6 +482,20 @@ function planTrip(opts){
     days.push({date, stops, travelKm:+dayKm.toFixed(1), endsAt:fmtClock(endHour)});
   }
 
+  /* An empty day is the most visible thing a plan can get wrong, and until now it went out
+   * silently: a ten-day trip built from a handful of known places produced four blank days and
+   * reported no warnings at all. It is not a planning failure — there was nothing left to place —
+   * but presenting it as a finished itinerary is. Say it, and say which days, so the traveller
+   * knows to look for more rather than assuming the city has nothing on a Tuesday. */
+  const emptyDays = days.map((d, i) => d.stops.length ? null : i + 1).filter(Boolean);
+  if(emptyDays.length){
+    const list = emptyDays.length === 1 ? `Day ${emptyDays[0]}`
+      : emptyDays.length === days.length ? 'Every day'
+      : `Days ${emptyDays.slice(0, -1).join(', ')} and ${emptyDays[emptyDays.length - 1]}`;
+    warnings.push({kind:'emptyDay', days:emptyDays,
+      text:`${list} came out empty — we ran out of places we could verify in ${dest && dest.name ? dest.name : 'this destination'}. Add stops yourself, or open More ideas to keep looking.`});
+  }
+
   return {days, warnings, pace:prefs.pace, unusedAttractions: attractions.filter(p => !chosen.includes(p))};
 }
 

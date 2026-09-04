@@ -79,7 +79,7 @@ function check(name, cond, detail){
       catch(e){}
       await new Promise(r => setTimeout(r, 1500));
       const prefs = normalizeTripPreferences(Object.assign(defaultTripPreferences(), {pace: sc.pace}));
-      const t = buildPlannedTrip(dest, prefs, sc.start, sc.end, 2);
+      const t = await buildPlannedTrip(dest, prefs, sc.start, sc.end, 2);
       return {
         destName: dest.name, destCountry: dest.country,
         pool: PLACES.filter(p => p.destId === dest.id).length,

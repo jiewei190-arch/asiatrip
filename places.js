@@ -748,34 +748,73 @@ function cancelDiscoveryExcept(destId){
   }
 }
 
+/* The in-flight run for each destination and kind, so a second caller joins the query that is
+ * already going out instead of firing a duplicate at Overpass. This is what makes discovery
+ * awaitable without giving it a second code path: the planner and the destination page start
+ * exactly the same work, and whichever asks second waits on the first one's promise. */
+const placesDiscoveryPromises = new Map();   // destId -> {kind: Promise<number>}
+
 function discoverPlacesFor(dest, kinds){
-  if(!dest || (typeof hasVerifiedGeo === 'function' && !hasVerifiedGeo(dest))) return;
+  if(!dest || (typeof hasVerifiedGeo === 'function' && !hasVerifiedGeo(dest))) return Promise.resolve(0);
   cancelDiscoveryExcept(dest.id);
   let ctl = placesControllers.get(dest.id);
   if(!ctl){ ctl = new AbortController(); placesControllers.set(dest.id, ctl); }
   const list = kinds || ['restaurant', 'hotel', 'attraction'];
   const st = placesDiscoveryState.get(dest.id) || {};
   placesDiscoveryState.set(dest.id, st);
+  const running = placesDiscoveryPromises.get(dest.id) || {};
+  placesDiscoveryPromises.set(dest.id, running);
 
+  const started = [];
   for(const kind of list){
-    if(st[kind] === 'loading' || st[kind] === 'done') continue;
+    if(st[kind] === 'done'){ started.push(Promise.resolve(st[kind + ':count'] || 0)); continue; }
+    /* Unconditional, and it has to stay that way. notifyPlacesUpdated below is synchronous and
+     * the destination view answers it by calling straight back into here — so for the length of
+     * that call this kind is marked 'loading' with no promise recorded against it yet. A guard
+     * that only skipped when it found a promise fell through on that re-entry, notified again,
+     * and blew the stack. Record the promise BEFORE notifying, and skip on 'loading' whether or
+     * not one is there. */
+    if(st[kind] === 'loading'){ started.push(running[kind] || Promise.resolve(0)); continue; }
     st[kind] = 'loading';
-    notifyPlacesUpdated(dest, kind, 0);
-    discoverPlaces(dest, kind, {signal: ctl.signal})
+    const p = discoverPlaces(dest, kind, {signal: ctl.signal})
       .then(found => {
         // A cancelled destination must not write into the store, even if its request finished.
-        if(ctl.signal.aborted) return;
+        if(ctl.signal.aborted) return 0;
         st[kind] = 'done';
         st[kind + ':count'] = found.length;
         mergeDiscoveredPlaces(dest, kind, found);
         notifyPlacesUpdated(dest, kind, found.length);
+        return found.length;
       })
       .catch(() => {
-        if(ctl.signal.aborted) return;
+        if(ctl.signal.aborted) return 0;
         st[kind] = 'error';
         notifyPlacesUpdated(dest, kind, 0);
+        return 0;
       });
+    running[kind] = p;
+    started.push(p);
+    notifyPlacesUpdated(dest, kind, 0);   // after running[kind], so a re-entrant call sees it
   }
+  return Promise.all(started).then(counts => counts.reduce((a, b) => a + b, 0));
+}
+
+/** Discovery, waited for rather than fired and forgotten.
+ *
+ *  Bounded, and the bound is the point: a traveller pressing Plan should not sit on a spinner
+ *  because one Overpass mirror is slow. When the deadline passes this resolves anyway and the
+ *  caller plans with whatever has landed — discovery keeps running in the background and the
+ *  next render picks up the rest. Returns how many places the store holds for the destination,
+ *  so the caller can tell "found plenty" from "found nothing" and say so. */
+function awaitPlacesFor(dest, kinds, timeoutMs){
+  const budget = timeoutMs == null ? 12000 : timeoutMs;
+  const work = discoverPlacesFor(dest, kinds);
+  const count = () => (typeof PLACES === 'undefined' ? 0 : PLACES.filter(p => p.destId === dest.id).length);
+  if(!work || typeof work.then !== 'function') return Promise.resolve(count());
+  return Promise.race([
+    work.then(() => 'settled'),
+    new Promise(r => setTimeout(() => r('timeout'), budget)),
+  ]).then(how => ({ how, places: count() }));
 }
 
 /* ---------------- pagination ---------------- */

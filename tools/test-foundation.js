@@ -64,7 +64,7 @@ function installBridge(page){
   const browser = await chromium.launch({executablePath: CHROME, args:['--no-sandbox']});
   const page = await browser.newPage({viewport:{width:1280, height:1100}});
   const pageErrors = [];
-  page.on('pageerror', e => pageErrors.push(String(e).slice(0,160)));
+  page.on("pageerror", e => { pageErrors.push(String(e).slice(0,160)); if(process.env.TF_STACK) console.log("STACK:\n" + (e.stack||"").split("\n").slice(0,16).join("\n")); });
   await installBridge(page);
   await page.goto(BASE + '/index.html', {waitUntil:'domcontentloaded'});
   await page.waitForFunction(() => typeof window.discoverPlacesFor === 'function', null, {timeout:25000});
@@ -224,6 +224,91 @@ function installBridge(page){
           `${res.withImage} photos + ${res.placeholders} empty vs ${res.cards} cards`);
     console.log(`        ${res.withImage} cards with a photograph, ${res.distinct} distinct · ` +
                 `${res.placeholders} placeholders`);
+  }
+
+  console.log('\n A destination the traveller typed, not one of the bundled thirty');
+  {
+    /* Most of the world is not in the bundled catalogue, so this is the ordinary case, not the
+     * edge case. It was the broken one: a typed destination arrived with null coordinates, the
+     * enrichment that geocodes it never marked them confirmed, discovery refuses to run on
+     * unconfirmed coordinates, and so generation returned a seven-day itinerary of seven empty
+     * days in half a second. Every part of that chain is asserted here. */
+    const res = await page.evaluate(async () => {
+      const d = findDestination('Lisbon, Portugal');
+      const startedUnverified = !hasVerifiedGeo(d);
+      await enrichGenericDestination(d);
+      const verifiedAfterEnrich = hasVerifiedGeo(d);
+      const lat = d.lat, lng = d.lng;
+      const trip = await buildPlannedTrip(d, normalizeTripPreferences({pace:'balanced'}),
+                                          '2026-11-02', '2026-11-08', 2);
+      const stops = trip.days.reduce((a, x) => a + x.stops.length, 0);
+      const empty = trip.days.filter(x => !x.stops.length).length;
+      STATE.trips = STATE.trips.filter(x => x.id !== trip.id);
+      return { startedUnverified, verifiedAfterEnrich, lat, lng, stops, empty,
+               pool: placesFor(d.id).length, country: d.country };
+    });
+    check('it starts with nothing confirmed, as it should', res.startedUnverified);
+    check('geocoding it counts as confirming it', res.verifiedAfterEnrich === true);
+    check('and the coordinates are the real ones', Math.abs(res.lat - 38.72) < 0.5 && Math.abs(res.lng + 9.14) < 0.5,
+          `${res.lat}, ${res.lng}`);
+    check('which lets discovery run at all', res.pool > 100, `${res.pool} places`);
+    check('so the itinerary is full, not seven blank days', res.empty === 0 && res.stops > 30,
+          `${res.stops} stops, ${res.empty} empty`);
+  }
+
+  console.log('\n Two places with the same name are two places');
+  {
+    /* "Salvador, Brazil" and "Salvador, El Salvador" resolved to one destination — whichever was
+     * opened first — because the qualifier was dropped from the identity and a loose name match
+     * accepted the other. The second traveller got the first one's country, coordinates and
+     * several hundred Brazilian places, with nothing on screen to say so. */
+    const res = await page.evaluate(async () => {
+      const a = findDestination('Salvador, Brazil');
+      await enrichGenericDestination(a);
+      const b = findDestination('Salvador, El Salvador');
+      await enrichGenericDestination(b);
+      const km = geoDistanceKm({lat:a.lat, lng:a.lng}, {lat:b.lat, lng:b.lng});
+      return { aId:a.id, bId:b.id, aCountry:a.country, bCountry:b.country,
+               aLat:a.lat, bLat:b.lat, km: Math.round(km) };
+    });
+    check('they are different destinations', res.aId !== res.bId, `${res.aId} vs ${res.bId}`);
+    check('with different countries', res.aCountry !== res.bCountry,
+          `${res.aCountry} / ${res.bCountry}`);
+    check('and coordinates thousands of km apart, as the real ones are',
+          res.km > 3000, `${res.km} km apart`);
+  }
+
+  console.log('\n Discovery survives being asked for again while it is running');
+  {
+    /* The destination view calls discoverPlacesFor, discoverPlacesFor announces itself, and the
+     * destination view answers that announcement by calling discoverPlacesFor. That loop is only
+     * survivable because the "already running" guard is unconditional — a version that skipped
+     * only when it could find the in-flight promise fell through on re-entry and blew the stack
+     * before any of it reached a user. Assert the guard directly. */
+    const res = await page.evaluate(async () => {
+      // A destination with coordinates, or discovery declines to start and this tests nothing.
+      const d = DESTINATIONS.find(x => hasVerifiedGeo(x) && !placesDiscoveryState.get(x.id));
+      if(!d) return { skipped: true };
+      let depth = 0, maxDepth = 0, events = 0, overflow = null;
+      const onPlaces = () => {
+        events++;
+        depth++; maxDepth = Math.max(maxDepth, depth);
+        // Exactly what renderDestinationView does when it hears the announcement.
+        if(depth < 200){ try { discoverPlacesFor(d, ['attraction']); } catch(e){ overflow = String(e); } }
+        depth--;
+      };
+      window.addEventListener('tripflow:places', onPlaces);
+      try { discoverPlacesFor(d, ['attraction', 'restaurant']); }
+      catch(e){ overflow = String(e); }
+      await new Promise(r => setTimeout(r, 400));
+      window.removeEventListener('tripflow:places', onPlaces);
+      return { overflow, maxDepth, events, dest: d.name };
+    });
+    check('the re-entrancy case is actually exercised', !res.skipped && res.events > 0,
+          res.skipped ? 'no destination with verified geo' : `${res.events} announcements`);
+    check('re-entrant discovery does not recurse', res.overflow === null, res.overflow || '');
+    check('and each announcement is answered once, not forever', res.maxDepth <= 2,
+          `nested ${res.maxDepth} deep`);
   }
 
   console.log('\n Health');

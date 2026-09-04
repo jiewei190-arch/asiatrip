@@ -663,7 +663,10 @@ async function resolveDestinationPhoto(dest){
 }
 
 /* ---- Geocoding via OpenStreetMap Nominatim (no key) — real coordinates for ANY place typed, worldwide ---- */
-const GEOCODE_CACHE_KEY = 'tripflow_geocode_cache_v1';
+/* v2: v1 cached country names in whatever language the place itself spoke, because the lookup never asked
+ * for English. Bumped rather than migrated — the entries are cheap to refetch and a mixed cache
+ * would show some travellers "Austria" and others "Österreich" with no way to tell which. */
+const GEOCODE_CACHE_KEY = 'tripflow_geocode_cache_v2';
 let __geocodeCache = null;
 function geocodeCache(){ if(!__geocodeCache) __geocodeCache = readJSONCache(GEOCODE_CACHE_KEY); return __geocodeCache; }
 /** Place kinds Nominatim may return when resolving a destination. Its free-text search
@@ -683,7 +686,7 @@ async function geocodeCity(query){
   if(cache[key]) return cache[key];
   let result = null;
   try{
-    const res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&q=${encodeURIComponent(query)}`, 8000, {headers:{'Accept':'application/json'}});
+    const res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&accept-language=en&q=${encodeURIComponent(query)}`, 8000, {headers:{'Accept':'application/json','Accept-Language':'en'}});
     if(res && res.ok){
       const arr = await res.json();
       // Take the first result that is actually a PLACE. Without this the first result can be
@@ -937,6 +940,9 @@ function applyEnrichment(dest, payload){
   if(!dest.__geo){
     if(payload.lat != null) dest.lat = payload.lat;
     if(payload.lng != null) dest.lng = payload.lng;
+    // Confirmed only when the payload says a geocoder produced them. A payload that fell back to
+    // whatever the destination already had must not launder those coordinates into verified ones.
+    if(payload.geocoded && payload.lat != null && payload.lng != null) dest.geoVerified = true;
     if(payload.country){ dest.country = payload.country; dest.currencyCode = currencyCodeForCountry(payload.country); }
   }
   if(payload.attractions && payload.attractions.length){
@@ -960,18 +966,43 @@ function applyEnrichment(dest, payload){
   }
   dest.__enriched = true;
 }
-async function enrichGenericDestination(dest){
-  if(dest.__enriched || dest.__enriching) return false;
+/** Resolves a typed destination: real coordinates, and real landmarks from Wikipedia.
+ *
+ *  A caller that arrives while this is already running gets the SAME promise rather than a bare
+ *  false. That distinction decides whether the itinerary has anything in it: the preferences step
+ *  starts this in the background, and generation starts it again a moment later. Returning false
+ *  to the second caller told it the work was finished when it had barely begun, so it planned
+ *  against a destination that still had no coordinates — and a destination with no coordinates is
+ *  one discovery refuses to search. Forty-five stops or none, depending on a race. */
+function enrichGenericDestination(dest){
+  if(!dest || dest.__enriched) return Promise.resolve(false);
+  if(dest.__enriching && dest.__enrichPromise) return dest.__enrichPromise;
+  dest.__enrichPromise = __enrichGenericDestination(dest);
+  return dest.__enrichPromise;
+}
+async function __enrichGenericDestination(dest){
+  if(dest.__enriched) return false;
   dest.__enriching = true;
   try{
     const cache = enrichCache();
-    if(cache[dest.id] && cache[dest.id].attractions && cache[dest.id].attractions.length){ applyEnrichment(dest, cache[dest.id]); return true; }
+    if(cache[dest.id] && cache[dest.id].attractions && cache[dest.id].attractions.length){
+      applyEnrichment(dest, cache[dest.id]);
+      /* Cached before coordinates carried their provenance, so the destination can come back
+       * from cache with real coordinates that nothing has confirmed — and unconfirmed
+       * coordinates mean discovery refuses to run for it, forever. One cheap geocode settles it
+       * rather than throwing away a good cache of attractions. */
+      if(!hasVerifiedGeo(dest)){
+        const cachedGeo = await geocodeCity(destGeoQuery(dest));
+        if(cachedGeo) applyGeoToDestination(dest, cachedGeo);
+      }
+      return true;
+    }
     // A destination picked from search already carries real coordinates from geo.js, so
     // geocoding it again is a redundant Nominatim round-trip on the critical path — and
     // Nominatim is the slowest and least reliable call in the app. Skipping it is why the
     // real local attractions now appear promptly instead of after a long spell of
     // placeholders; only a destination that arrived without coordinates still needs it.
-    const geo = dest.__geo ? null : await geocodeCity(dest.name + (dest.country ? ', '+dest.country : ''));
+    const geo = dest.__geo ? null : await geocodeCity(destGeoQuery(dest));
     const lat = geo ? geo.lat : dest.lat, lng = geo ? geo.lng : dest.lng;
     const pois = await fetchNearbyWikiPOIs(lat, lng, 40);
     if(!geo && !pois.length){ dest.__enriched = true; return false; }
@@ -992,11 +1023,17 @@ async function enrichGenericDestination(dest){
         image: p.image,
       };
     });
-    const payload = { lat, lng, country: geo && geo.country, attractions };
+    // Coordinates carry where they came from. Without this the enrichment wrote a real geocoded
+    // latitude onto a destination still flagged geoVerified:false, and hasVerifiedGeo — which is
+    // what gates OpenStreetMap discovery — kept saying no. Every destination a traveller typed
+    // rather than picked from the bundled thirty was therefore locked out of discovery entirely:
+    // a real city, real coordinates sitting right there on the object, and six places.
+    const payload = { lat, lng, country: geo && geo.country, attractions, geocoded: !!geo };
     // Only persist once there's real attraction data to show for it — an empty list here is
     // just as likely a transient POI-fetch failure as a genuinely quiet destination, so leave
     // it to retry on the next visit rather than caching a permanent dead end.
     if(attractions.length){ cache[dest.id] = payload; writeJSONCache(ENRICH_CACHE_KEY, cache); }
+    if(geo) applyGeoToDestination(dest, geo);   // the one place that owns "these are confirmed"
     applyEnrichment(dest, payload);
     return true;
   } finally { dest.__enriching = false; }
@@ -1666,12 +1703,20 @@ const GENERIC_DEST_NAME_CACHE_KEY = 'tripflow_generic_dest_names_v1';
  * curated list. Without this, resolving a URL like #/destination/gen-beijing after a reload (very
  * common on mobile Safari, which reloads backgrounded tabs) would have nothing to recover the
  * original typed name from, and would wrongly treat the raw id/slug itself as the destination name. */
-function rememberGenericDestName(id, name, geo){
+function rememberGenericDestName(id, name, geo, query){
   const cache = readJSONCache(GENERIC_DEST_NAME_CACHE_KEY);
   // Stored as an object so a reload recovers the real coordinates and country too; the old
   // format was a bare string, which is still read below for anything cached before this.
-  cache[id] = geo ? { name, geo } : { name };
+  const rec = geo ? { name, geo } : { name };
+  // The typed query survives a reload as well, or a reloaded tab would go back to geocoding the
+  // bare city name and land in the wrong country the second time round.
+  if(query && query !== name) rec.query = query;
+  cache[id] = rec;
   writeJSONCache(GENERIC_DEST_NAME_CACHE_KEY, cache);
+}
+function recallGenericDestQuery(id){
+  const hit = readJSONCache(GENERIC_DEST_NAME_CACHE_KEY)[id];
+  return (hit && typeof hit === 'object' && hit.query) ? hit.query : null;
 }
 function recallGenericDestName(id){
   const hit = readJSONCache(GENERIC_DEST_NAME_CACHE_KEY)[id];
@@ -1793,6 +1838,16 @@ function hasVerifiedGeo(dest){
             (dest.geoVerified !== false));
 }
 
+/** The string to hand a geocoder for a destination: what the traveller typed if we have it,
+ *  otherwise the name and country we know. Always this, never dest.name alone — a bare city name
+ *  is the one form that cannot be disambiguated. */
+function destGeoQuery(dest){
+  if(!dest) return '';
+  const typed = String(dest.searchQuery || '').trim();
+  if(typed && typed.toLowerCase() !== String(dest.name || '').trim().toLowerCase()) return typed;
+  return dest.name + (dest.country ? ', ' + dest.country : '');
+}
+
 /** How far from the centre a place can plausibly still be "in" this destination. A village and
  *  a country are both destinations but they are not the same size, so a single radius would
  *  either exile half of London or accept a restaurant 300 km from a hamlet. */
@@ -1871,13 +1926,23 @@ function applyGeoToDestination(dest, geo){
  * destination chosen from search no longer goes through it. */
 function makeGenericDestination(name, geo){
   const clean = titleCaseDestName((geo && geo.name) || name.split(',')[0].trim() || name.trim());
-  const id = 'gen-'+slugify(clean); // derive the id from the cleaned name (not the raw ", Country" text) so recovering a
-  const existing = DESTINATIONS.find(d=>d.id===id);            // remembered name after a reload always reproduces the same id
+  /* The qualifier belongs in the identity, not just in the lookup.
+   *
+   * The id used to come from the cleaned city name alone, so "Salvador, Brazil" and
+   * "Salvador, El Salvador" were the same destination: whichever was opened first won, and the
+   * second silently showed the first one's country, coordinates and every place in it. Two
+   * different cities with one name are not one city. resolveDestFromId reproduces this id
+   * because it recalls the typed query, and an id from before this change still reproduces —
+   * a remembered name with no query slugs to exactly what it always did. */
+  const qualifier = String(name || '').includes(',')
+    ? String(name).split(',').slice(1).join(' ').trim() : '';
+  const id = 'gen-' + slugify(qualifier ? clean + '-' + qualifier : clean);
+  const existing = DESTINATIONS.find(d=>d.id===id);
   if(existing){
     if(geo && !existing.__geo) applyGeoToDestination(existing, geo);
     return existing;
   }
-  rememberGenericDestName(id, clean, geo);
+  rememberGenericDestName(id, clean, geo, String(name || '').trim());
   const rnd = seededRandom(id);
   // GEOGRAPHIC INTEGRITY (non-negotiable): a destination's position comes from a verified
   // geocode, or it does not exist. The old fallback seeded lat/lng from a hash of the name,
@@ -1890,6 +1955,14 @@ function makeGenericDestination(name, geo){
     : null;
   const dest = {
     id, name:clean,
+    /* What the traveller actually typed, qualifier and all.
+     *
+     * The display name is the city on its own — "Salvador" — and until now that was the only
+     * thing kept, so the ", Brazil" the traveller had gone to the trouble of typing was thrown
+     * away before anything geocoded. The lookup then asked for bare "Salvador", whose best match
+     * worldwide is El Salvador the country, and the whole trip was built there. The ranker was
+     * never wrong; it was answering a question with the answer removed from it. */
+    searchQuery: String(name || '').trim(),
     placeId: (geo && geo.placeId) || null,   // canonical identity; everything else derives from it
     country: (geo && geo.country) || '',
     countryCode: (geo && geo.countryCode) || '',
@@ -1941,6 +2014,25 @@ function findDestination(query, geo){
   if(!q) return null;
   let d = DESTINATIONS.find(x=> x.name.toLowerCase()===q || `${x.name}, ${x.country}`.toLowerCase()===q);
   if(d) return d;
+
+  /* A qualified query is a narrower question and must not be answered by a broader match.
+   *
+   * The loose match below accepts a destination whose name is merely CONTAINED IN the query, so
+   * once "Salvador, Brazil" existed, "Salvador, El Salvador" matched it — same object, same
+   * country, same coordinates, same several hundred Brazilian places, and no sign anything had
+   * gone wrong. The same swallowing turned "Springfield, Illinois" and "Springfield, Missouri"
+   * into one town. When the traveller has named a country or region, only a destination that
+   * agrees with it may answer; otherwise the qualifier goes on to identify a distinct one. */
+  const parts = q.split(',').map(p => p.trim()).filter(Boolean);
+  if(parts.length > 1){
+    const city = parts[0], qualifier = parts.slice(1).join(' ');
+    const agrees = v => { v = String(v || '').toLowerCase();
+                          return !!v && (v.includes(qualifier) || qualifier.includes(v)); };
+    d = DESTINATIONS.find(x => x.name.toLowerCase() === city &&
+                               (agrees(x.country) || agrees(x.countryCode) || agrees(x.region)));
+    return d || makeGenericDestination(query, geo);
+  }
+
   d = DESTINATIONS.find(x=> x.name.toLowerCase().includes(q) || q.includes(x.name.toLowerCase()) || x.country.toLowerCase().includes(q));
   if(d) return d;
   return makeGenericDestination(query, geo);
@@ -1960,7 +2052,7 @@ function resolveDestFromId(id){
     const remembered = recallGenericDestName(id);
     // Restore the remembered geography too, so a reloaded destination keeps its real
     // coordinates and flag instead of falling back to the hash-seeded placeholder position.
-    if(remembered) return makeGenericDestination(remembered, recallGenericDestGeo(id));
+    if(remembered) return makeGenericDestination(recallGenericDestQuery(id) || remembered, recallGenericDestGeo(id));
     // last resort: de-slugify so we at least show a readable name instead of the raw id
     return makeGenericDestination(id.slice(4).replace(/-/g,' '));
   }

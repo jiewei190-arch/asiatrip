@@ -113,9 +113,9 @@ async function freshPage(browser, before){
   console.log('\nBackup and restore');
   {
     const page = await freshPage(browser);
-    const out = await page.evaluate(() => {
+    const out = await page.evaluate(async () => {
       const dest = DESTINATIONS.find(d => d.id === 'paris');
-      const t = buildPlannedTrip(dest, loadTripPreferences(), '2026-10-01', '2026-10-03', 2);
+      const t = await buildPlannedTrip(dest, loadTripPreferences(), '2026-10-01', '2026-10-03', 2);
       STATE.trips = [t]; saveState();
       const backup = JSON.stringify({ format:'tripflow-backup', version:1, state: JSON.parse(JSON.stringify(STATE)) });
       STATE.trips = []; saveState();
