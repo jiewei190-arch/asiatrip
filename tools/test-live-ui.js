@@ -308,6 +308,42 @@ function installBridge(page, stats){
   check('cards are a usable width, not shrunk by a nested grid',
         mobile.widest >= mobile.viewport * 0.8,
         `card ${mobile.widest}px in ${mobile.viewport}px`);
+
+  /* One view proves one view. Every route the nav offers is checked, because the overflow that
+     shipped was on Trip Ideas — a page nothing had ever measured — where an input with flex:1 and
+     no min-width:0 refused to shrink and pushed a 182px button 36px off the right edge of a
+     390px phone. And a control you tap to change what the page shows is measured too: a small
+     button at 34x28 and a map legend toggle 26px tall were both under the 32px this project
+     holds itself to. Photographer credits are exempt by name — those are links inside a caption,
+     which is a different thing from a control, and they already clear the 24px minimum. */
+  const sweep = await mob.evaluate(async () => {
+    const routes = ['#/', '#/discover', '#/trips', '#/saved', '#/ideas', '#/travel',
+                    '#/destination/tokyo', '#/destination/tokyo/things',
+                    '#/destination/tokyo/restaurants', '#/destination/tokyo/hotels',
+                    '#/destination/tokyo/map'];
+    const bad = [];
+    for(const h of routes){
+      location.hash = h; route();
+      await new Promise(r => setTimeout(r, 1500));
+      const over = document.documentElement.scrollWidth - document.documentElement.clientWidth;
+      const small = [...document.querySelectorAll('#mainRoot button, #mainRoot a, #mainRoot input, #mainRoot select')]
+        .filter(e => {
+          if(e.closest('.photoCredit')) return false;
+          const b = e.getBoundingClientRect();
+          return b.width > 0 && b.height > 0 && (b.width < 32 || b.height < 32);
+        });
+      if(over > 1 || small.length){
+        bad.push({route: h, over, small: small.length,
+                  first: small[0] ? (small[0].textContent || '').trim().slice(0, 20) +
+                         ' ' + Math.round(small[0].getBoundingClientRect().width) + 'x' +
+                         Math.round(small[0].getBoundingClientRect().height) : ''});
+      }
+    }
+    return bad;
+  });
+  check('no route overflows a phone, and every control is tappable',
+        sweep.length === 0,
+        sweep.map(b => `${b.route}: ${b.over}px over, ${b.small} small (${b.first})`).join(' · '));
   check('cards rendered on mobile too', mobile.cards > 0, `${mobile.cards} cards`);
 
   /* --- health --- */

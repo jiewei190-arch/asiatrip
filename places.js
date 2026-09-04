@@ -291,7 +291,15 @@ function osmToPlace(el, kind, dest){
     if(/museum|gallery|artwork/.test(subtypeKey)) rec.tags = ['culture','art'];
     if(/castle|monument|ruins|archaeological_site|palace|fort/.test(subtypeKey)) rec.tags = ['history'];
     rec.duration = 75;
+    /* Real, published entry-cost data, and the only kind this app has: OSM's own fee and charge
+     * tags. Coverage is thin — around 6% of attractions in a large city carry fee, and 1% carry
+     * an actual charge — but thin real data is the whole point. The alternative the app shipped
+     * with was to print "Free" for every place whose price was unknown, which is not a gap, it
+     * is a false statement about somebody's ticketed museum. */
     rec.fee = t.fee === 'yes' ? 'Entry fee' : t.fee === 'no' ? 'Free' : '';
+    // e.g. "2700 JPY;3400 JPY" or "1800 JPY / person" — published verbatim, never parsed into a
+    // number we would then have to convert and thereby restate.
+    rec.charge = (t.charge || '').trim();
   }
 
   rec.desc = describePlace(rec, t, dest);

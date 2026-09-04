@@ -701,6 +701,10 @@ async function geocodeCity(query){
           lat: parseFloat(a.lat), lng: parseFloat(a.lon),
           city: addr.city || addr.town || addr.village || addr.municipality || addr.county || a.name || query,
           country: addr.country || '',
+          // The ISO code, not just the display name: currency and the cost estimate are both
+          // keyed on it, and without it a typed destination reported no cost estimate at all
+          // while its country sat in the table under a name nothing matched.
+          countryCode: (addr.country_code || '').toUpperCase(),
         };
       }
     }
@@ -720,7 +724,8 @@ async function geocodeCity(query){
       const hit = await geoResolve(query);
       if(hit && hit.lat != null && hit.lng != null){
         result = { lat: hit.lat, lng: hit.lng,
-                   city: hit.name || query, country: hit.country || '' };
+                   city: hit.name || query, country: hit.country || '',
+                   countryCode: (hit.countryCode || '').toUpperCase() };
       }
     }catch(e){}
   }
@@ -1924,6 +1929,16 @@ function applyGeoToDestination(dest, geo){
     dest.currency = `Local currency (${dest.currencyCode})`;
   }
   if(geo.countryCode) dest.countryCode = geo.countryCode;
+  /* The cost estimate has to be recomputed here, not left as it was at creation.
+   *
+   * A typed destination is built before anything knows what country it is in, so it starts with
+   * no country code and therefore no estimate. Enrichment is the moment that becomes known —
+   * and without this line the estimate stayed empty forever, which is how Oslo, Hanoi, Zurich and
+   * Cairo all reported "no cost estimate" while their countries sat in the table. */
+  if(typeof estimatedDailyBudget === 'function'){
+    const scaled = estimatedDailyBudget(dest.countryCode || '');
+    if(scaled && (!dest.avgDailyBudget || dest.avgDailyBudget.estimated)) dest.avgDailyBudget = scaled;
+  }
   if(geo.bbox) dest.bbox = geo.bbox;
   if(geo.flag) dest.flag = geo.flag;
   if(geo.region) dest.region = geo.region;
@@ -2003,7 +2018,13 @@ function makeGenericDestination(name, geo){
     currency: (geo && geo.country) ? `Local currency (${currencyCodeForCountry(geo.country, geo.countryCode)})` : "Local currency",
     currencyCode: (geo && geo.country) ? currencyCodeForCountry(geo.country, geo.countryCode) : 'USD',
     language:"Local language",
-    avgDailyBudget:{budget:50,moderate:120,luxury:280},
+    /* A day's spend scaled from this country's real, published price level rather than the flat
+     * $50/$120/$280 every typed destination used to get — the same figure for Oslo and for Hanoi,
+     * which is a fabricated number presented as this destination's own. Null when the World Bank
+     * has no usable price level for the country, so the screens can say they have no estimate
+     * instead of showing one nobody can stand behind. */
+    avgDailyBudget: (typeof estimatedDailyBudget === 'function'
+                     && estimatedDailyBudget((geo && geo.countryCode) || '')) || null,
     travelInfo:{ recommendedDays:'3–5 days', timezone:"Check your device's clock once you arrive",
       visa:"Entry requirements vary by nationality — check your country's foreign ministry site before you go.",
       safety:'Follow standard travel precautions: keep valuables secure, stay aware in crowds, and check current advisories.',

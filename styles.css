@@ -533,7 +533,7 @@ main{max-width:1280px;margin:0 auto;padding:0 24px 60px;min-height:60vh}
 
 /* ---------- Ideas ---------- */
 .ideasSearch{display:flex;gap:10px;position:relative;max-width:640px;margin-bottom:26px}
-.ideasSearch input{flex:1;padding:13px 15px;border:1px solid var(--line);border-radius:12px;outline:0;font-weight:600;background:var(--surface)}
+.ideasSearch input{flex:1;min-width:0;padding:13px 15px;border:1px solid var(--line);border-radius:12px;outline:0;font-weight:600;background:var(--surface)}
 .ideaCard{background:var(--surface);border:1px solid var(--line);border-radius:20px;overflow:hidden;box-shadow:var(--shadow);display:flex;flex-direction:column}
 .ideaCoverRow{display:grid;grid-template-columns:1.4fr 1fr 1fr;grid-template-rows:130px;gap:2px;height:130px;overflow:hidden}
 .ideaCoverRow img{width:100%;height:100%;min-height:0;object-fit:cover;display:block}
@@ -654,6 +654,11 @@ input:checked+.slider:before{transform:translateX(18px)}
   .aiLauncher{right:10px;bottom:10px;padding:12px 14px;font-size:12px}
   .stat{grid-template-columns:1fr}
   .ideaCoverRow{grid-template-columns:1fr 1fr 1fr;height:90px}
+  /* An input and a 182px button do not fit side by side on a 390px phone. The input had flex:1
+     but no min-width:0, so it refused to shrink below its content and pushed the button off the
+     right edge — 36px of horizontal scroll on a page that has nothing to scroll to. */
+  .ideasSearch{flex-direction:column}
+  .ideasSearch .btn{width:100%;justify-content:center}
   .gsearch-panel{position:fixed;top:70px;left:10px;right:10px;width:auto}
   .dropdown{position:fixed;top:70px;left:10px;right:10px;width:auto}
 }
@@ -878,7 +883,16 @@ input:checked+.slider:before{transform:translateX(18px)}
   padding:4px 0;
 }
 /* A text button is still a button. 17px of line box is not a target. */
-.linklike{ padding:6px 0; min-height:30px; }
+.linklike{ padding:6px 0; min-height:32px; display:inline-flex; align-items:center; }
+
+/* Discrete controls that were set just under the line this project holds itself to: a small
+   button measured 34x28 and a map legend toggle 26 tall. Both are things you tap to change what
+   the page shows, not words inside a sentence, so they get a real target.
+   The photographer credit is deliberately NOT in this list: it is a link inside a caption, which
+   both this project and WCAG treat differently from a control, and it already clears the 24px
+   minimum. Growing it would push a legal credit line into the photograph it belongs to. */
+.btn.sm{ min-height:32px; }
+.legend{ min-height:32px; }
 
 /* Footer navigation is navigation, whatever it looks like. 19px tall is a link you miss twice
    before you hit it. */
@@ -909,3 +923,14 @@ input:checked+.slider:before{transform:translateX(18px)}
   vertical-align:-1px; margin-right:6px; }
 @keyframes prefsSpin{ to{ transform:rotate(360deg); } }
 @media (prefers-reduced-motion:reduce){ .prefsSpinner{ animation-duration:2.4s; } }
+
+/* A rate this app cannot know, pointing at somewhere that does. Styled as the price it stands in
+   for, so the card still reads as a row of facts rather than an advert. */
+.rateLink{ text-decoration:none; border-bottom:1px dotted currentColor; }
+.rateLink:hover{ opacity:.8; }
+
+/* Where the budget numbers come from. Two figures sit side by side in the budget tab — an
+   estimate multiplied out, and a sum of the few stops that publish a price — and without this
+   they read as two measurements of the same thing. */
+.budgetBasis{ margin-top:12px; color:var(--muted); line-height:1.55; display:flex;
+  flex-direction:column; gap:6px; }

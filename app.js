@@ -74,7 +74,19 @@ function fmt$(n){
  *  Synchronous on purpose: cards render inside template strings, and the rate table is already
  *  in memory by then. Returning '' rather than a guess is what keeps a missing rate honest. */
 function fmtIn(amountUSD, code){
-  const n = Number(amountUSD) || 0;
+  /* A price we do not have is not a price of zero.
+   *
+   * This read `Number(amountUSD) || 0`, so null — which is what every discovered place carries,
+   * deliberately, because OpenStreetMap publishes no rates — formatted as $0.00. The hotel detail
+   * panel said "$0.00 / night" for 124 of Tokyo's 128 hotels and the restaurant panel said
+   * "~$0.00/person". That is not a missing value on screen, it is a wrong one, and it is the
+   * more damaging direction: somebody plans a trip believing the room is free.
+   *
+   * A real zero still formats as zero. Only absence returns nothing, and callers show a dash or
+   * omit the line entirely. */
+  if(amountUSD == null || amountUSD === '') return '';
+  const n = Number(amountUSD);
+  if(!isFinite(n)) return '';
   if(!code) return '';
   const rate = (code === 'USD') ? 1 : (typeof EXCHANGE_RATES !== 'undefined' ? EXCHANGE_RATES[code] : null);
   if(typeof rate !== 'number' || !isFinite(rate)) return '';
@@ -111,7 +123,65 @@ function stars(rating){
   const full = Math.round(rating);
   return '★'.repeat(clamp(full,0,5)) + '☆'.repeat(5-clamp(full,0,5));
 }
-function priceLevelStr(lvl){ return lvl>0 ? '$'.repeat(clamp(lvl,1,4)) : 'Free'; }
+/** A day's spend for a destination in a given style, or null when we genuinely do not know.
+ *
+ *  Curated destinations carry hand-checked figures. Everywhere else the figure is scaled from the
+ *  country's published World Bank price level (costlevels.js) — and where the World Bank has no
+ *  usable level, there is no figure and this returns null rather than a plausible-looking guess.
+ *  Every caller has to decide what to show for "unknown", which is the point: the app used to
+ *  hand out the same $120 a day for every city on earth and present it as that city's own. */
+function destDailyBudget(dest, style){
+  const b = dest && dest.avgDailyBudget;
+  if(!b) return null;
+  const v = b[style] != null ? b[style] : b.moderate;
+  return (typeof v === 'number' && isFinite(v)) ? v : null;
+}
+/** True when the figure is our scaled estimate rather than a hand-checked one, so the screen can
+ *  say so and name where it came from. */
+function destBudgetIsEstimate(dest){
+  return !!(dest && dest.avgDailyBudget && dest.avgDailyBudget.estimated);
+}
+
+/* ---------------- what a place actually costs ----------------
+ *
+ * Three sources, in order of how much they are worth: a price this app holds in USD (the curated
+ * entries only), OpenStreetMap's own `charge` string (a real published amount like "2700 JPY",
+ * shown verbatim so no conversion of ours can restate it), and its `fee` yes/no. When none of
+ * them exists the answer is that it is not published — never a zero, never "Free". */
+function entryCostText(p){
+  if(!p) return 'Not published';
+  if(p.price != null) return fmt$(p.price);
+  if(p.charge) return p.charge;                     // OSM's words, not ours
+  if(p.fee === 'Free') return 'Free';               // fee=no: a real statement, not a default
+  if(p.fee === 'Entry fee') return 'Entry fee charged — amount not published';
+  const band = priceLevelStr(p.priceLevel);
+  return band || 'Not published';
+}
+function mealCostText(p){
+  const band = priceLevelStr(p && p.priceLevel);
+  if(p && p.price != null) return band ? `${band} · ~${fmt$(p.price)}/person` : `~${fmt$(p.price)}/person`;
+  return band || 'Not published';
+}
+/** Where to find the rate this app cannot know.
+ *
+ *  OpenStreetMap publishes no nightly rates at all — 300 hotels in Lisbon, and the only fee tags
+ *  on any of them are for wifi and the toilets. There is no keyless source of live room prices,
+ *  so rather than print a number nobody can stand behind, the app sends the traveller to a real
+ *  search for this specific hotel, and prefers the hotel's own site when OSM knows it. */
+function hotelRateSearchUrl(p, dest){
+  if(p && p.website && /^https?:\/\//i.test(p.website)) return p.website;
+  const where = [p && p.name, dest && dest.name, dest && dest.country].filter(Boolean).join(' ');
+  return 'https://www.expedia.com/Hotel-Search?destination=' + encodeURIComponent(where);
+}
+
+/** The $/$$/$$$ band, or nothing when there is no band.
+ *  It used to return 'Free' for anything that was not a positive number — which meant null, the
+ *  value every discovered place has, printed as "Free" on ticketed museums and paid attractions
+ *  the world over. Free is a claim about a place; make it only from a real 0. */
+function priceLevelStr(lvl){
+  if(typeof lvl !== 'number' || !isFinite(lvl)) return '';
+  return lvl > 0 ? '$'.repeat(clamp(lvl, 1, 4)) : 'Free';
+}
 function debounce(fn,ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; }
 /* toDateInput and addDays live in data.js, which loads first. They used to be redeclared here
  * with local-time arithmetic, and because app.js loads later that buggy pair won: addDays(x, 0)
@@ -636,7 +706,8 @@ function buildAutoTrip(destId, title, start, end, travelers, style){
     if(ri<restaurants.length){ stops.push(mkStopFromPlace(restaurants[ri++], times[stops.length]||'19:00')); }
     days.push({ date: addDays(start,d), stops });
   }
-  const totalBudget = Math.round((dest.avgDailyBudget[style]||dest.avgDailyBudget.moderate) * nDays * travelers);
+  const perDay = destDailyBudget(dest, style);
+  const totalBudget = perDay == null ? 0 : Math.round(perDay * nDays * travelers);
   return {
     id: uid('trip'), destId, destName: dest.name+(dest.country?', '+dest.country:''), title, start, end, travelers, cover: dest.hero,
     days,
@@ -657,7 +728,11 @@ function mkStopFromPlace(place, time, planned){
   return {
     id: uid('stop'), placeId: place.id, name: place.name, type: place.type,
     area: place.area, lat: place.lat, lng: place.lng, image: place.image,
-    rating: place.rating, cost: place.type==='hotel' ? place.price : (place.price||0),
+    /* null, not 0, when nothing published a price. `place.price || 0` made every discovered
+     * place cost nothing, so a forty-five-stop itinerary totalled $0 and the budget bar sat
+     * empty at "0% of $1,500 spent" — which reads as a free holiday rather than as a total
+     * nobody could compute. */
+    rating: place.rating, cost: place.price != null ? place.price : null,
     category: place.category || place.cuisine || (place.type==='hotel'?`${place.stars}★ Hotel`:''),
     duration: (pl && pl.durationMin) || place.duration || 90,
     time: time || (pl && pl.time) || '10:00', note:'',
@@ -714,7 +789,7 @@ function getOrCreateDraftTrip(destId){
   trip = {
     id: uid('trip'), destId, destName: dest.name+(dest.country?', '+dest.country:''), title:`${dest.name} Trip`, start, end, travelers:2, cover: dest.hero,
     days: draftDays.map(date => ({date, stops: []})),
-    budget:{ total: Math.round(dest.avgDailyBudget.moderate * draftDays.length * 2), style:'moderate', expenses:[] },
+    budget:{ total: Math.round((destDailyBudget(dest, 'moderate') || 0) * draftDays.length * 2), style:'moderate', expenses:[] },
     collaborators:[ mkCollaborator('Jie Wei (you)', STATE.settings.email, 'Owner') ],
     activity:[ {id:uid('act'), author:'You', text:`created a draft trip to ${dest.name}.`, ts:Date.now()} ],
     createdAt: Date.now(),
@@ -728,6 +803,31 @@ function tripPlannedTotal(trip){
   trip.days.forEach(day=>day.stops.forEach(s=>sum += (s.cost||0)));
   trip.budget.expenses.forEach(e=>sum += (e.amount||0));
   return sum;
+}
+/** What the itinerary costs, and how much of it we actually know.
+ *
+ *  A single total is a lie by omission here: almost nothing in an itinerary has a published
+ *  price, so summing what we have and printing it as THE cost says a five-day trip costs the
+ *  £12 of the one museum that recorded its entry fee. This returns the known part, the count of
+ *  stops with no published price, and the destination's estimate for everything else — and the
+ *  screen shows all three rather than adding them into one confident number. */
+function tripCostBreakdown(trip, dest){
+  let known = 0, priced = 0, unpriced = 0;
+  trip.days.forEach(day => day.stops.forEach(s => {
+    if(s.cost != null && isFinite(s.cost)){ known += s.cost; priced++; }
+    else unpriced++;
+  }));
+  let logged = 0;
+  (trip.budget.expenses || []).forEach(e => { logged += Number(e.amount) || 0; });
+  const perDay = destDailyBudget(dest, (trip.budget && trip.budget.style) || 'moderate');
+  const days = trip.days.length, travelers = trip.travelers || 1;
+  return {
+    known, priced, unpriced, logged,
+    perDay,
+    estimate: perDay == null ? null : Math.round(perDay * days * travelers),
+    estimated: destBudgetIsEstimate(dest),
+    days, travelers,
+  };
 }
 function tripCategoryTotals(trip){
   const cats = {Flights:0, Hotels:0, Food:0, Activities:0, Transportation:0, Miscellaneous:0};
@@ -1335,7 +1435,13 @@ function placeCardHTML(p, opts){
     ? `<span class="priceLevel">${priceLevelStr(p.priceLevel)}</span>` : '';
   let metaHTML = '';
   if(p.type==='attraction'){
-    metaHTML = `${ratingHTML}${priceHTML}`;
+    /* Show the entry cost when OpenStreetMap actually publishes one. Roughly one attraction in
+     * sixteen carries a fee tag and one in a hundred a charge, so most cards still say nothing —
+     * which is the correct amount to say about a price nobody has recorded. */
+    const feeBit = p.charge ? `<span class="priceLevel">${esc(p.charge)}</span>`
+      : p.fee === 'Free' ? '<span class="priceLevel">Free entry</span>'
+      : p.fee === 'Entry fee' ? '<span class="priceLevel">Entry fee</span>' : '';
+    metaHTML = `${ratingHTML}${priceHTML}${feeBit}`;
   } else if(p.type==='restaurant'){
     const open = isOpenNow(p.hours);
     metaHTML = `${ratingHTML}${priceHTML}<span class="openTag ${open?'open':'closed'}">${open?'Open now':'Closed'}</span>`;
@@ -1344,7 +1450,11 @@ function placeCardHTML(p, opts){
     // one exists. A discovered stay has neither by default, and inventing them is the bug.
     const starBit  = p.stars ? `<span class="stars">${'★'.repeat(p.stars)}</span>` : '';
     const guestBit = '';   // no guest scores: nothing here has real ones
-    const priceBit = (p.price != null) ? `<span class="priceLevel">${fmtMoneyDual(p.price, dest)}/night</span>` : '';
+    /* No nightly rate exists to show — OSM has none for any hotel anywhere — so the card says
+     * where to get the real one rather than leaving a blank where a price should be. */
+    const priceBit = (p.price != null)
+      ? `<span class="priceLevel">${fmtMoneyDual(p.price, dest)}/night</span>`
+      : `<a class="priceLevel rateLink" href="${esc(hotelRateSearchUrl(p, dest))}" target="_blank" rel="noopener">See rates ↗</a>`;
     metaHTML = `${starBit}${guestBit}${priceBit}` ||
       `<span class="small">${esc(p.category || 'Place to stay')}</span>`;
   }
@@ -1433,19 +1543,21 @@ function openPlaceDetail(placeId){
   let infoRows = '';
   if(p.type==='attraction'){
     infoRows = `<div class="ovCard"><div class="k">Category</div><div class="v">${esc(p.category)}</div></div>
-      <div class="ovCard"><div class="k">Price</div><div class="v">${priceLevelStr(p.priceLevel)}${p.price?` · ${fmt$(p.price)}`:''}</div></div>
+      <div class="ovCard"><div class="k">Entry</div><div class="v">${esc(entryCostText(p))}</div></div>
       <div class="ovCard"><div class="k">Suggested time</div><div class="v">${p.duration||90} min</div></div>
       <div class="ovCard"><div class="k">Area</div><div class="v">${esc(p.area)}</div></div>`;
   } else if(p.type==='restaurant'){
     const open = isOpenNow(p.hours);
     infoRows = `<div class="ovCard"><div class="k">Cuisine</div><div class="v">${esc(p.cuisine)}</div></div>
-      <div class="ovCard"><div class="k">Price</div><div class="v">${priceLevelStr(p.priceLevel)} · ~${fmt$(p.price)}/person</div></div>
+      <div class="ovCard"><div class="k">Price</div><div class="v">${esc(mealCostText(p))}</div></div>
       <div class="ovCard"><div class="k">Hours</div><div class="v">${esc(p.hours)} <span class="openTag ${open?'open':'closed'}" style="margin-left:6px">${open?'Open now':'Closed'}</span></div></div>
       <div class="ovCard"><div class="k">Dietary</div><div class="v">${p.dietary&&p.dietary.length?esc(p.dietary.join(', ')):'Standard menu'}</div></div>`;
   } else if(p.type==='hotel'){
     // Star CLASS is a real, published property of a hotel. A guest score was not.
     infoRows = `<div class="ovCard"><div class="k">Class</div><div class="v">${'★'.repeat(p.stars||0)||'Not stated'}</div></div>
-      <div class="ovCard"><div class="k">Price</div><div class="v">${fmt$(p.price)} / night</div></div>
+      <div class="ovCard"><div class="k">Nightly rate</div><div class="v">${p.price != null
+        ? fmtMoneyDual(p.price, dest) + ' / night'
+        : `<span class="muted">Not published — <a href="${esc(hotelRateSearchUrl(p, dest))}" target="_blank" rel="noopener">check live prices</a></span>`}</div></div>
       <div class="ovCard"><div class="k">Area</div><div class="v">${esc(p.area)}</div></div>
       <div class="ovCard"><div class="k">Amenities</div><div class="v">${esc((p.amenities||[]).join(', '))}</div></div>`;
   }
@@ -1904,7 +2016,7 @@ async function buildPlannedTrip(dest, prefs, start, end, travelers){
   const budgetKey = TRIP_BUDGET[prefs.budget] ? prefs.budget : 'moderate';
   const perDay = (prefs.budget === 'custom' && prefs.customDailyBudget)
     ? prefs.customDailyBudget
-    : (dest.avgDailyBudget && (dest.avgDailyBudget[budgetKey] || dest.avgDailyBudget.moderate)) || 120;
+    : destDailyBudget(dest, budgetKey);
 
   const trip = {
     id: uid('trip'), destId: dest.id,
@@ -2171,14 +2283,25 @@ function renderDestOverview(dest, body){
         : (info.timezone ? `<div class="ovCard"><div class="k">🕐 Time zone</div><div class="v">${esc(info.timezone)}</div></div>` : ''); })()}
       ${info.recommendedDays ? `<div class="ovCard"><div class="k">🗓 Recommended duration</div><div class="v">${esc(info.recommendedDays)}</div></div>` : ''}
     </div>
+    ${destDailyBudget(dest, 'moderate') == null ? `
     <div class="card" style="margin-top:8px">
       <h3>Average daily budget</h3>
+      <div class="empty">We do not have a cost estimate for ${esc(dest.country || dest.name)}. The World Bank's
+        price-level figures, which every other destination's estimate is scaled from, are not usable
+        there — so rather than show a number, we are telling you we do not have one.</div>
+    </div>` : `
+    <div class="card" style="margin-top:8px">
+      <h3>Average daily budget <span class="small">· per person</span></h3>
       <div class="sectionGrid cols3">
-        <div class="ovCard"><div class="k">Budget</div><div class="v" style="font-size:20px">${fmtMoneyDual(dest.avgDailyBudget.budget, dest)}<span class="small">/day</span></div></div>
-        <div class="ovCard"><div class="k">Moderate</div><div class="v" style="font-size:20px">${fmtMoneyDual(dest.avgDailyBudget.moderate, dest)}<span class="small">/day</span></div></div>
-        <div class="ovCard"><div class="k">Luxury</div><div class="v" style="font-size:20px">${fmt$(dest.avgDailyBudget.luxury)}<span class="small">/day</span></div></div>
+        <div class="ovCard"><div class="k">Budget</div><div class="v" style="font-size:20px">${fmtMoneyDual(destDailyBudget(dest,'budget'), dest)}<span class="small">/day</span></div></div>
+        <div class="ovCard"><div class="k">Moderate</div><div class="v" style="font-size:20px">${fmtMoneyDual(destDailyBudget(dest,'moderate'), dest)}<span class="small">/day</span></div></div>
+        <div class="ovCard"><div class="k">Luxury</div><div class="v" style="font-size:20px">${fmtMoneyDual(destDailyBudget(dest,'luxury'), dest)}<span class="small">/day</span></div></div>
       </div>
-    </div>
+      ${destBudgetIsEstimate(dest) ? `<div class="small muted" style="margin-top:10px">
+        Estimated from World Bank price levels for ${esc(dest.country || 'this country')}
+        (${esc(typeof COUNTRY_PRICE_LEVEL_VINTAGE === 'string' ? COUNTRY_PRICE_LEVEL_VINTAGE : '')},
+        ${esc(String(dest.avgDailyBudget.level))}× US prices) — a guide, not a quote.</div>` : ''}
+    </div>`}
     ${(info.visa||info.safety||info.localTransport||info.etiquette) ? `
     <div class="card" style="margin-top:16px">
       <h3>🧭 Know before you go</h3>
@@ -3293,7 +3416,8 @@ function createTripFromIdea(idea, precomputedDays){
     : distributeIntoDays(idea.places, nDays);
 
   const dayDates = tripDayDates(start, nDays);
-  const total = Math.round((dest.avgDailyBudget[idea.budgetStyle]||dest.avgDailyBudget.moderate) * nDays * travelers);
+  const ideaPerDay = destDailyBudget(dest, idea.budgetStyle);
+  const total = ideaPerDay == null ? null : Math.round(ideaPerDay * nDays * travelers);
   const trip = {
     id: uid('trip'), destId: dest.id, destName: dest.name+(dest.country?', '+dest.country:''), title: idea.title, start, end, travelers,
     cover: (idea.places[0] && idea.places[0].image) || dest.hero,
@@ -5705,13 +5829,37 @@ function renderBudgetTab(trip){
   $('budgetStyleRow').querySelectorAll('[data-style]').forEach(b=>b.onclick=()=>{
     trip.budget.style = b.dataset.style;
     const dest = destForTrip(trip);
-    trip.budget.total = Math.round(dest.avgDailyBudget[b.dataset.style]*trip.days.length*trip.travelers);
+    const styled = destDailyBudget(dest, b.dataset.style);
+    trip.budget.total = styled == null ? trip.budget.total
+      : Math.round(styled * trip.days.length * trip.travelers);
     saveState();
     toast(`Budget style set to ${b.dataset.style} — suggested total is now ${fmt$(trip.budget.total)}.`);
     renderBudgetTab(trip);
   });
 
   const planned = tripPlannedTotal(trip);
+  const dest2 = destForTrip(trip);
+  const cost = tripCostBreakdown(trip, dest2);
+  /* Say where the target came from and how much of the itinerary is actually priced.
+   *
+   * The two numbers above look like a measurement of this trip and only one of them is. The
+   * target is a per-day estimate multiplied out; the "planned" figure is the handful of stops
+   * that published a price, and it was reading $0 because every unpriced stop counted as free.
+   * A traveller comparing them deserves to know which is which. */
+  const basis = $('budgetBasis');
+  if(basis){
+    const bits = [];
+    if(cost.perDay != null){
+      bits.push(`Target is ${esc(fmt$(cost.perDay))} a day × ${cost.days} ${cost.days===1?'day':'days'} × ${cost.travelers} ${cost.travelers===1?'traveller':'travellers'}` +
+        (cost.estimated ? `, estimated from World Bank price levels for ${esc(dest2.country || 'this country')} — a guide, not a quote.` : '.'));
+    } else {
+      bits.push(`We have no daily cost estimate for ${esc(dest2.country || dest2.name)}, so the target below is yours to set.`);
+    }
+    if(cost.unpriced){
+      bits.push(`${cost.priced} of ${cost.priced + cost.unpriced} stops publish a price; the other ${cost.unpriced} do not, so "costs recorded so far" is a floor, not the trip's cost. Add expenses as you book to make it real.`);
+    }
+    basis.innerHTML = bits.map(b => `<div>${b}</div>`).join('');
+  }
   $('budgetTotal2').textContent = fmt$(trip.budget.total);
   $('budgetPlanned2').textContent = fmt$(planned);
   $('budgetRemaining2').textContent = fmt$(Math.max(0, trip.budget.total-planned));

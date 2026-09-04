@@ -291,9 +291,10 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
             <div class="budgetStyleRow" id="budgetStyleRow"></div>
           </div>
           <div class="card"><div class="small">Total trip budget</div><div class="metric" id="budgetTotal2">$0</div><button class="linklike" id="editBudgetTotalBtn">Edit target</button></div>
-          <div class="card"><div class="small">Planned</div><div class="metric" style="color:var(--orange)" id="budgetPlanned2">$0</div><div class="small" id="budgetOverWarn"></div></div>
+          <div class="card"><div class="small">Costs recorded so far</div><div class="metric" style="color:var(--orange)" id="budgetPlanned2">$0</div><div class="small" id="budgetOverWarn"></div></div>
           <div class="card"><div class="small">Remaining</div><div class="metric" id="budgetRemaining2">$0</div><div class="progress" style="margin-top:8px"><div id="budgetBar2"></div></div></div>
         </div>
+        <div class="budgetBasis small" id="budgetBasis"></div>
         <div class="card" style="margin-top:16px">
           <div class="panelHead" style="padding:0 0 12px;border:0">
             <h3>Spend by category</h3>
@@ -743,7 +744,7 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
  * index) and geo.js run before data.js; imagery.js needs data.js's helpers so it follows it,
  * and app.js runs last — and being at the end of <body>, the DOM is already parsed. */
 (function(){
-  ['config.js','cloud.js','photos.js','unsplash.js','geo.js','currency-data.js','currency.js','data.js','preferences.js','planner.js','places.js','imagery.js','assistant.js','app.js'].forEach(function(src){
+  ['config.js','cloud.js','photos.js','unsplash.js','geo.js','currency-data.js','currency.js','costlevels.js','data.js','preferences.js','planner.js','places.js','imagery.js','assistant.js','app.js'].forEach(function(src){
     var s = document.createElement('script');
     s.src = src + '?v=' + window.ASSET_VERSION;
     s.async = false;
