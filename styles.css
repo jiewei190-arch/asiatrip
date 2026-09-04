@@ -172,6 +172,12 @@ main{max-width:1280px;margin:0 auto;padding:0 24px 60px;min-height:60vh}
 
 /* ---------- Cards & grids ---------- */
 .sectionGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+/* Column counts as classes, not inline styles. An inline grid-template-columns outranks every
+   stylesheet rule including the mobile media queries below, so a three-column grid stayed three
+   columns on a 390px phone and pushed the page 5px wider than the screen — visible only as a
+   sliver, and hidden entirely by body{overflow-x:hidden}, which is why it survived this long. */
+.sectionGrid.cols3{grid-template-columns:repeat(3,1fr)}
+.sectionGrid.cols2{grid-template-columns:repeat(2,1fr)}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:var(--shadow)}
 .card h3{margin:0 0 10px;font:700 16px 'Plus Jakarta Sans'}
 .metric{font-size:26px;font-weight:800;margin-top:8px}
@@ -527,7 +533,7 @@ main{max-width:1280px;margin:0 auto;padding:0 24px 60px;min-height:60vh}
 
 /* ---------- Ideas ---------- */
 .ideasSearch{display:flex;gap:10px;position:relative;max-width:640px;margin-bottom:26px}
-.ideasSearch input{flex:1;padding:13px 15px;border:1px solid var(--line);border-radius:12px;outline:0;font-weight:600;background:var(--surface)}
+.ideasSearch input{flex:1;min-width:0;padding:13px 15px;border:1px solid var(--line);border-radius:12px;outline:0;font-weight:600;background:var(--surface)}
 .ideaCard{background:var(--surface);border:1px solid var(--line);border-radius:20px;overflow:hidden;box-shadow:var(--shadow);display:flex;flex-direction:column}
 .ideaCoverRow{display:grid;grid-template-columns:1.4fr 1fr 1fr;grid-template-rows:130px;gap:2px;height:130px;overflow:hidden}
 .ideaCoverRow img{width:100%;height:100%;min-height:0;object-fit:cover;display:block}
@@ -618,7 +624,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 /* ---------- Responsive ---------- */
 @media(max-width:1200px){
   .dashboard{grid-template-columns:1fr}
-  .sectionGrid,.budgetTop{grid-template-columns:1fr 1fr}
+  .sectionGrid,.sectionGrid.cols3,.sectionGrid.cols2,.budgetTop{grid-template-columns:1fr 1fr}
   .destStrip{grid-template-columns:repeat(2,1fr)}
   .featureGrid,.stepsGrid{grid-template-columns:1fr 1fr}
   .placeGrid,.savedGrid,.tripsGrid{grid-template-columns:repeat(2,1fr)}
@@ -640,7 +646,7 @@ input:checked+.slider:before{transform:translateX(18px)}
   .planbox-field{border-right:0!important;border-bottom:1px solid var(--line)}
   .planbox-actions{flex-direction:column}
   .planbox-actions .btn{width:100%;justify-content:center}
-  .featureGrid,.stepsGrid,.sectionGrid,.budgetTop,.placeGrid,.savedGrid,.tripsGrid,.destStrip,.destOverviewGrid{grid-template-columns:1fr}
+  .featureGrid,.stepsGrid,.sectionGrid,.sectionGrid.cols3,.sectionGrid.cols2,.budgetTop,.placeGrid,.savedGrid,.tripsGrid,.destStrip,.destOverviewGrid{grid-template-columns:1fr}
   .modalGrid{grid-template-columns:1fr}
   .field.grow2{grid-column:span 1}
   .preferenceGrid{grid-template-columns:1fr 1fr}
@@ -648,6 +654,11 @@ input:checked+.slider:before{transform:translateX(18px)}
   .aiLauncher{right:10px;bottom:10px;padding:12px 14px;font-size:12px}
   .stat{grid-template-columns:1fr}
   .ideaCoverRow{grid-template-columns:1fr 1fr 1fr;height:90px}
+  /* An input and a 182px button do not fit side by side on a 390px phone. The input had flex:1
+     but no min-width:0, so it refused to shrink below its content and pushed the button off the
+     right edge — 36px of horizontal scroll on a page that has nothing to scroll to. */
+  .ideasSearch{flex-direction:column}
+  .ideasSearch .btn{width:100%;justify-content:center}
   .gsearch-panel{position:fixed;top:70px;left:10px;right:10px;width:auto}
   .dropdown{position:fixed;top:70px;left:10px;right:10px;width:auto}
 }
@@ -675,10 +686,6 @@ input:checked+.slider:before{transform:translateX(18px)}
 .gsearch-row .globeIc{display:flex;align-items:center;justify-content:center;font-size:19px}
 
 /* A quiet mark on cards whose picture is a category stand-in rather than the place itself. */
-.illusBadge{position:absolute;bottom:8px;right:8px;z-index:1;
-  background:rgba(16,37,30,.72);color:#fff;font-size:9.5px;font-weight:800;
-  letter-spacing:.05em;text-transform:uppercase;padding:3px 7px;border-radius:99px;
-  backdrop-filter:blur(3px)}
 
 /* ---------------- discovered places: honest states ---------------- */
 /* Places load asynchronously from OpenStreetMap, so the UI has to be able to say "still
@@ -733,3 +740,206 @@ input:checked+.slider:before{transform:translateX(18px)}
 @media (prefers-reduced-motion:reduce){
   .skelCard .skelImg, .skelCard .skelLine{ animation:none; background-image:none; }
 }
+
+/* ---------------- trip preferences step ---------------- */
+.modal.wide{ max-width:860px; }
+.prefStep{ padding:18px 0; border-top:1px solid var(--line); }
+.prefStep:first-of-type{ border-top:0; padding-top:6px; }
+.prefStep h3{ margin:0 0 4px; font-size:16px; }
+.prefStep > .small{ margin:0 0 12px; display:block; }
+.prefGrid{
+  display:grid; gap:8px;
+  grid-template-columns:repeat(auto-fill, minmax(190px, 1fr));
+}
+.prefRow{ display:flex; flex-wrap:wrap; gap:8px; }
+.prefRow .prefChip{ flex:1 1 170px; }
+.prefChip{
+  display:flex; flex-direction:column; gap:2px; align-items:flex-start;
+  padding:10px 12px; border-radius:12px; text-align:left; cursor:pointer;
+  border:1px solid var(--line); background:var(--surface); color:inherit;
+  transition:border-color .12s, background .12s, transform .12s;
+}
+.prefChip:hover{ transform:translateY(-1px); }
+.prefChip b{ font-weight:600; font-size:13.5px; line-height:1.3; }
+.prefChip span{ font-size:11.5px; color:var(--text-dim,#9aa4b2); line-height:1.35; }
+.prefChip.active{
+  border-color:var(--accent,#22c55e);
+  background:color-mix(in srgb, var(--accent,#22c55e) 12%, var(--surface));
+}
+.prefChip.active b{ color:var(--accent,#22c55e); }
+.prefFoot{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding-top:16px; margin-top:6px; border-top:1px solid var(--line); flex-wrap:wrap;
+}
+.prefStep textarea{
+  width:100%; resize:vertical; font:inherit; padding:9px 11px; border-radius:10px;
+  border:1px solid var(--line); background:var(--surface); color:inherit;
+}
+@media(max-width:620px){
+  .prefGrid{ grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); }
+  .prefRow .prefChip{ flex:1 1 100%; }
+  .prefFoot{ flex-direction:column; align-items:stretch; }
+  .prefFoot > div{ justify-content:flex-end; }
+}
+
+/* ---------------- honest empty state ----------------
+   A card with no verified photograph of its own says so, rather than borrowing a stock picture
+   of somewhere else. Naming the kind of place is more use to a traveller than a plate of pasta
+   that belongs to a different restaurant. */
+.noPhoto{
+  position:absolute; inset:0; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:3px; text-align:center; padding:10px;
+  background:
+    linear-gradient(135deg, var(--surface-2,rgba(255,255,255,.05)), var(--surface,rgba(255,255,255,.02)));
+  color:var(--text-dim,#9aa4b2);
+}
+.noPhotoIcon{ font-size:22px; opacity:.75; line-height:1; }
+.noPhotoKind{ font-size:12.5px; font-weight:600; }
+.noPhotoNote{ font-size:10.5px; opacity:.7; letter-spacing:.02em; }
+
+/* Photographer credit on a pinned landmark photograph. Small and out of the way, but present:
+   the Unsplash licence asks for it in return for free use, and a credit nobody can read is not
+   really a credit. */
+.photoCredit{
+  position:absolute; right:10px; bottom:8px; z-index:2;
+  font-size:11px; letter-spacing:.01em; color:rgba(255,255,255,.82);
+  background:rgba(0,0,0,.38); padding:3px 8px; border-radius:999px;
+  backdrop-filter:blur(4px);
+}
+.photoCredit a{ color:inherit; text-decoration:underline; text-underline-offset:2px; }
+.photoCredit a:hover{ color:#fff; }
+
+/* Numbered pins on the whole-trip map. Colour carries the day, the number carries the order
+   within it, so a glance answers "which day is over there?" without opening anything. */
+.tripPin span{
+  display:flex; align-items:center; justify-content:center;
+  width:24px; height:24px; border-radius:50%;
+  color:#fff; font-size:11px; font-weight:800; line-height:1;
+  border:2px solid rgba(255,255,255,.9); box-shadow:0 1px 4px rgba(0,0,0,.35);
+}
+#tripMapCanvas{ border-radius:12px; overflow:hidden; }
+#tripMapCanvas .leaflet-popup-content{ font-weight:600; }
+
+/* Search within one trip. Sits above the tabs because it searches across all of them, and the
+   results panel overlays rather than pushing the page around while you type. */
+.tripSearchWrap{ position:relative; margin:0 0 10px; }
+.tripSearchInput{
+  width:100%; padding:10px 14px; border:1px solid var(--line); border-radius:10px;
+  background:var(--surface2); color:var(--ink); font-weight:600; font-size:14px;
+}
+.tripSearchInput:focus{ outline:none; border-color:var(--brand,#2f8f6b); }
+.tripSearchResults{
+  position:absolute; left:0; right:0; top:calc(100% + 6px); z-index:40;
+  max-height:min(60vh,420px); overflow:auto;
+  background:var(--surface); border:1px solid var(--line); border-radius:12px;
+  box-shadow:0 12px 32px rgba(0,0,0,.28);
+}
+.tripSearchResults .listRow{ border:0; border-bottom:1px solid var(--line); background:none; cursor:pointer; }
+.tripSearchResults .listRow:last-child{ border-bottom:0; }
+.tripSearchResults .listRow:hover{ background:var(--surface2); }
+
+/* Saving has stopped working. Deliberately loud and deliberately permanent: a toast vanishes
+   and the problem does not, and the cost of missing this message is somebody's whole trip. */
+.storageBanner{
+  display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+  margin:10px auto; max-width:1200px; padding:12px 16px;
+  border:1px solid #b4531f; border-radius:12px;
+  background:linear-gradient(180deg, rgba(180,83,31,.20), rgba(180,83,31,.10));
+  color:var(--ink);
+}
+.storageBanner .small{ opacity:.9; margin-top:2px; max-width:78ch; }
+.storageBanner button{ margin-left:auto; white-space:nowrap; }
+
+/* "Saved". Deliberately small and deliberately temporary — the point is reassurance, not
+   decoration, and a permanent badge would stop being read within a day. */
+.savedChip{
+  position:fixed; left:16px; bottom:16px; z-index:60;
+  padding:6px 12px; border-radius:999px;
+  background:var(--surface); border:1px solid var(--line);
+  color:var(--muted); font-size:12px; font-weight:700;
+  opacity:0; transform:translateY(6px); pointer-events:none;
+  transition:opacity .18s ease, transform .18s ease;
+}
+.savedChip.show{ opacity:1; transform:translateY(0); }
+/* The assistant launcher is fixed to the bottom-right and grows to nearly the full width on a
+   phone, so at bottom:16px the chip sat on top of it. Lifted clear rather than moved, because
+   bottom-left is where a save indicator belongs and the launcher is the thing that moved in. */
+@media (max-width: 720px){ .savedChip{ bottom:86px; } }
+@media print{ .savedChip, .storageBanner{ display:none !important; } }
+
+/* Tap targets.
+   Measured at 390x844: the home page's own search form — destination, both dates, travellers —
+   rendered 19-20px tall, and the currency converter's fields 23px. The FIELD around each one is
+   comfortably large, but the control inside it is borderless and transparent with no padding of
+   its own, so the only thing that responds to a finger is the line of text. That is the primary
+   call to action on the site, and it was the hardest thing on the page to hit.
+
+   Both Apple and Google put the minimum around 44px; these sit inside a padded field that
+   supplies the rest, so 34px on the control itself brings the real target to roughly that
+   without changing how anything looks. */
+.planbox-field input, .planbox-field select,
+.field input, .field select, .field textarea{
+  min-height:34px;
+  padding:4px 0;
+}
+/* A text button is still a button. 17px of line box is not a target. */
+.linklike{ padding:6px 0; min-height:32px; display:inline-flex; align-items:center; }
+
+/* Discrete controls that were set just under the line this project holds itself to: a small
+   button measured 34x28 and a map legend toggle 26 tall. Both are things you tap to change what
+   the page shows, not words inside a sentence, so they get a real target.
+   The photographer credit is deliberately NOT in this list: it is a link inside a caption, which
+   both this project and WCAG treat differently from a control, and it already clears the 24px
+   minimum. Growing it would push a legal credit line into the photograph it belongs to. */
+.btn.sm{ min-height:32px; }
+.legend{ min-height:32px; }
+
+/* Footer navigation is navigation, whatever it looks like. 19px tall is a link you miss twice
+   before you hit it. */
+.footerLinks button, .footerLinks a{ padding:7px 0; min-height:32px; }
+
+/* The photographer credit stays visually small — it is a caption, not a call to action — but
+   the link inside it gets a real target rather than a 14px line of text. */
+.photoCredit a{ display:inline-block; padding:6px 2px; }
+.photoCredit{ padding:1px 8px; }
+
+/* Planner warnings — the itinerary telling the truth about itself. Amber, not red: these are
+   things to know about a plan that still works, not errors. */
+.tripWarnings{ display:flex; flex-direction:column; gap:8px; margin:12px 0 0; }
+.tripWarn{ display:flex; align-items:flex-start; gap:10px; padding:10px 12px; border-radius:10px;
+  background:var(--warn-bg,#fff6e5); border:1px solid var(--warn-bd,#f0d3a0); color:var(--warn-fg,#5c4413); }
+.tripWarnIcon{ flex-shrink:0; line-height:1.4; }
+.tripWarnText{ flex:1; font-size:.9rem; line-height:1.45; }
+.tripWarnX{ flex-shrink:0; background:none; border:0; cursor:pointer; color:inherit; opacity:.6;
+  font-size:.95rem; line-height:1; padding:4px; min-width:32px; min-height:32px; }
+.tripWarnX:hover{ opacity:1; }
+[data-theme="dark"] .tripWarn{ --warn-bg:#3a2f14; --warn-bd:#5c4a1e; --warn-fg:#f5e2ba; }
+
+/* Building an itinerary waits on real OpenStreetMap queries, so the step says what it is doing
+   and counts what it has actually found rather than showing an indeterminate bar. */
+.prefBuildStatus{ padding:8px 0 0; color:var(--muted); }
+.prefsSpinner{ display:inline-block; width:12px; height:12px; border:2px solid currentColor;
+  border-right-color:transparent; border-radius:50%; animation:prefsSpin .7s linear infinite;
+  vertical-align:-1px; margin-right:6px; }
+@keyframes prefsSpin{ to{ transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce){ .prefsSpinner{ animation-duration:2.4s; } }
+
+/* A rate this app cannot know, pointing at somewhere that does. Styled as the price it stands in
+   for, so the card still reads as a row of facts rather than an advert. */
+.rateLink{ text-decoration:none; border-bottom:1px dotted currentColor; }
+.rateLink:hover{ opacity:.8; }
+
+/* Where the budget numbers come from. Two figures sit side by side in the budget tab — an
+   estimate multiplied out, and a sum of the few stops that publish a price — and without this
+   they read as two measurements of the same thing. */
+.budgetBasis{ margin-top:12px; color:var(--muted); line-height:1.55; display:flex;
+  flex-direction:column; gap:6px; }
+
+/* The year on a photograph shown because nothing newer exists. Small and unobtrusive — it is a
+   caveat, not a headline — but present, because the whole basis for showing an older picture is
+   that nobody mistakes it for a current one. */
+/* Top-right on a hero, where the caption block owns the bottom edge. */
+.destHero > .photoAge{ top:14px; right:14px; bottom:auto; }
+.photoAge{ position:absolute; right:8px; bottom:8px; z-index:2; padding:2px 7px; border-radius:99px;
+  background:rgba(17,17,17,.62); color:#fff; font-size:10.5px; font-weight:700; letter-spacing:.02em;
+  backdrop-filter:blur(2px); pointer-events:none; }

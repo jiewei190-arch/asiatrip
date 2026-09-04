@@ -65,30 +65,9 @@ function currencyDecimals(code){
   }catch(e){ return 2; }
 }
 
-function isKnownCurrency(code){
-  if(!code || !/^[A-Za-z]{3}$/.test(code)) return false;
-  try{ new Intl.NumberFormat('en', {style:'currency', currency:code.toUpperCase()}).format(1); return true; }
-  catch(e){ return false; }
-}
 
 /* ---------------- detection ---------------- */
 
-/** The local currency for a destination, from its verified ISO country code.
- *  Returns null rather than defaulting to USD: not knowing is a real answer, and pricing
- *  Marrakech in dollars because the table was short is exactly the bug being fixed. */
-function currencyForDestination(dest){
-  if(!dest) return null;
-  const cc = String(dest.countryCode || '').toUpperCase();
-  if(cc && COUNTRY_CURRENCY[cc]) return COUNTRY_CURRENCY[cc];
-  // A country name is a weaker signal than a code, so it is only consulted as a fallback.
-  const name = String(dest.country || '').trim().toLowerCase();
-  if(name){
-    for(const [code2, n] of Object.entries(COUNTRY_NAMES)){
-      if(String(n).toLowerCase() === name && COUNTRY_CURRENCY[code2]) return COUNTRY_CURRENCY[code2];
-    }
-  }
-  return null;
-}
 
 /** Searchable across code, currency name and every country that uses it, so "won", "KRW",
  *  "South Korea" and "korea" all find the same entry. */
@@ -253,30 +232,9 @@ function formatMoney(amount, code, opts){
   }
 }
 
-/** "₩12,000 (about $8.75)" — the local price is the real one and always leads; the conversion
- *  is an aid. When no rate exists the local price stands alone with an honest note. */
-async function formatDualPrice(amount, localCode, displayCode, opts){
-  opts = opts || {};
-  const local = formatMoney(amount, localCode, opts);
-  if(!displayCode || String(displayCode).toUpperCase() === String(localCode).toUpperCase()){
-    return {text: local, local, converted: null, rate: null, stale: false};
-  }
-  const conv = await convertCurrency(amount, localCode, displayCode, opts);
-  if(!conv){
-    return {text: `${local} (no ${String(displayCode).toUpperCase()} rate available)`,
-            local, converted: null, rate: null, stale: false, unsupported: true};
-  }
-  const converted = formatMoney(conv.amount, displayCode, opts);
-  return {
-    text: `${local} (about ${converted}${conv.stale ? ', rate may be out of date' : ''})`,
-    local, converted, rate: conv.rate, stale: conv.stale, asOf: conv.asOf, provider: conv.provider,
-  };
-}
-
 if(typeof module !== 'undefined' && module.exports){
   module.exports = {
-    allCurrencyCodes, currencyDisplayName, currencySymbol, currencyDecimals, isKnownCurrency,
-    currencyForDestination, searchCurrencies, getRates, convertCurrency, formatMoney,
-    formatDualPrice, RATE_PROVIDERS,
+    allCurrencyCodes, currencyDisplayName, currencySymbol, currencyDecimals,
+    searchCurrencies, getRates, convertCurrency, formatMoney, RATE_PROVIDERS,
   };
 }

@@ -10,6 +10,12 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+<!-- Leaflet, for the whole-trip map. The per-day map is a keyless Google embed, which plots a
+     route and nothing else — it cannot show ten days at once, and it stops at ten waypoints.
+     Leaflet with OpenStreetMap tiles is keyless too and gives real markers. Pinned, and the app
+     degrades to an honest message if it fails to load. -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 /* Cache busting that maintains itself.
  *
@@ -80,6 +86,10 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
             </div>
             <button class="dropdown-item" data-route="#/trips"><i class="fa-solid fa-suitcase-rolling"></i> My Trips</button>
             <button class="dropdown-item" data-route="#/saved"><i class="fa-solid fa-heart"></i> Saved Places</button>
+            <button class="dropdown-item" id="accountBtn"><i class="fa-solid fa-cloud"></i> <span id="accountMenuLabel">Connect an account</span></button>
+            <button class="dropdown-item" id="backupBtn"><i class="fa-solid fa-download"></i> Download backup</button>
+            <button class="dropdown-item" id="restoreBtn"><i class="fa-solid fa-upload"></i> Restore from backup</button>
+            <input type="file" id="restoreFileInput" accept="application/json,.json" hidden>
             <button class="dropdown-item" id="settingsBtn"><i class="fa-solid fa-gear"></i> Settings</button>
             <button class="dropdown-item" id="signOutBtn"><i class="fa-solid fa-right-from-bracket"></i> Sign out</button>
           </div>
@@ -96,7 +106,10 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
     </nav>
   </header>
 
-  <main id="mainRoot">
+  <!-- Storage trouble is app-wide, so this sits above every view rather than inside one. -->
+<div class="storageBanner hidden" id="storageBanner"></div>
+<div class="savedChip" id="savedChip" aria-live="polite"></div>
+<main id="mainRoot">
 
     <!-- ============ HOME / LANDING ============ -->
     <section class="view" id="view-home">
@@ -203,11 +216,18 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
         </div>
       </div>
 
+      <div class="tripWarnings hidden" id="tripWarnings"></div>
       <div class="tripProgress" id="tripProgress"></div>
 
       <div class="plannerTabs" id="plannerTabs">
+      <div class="tripSearchWrap">
+        <input id="tripSearchInput" class="tripSearchInput" type="search" autocomplete="off"
+               placeholder="Search this trip — a place, a confirmation number, a note…">
+        <div id="tripSearchResults" class="tripSearchResults hidden"></div>
+      </div>
         <button class="ptab active" data-ptab="dashboard">Dashboard</button>
         <button class="ptab" data-ptab="itinerary">Itinerary &amp; Map</button>
+        <button class="ptab" data-ptab="tripmap">Trip map</button>
         <button class="ptab" data-ptab="unscheduled">Unscheduled Places</button>
         <button class="ptab" data-ptab="packing">Packing</button>
         <button class="ptab" data-ptab="bookings">Bookings</button>
@@ -217,6 +237,7 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
 
       <div class="ptabBody active" id="ptab-dashboard"></div>
 
+      <div class="ptabBody" id="ptab-tripmap"></div>
       <div class="ptabBody" id="ptab-unscheduled"></div>
 
       <div class="ptabBody" id="ptab-packing"></div>
@@ -237,6 +258,7 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
             <div class="dayToolbar" id="dayToolbar"></div>
             <div class="dayWeather hidden" id="dayWeather"></div>
             <div class="noteBox hidden" id="dayNoteBox"></div>
+            <div class="conflictWarning hidden" id="loadWarning"></div>
             <div class="conflictWarning hidden" id="conflictWarning"></div>
             <div class="routeWarning hidden" id="routeWarning"></div>
             <div class="timeline" id="timeline2"></div>
@@ -269,9 +291,10 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
             <div class="budgetStyleRow" id="budgetStyleRow"></div>
           </div>
           <div class="card"><div class="small">Total trip budget</div><div class="metric" id="budgetTotal2">$0</div><button class="linklike" id="editBudgetTotalBtn">Edit target</button></div>
-          <div class="card"><div class="small">Planned</div><div class="metric" style="color:var(--orange)" id="budgetPlanned2">$0</div><div class="small" id="budgetOverWarn"></div></div>
+          <div class="card"><div class="small">Costs recorded so far</div><div class="metric" style="color:var(--orange)" id="budgetPlanned2">$0</div><div class="small" id="budgetOverWarn"></div></div>
           <div class="card"><div class="small">Remaining</div><div class="metric" id="budgetRemaining2">$0</div><div class="progress" style="margin-top:8px"><div id="budgetBar2"></div></div></div>
         </div>
+        <div class="budgetBasis small" id="budgetBasis"></div>
         <div class="card" style="margin-top:16px">
           <div class="panelHead" style="padding:0 0 12px;border:0">
             <h3>Spend by category</h3>
@@ -452,6 +475,72 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
   </div>
 </div>
 
+<div class="modalBack" id="modal-tripPrefs">
+  <div class="modal wide">
+    <div class="modalHeader">
+      <div><h2>Plan your trip</h2><p class="small" id="prefsSubtitle">Tell us what you enjoy and we will build the days around it.</p></div>
+      <button class="xbtn" data-close="modal-tripPrefs">&times;</button>
+    </div>
+
+    <div class="prefStep">
+      <h3>What are you interested in?</h3>
+      <p class="small">Pick as many as you like. These change which places are chosen, not just how they are labelled.</p>
+      <div class="prefGrid" id="prefInterests"></div>
+    </div>
+
+    <div class="prefStep">
+      <h3>How full should the days be?</h3>
+      <div class="prefRow" id="prefPace"></div>
+    </div>
+
+    <div class="prefStep">
+      <h3>Budget</h3>
+      <div class="prefRow" id="prefBudget"></div>
+      <div class="field hidden" id="prefCustomBudgetWrap" style="margin-top:10px">
+        <label>Roughly per day, per person</label>
+        <input type="number" id="prefCustomBudget" min="0" step="10" placeholder="e.g. 120">
+      </div>
+    </div>
+
+    <div class="prefStep">
+      <h3>Food preferences <span class="small">(optional)</span></h3>
+      <div class="pillRow" id="prefFood"></div>
+    </div>
+
+    <div class="prefStep">
+      <h3>What time do you like to start?</h3>
+      <div class="prefRow" id="prefDayStart"></div>
+    </div>
+
+    <div class="prefStep">
+      <h3>Who is travelling?</h3>
+      <div class="prefRow" id="prefParty"></div>
+    </div>
+
+    <div class="prefStep">
+      <div class="sectionGrid" style="grid-template-columns:1fr 1fr;gap:14px">
+        <div class="field">
+          <label>Places you must visit <span class="small">(one per line)</span></label>
+          <textarea id="prefMustSee" rows="3" placeholder="Eiffel Tower&#10;Sacre-Coeur"></textarea>
+        </div>
+        <div class="field">
+          <label>Anything to avoid <span class="small">(one per line)</span></label>
+          <textarea id="prefMustAvoid" rows="3" placeholder="No museums&#10;No nightlife"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="prefBuildStatus small hidden" id="prefsBuildStatus" aria-live="polite"></div>
+    <div class="prefFoot">
+      <span class="small" id="prefSummary"></span>
+      <div style="display:flex;gap:8px">
+        <button class="btn" data-close="modal-tripPrefs">Cancel</button>
+        <button class="btn primary" id="prefGenerateBtn">Build my itinerary</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modalBack" id="modal-customize">
   <div class="modal">
     <div class="modalHeader"><div><h2>Customize this trip idea</h2><p class="small">Tune it, then regenerate.</p></div><button class="xbtn" data-close="modal-customize">×</button></div>
@@ -533,6 +622,16 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
       <button class="btn" id="onboardSkip">Skip</button>
       <button class="btn primary" id="onboardStart">Start planning</button>
     </div>
+  </div>
+</div>
+
+<div class="modalBack" id="modal-account">
+  <div class="modal">
+    <div class="modalHeader">
+      <div><h2 id="accountTitle">Your account</h2><p class="small" id="accountSub"></p></div>
+      <button class="xbtn" data-close="modal-account">×</button>
+    </div>
+    <div id="accountBody"></div>
   </div>
 </div>
 
@@ -645,7 +744,7 @@ window.ASSET_VERSION = String(Math.floor(Date.now() / 3600000));
  * index) and geo.js run before data.js; imagery.js needs data.js's helpers so it follows it,
  * and app.js runs last — and being at the end of <body>, the DOM is already parsed. */
 (function(){
-  ['photos.js','geo.js','currency-data.js','currency.js','data.js','places.js','imagery.js','assistant.js','app.js'].forEach(function(src){
+  ['config.js','cloud.js','photos.js','unsplash.js','geo.js','currency-data.js','currency.js','costlevels.js','data.js','preferences.js','planner.js','places.js','imagery.js','assistant.js','app.js'].forEach(function(src){
     var s = document.createElement('script');
     s.src = src + '?v=' + window.ASSET_VERSION;
     s.async = false;

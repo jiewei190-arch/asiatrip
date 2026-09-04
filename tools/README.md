@@ -314,3 +314,105 @@ back empty. `overpassQuery` checks for the remark.
 
 Including relations (`nwr` rather than `nw`) took the Seoul hotel query from 16 seconds to a
 timeout at 82. Almost nothing in these categories is mapped as a relation, so the queries use `nw`.
+
+## Foundation audit: why discovery and imagery were inconsistent
+
+Five root causes, found by reading the code rather than guessing:
+
+1. **Discovery only ran for typed destinations.** `discoverPlacesFor` was reachable from
+   `makeGenericDestination` and `applyGeoToDestination` only — both typed-destination paths — so
+   the twelve curated destinations never ran it and showed their hand-written handful, while
+   anywhere else got hundreds. It now runs when ANY destination is opened.
+
+2. **Enrichment deleted what discovery found.** `applyEnrichment` spliced out every existing
+   attraction before pushing its own Wikipedia-derived list. Enrichment usually finishes first,
+   so it wiped several hundred discovered attractions. It merges now.
+
+3. **The stand-in pool held six photographs.** `categoryPhoto()` maps a whole category to one
+   image, so a page of restaurants was one plate of food repeated. The pool is now every
+   category and cuisine photograph that actually ships (41 food, 6 stay, 5 sight).
+
+4. **Place images fell back to the city.** `photoQuery` ended its chain with the bare
+   destination name, so any place without its own photograph resolved to the city's — one Tokyo
+   skyline measured on **308 cards**. A place now searches only for itself.
+
+5. **The search x was a close button.** `id="gsearchClose"`, wired to
+   `panel.classList.remove('show')`. It clears now; a second press on an empty field closes.
+
+### Known gap: the attraction stand-in pool
+
+Only five attraction photographs ship (cathedral, museum, old-town, promenade, viewpoint). Real
+photographs cover most of a visible page, but where they run out those five must be shared. They
+are distributed evenly and marked "Illustrative", never clustered — but enlarging that pool is
+the honest remaining fix, and matters more than any further code change here.
+
+`test-foundation.js` covers all five, in a browser, against live services.
+
+## Exact-place image verification
+
+The question a candidate must answer is "does this photograph show THIS place", not "is this
+about the destination". `test-image-accuracy.js` pins that down against titles that must be
+accepted and titles that must be rejected, then resolves real venues of each category live.
+
+Candidates are gathered from several sources and scored against the entity's full identity —
+name, local name, street, house number, city, category — then the best clears a bar or nothing
+is shown. Sources run in order of yield per second: Commons text search answers in under a
+second at confidence 98-119, so the authoritative but slow Overpass lookup is only consulted
+when it has not already cleared the high bar. Asking Overpass first cost 8.5 seconds per card
+for an answer that usually was not there; the same photograph now resolves in 434 ms.
+
+**Generic stand-ins are gone.** There is no category or cuisine pool any more. A card shows a
+photograph of itself or an honest empty state naming what kind of place it is. A plate of pasta
+on a card headed "Trattoria da Enzo" is indistinguishable from a real photograph of the place,
+and that is the problem with it.
+
+### On image coverage, honestly
+
+There is no single coverage percentage worth quoting, and measuring one taught me why. Two runs
+against Paris gave 100% and 25%, because discovery returned different place sets and the samples
+were different places: the first happened to catch landmarks, the second caught Ben's Cookies
+and Crêperie Elo. Coverage is a property of how notable a place is, not of this code.
+
+What holds regardless: a place with a photograph on Commons gets it, verified against its own
+name, street, city and category. A place without one shows an honest empty state. Two misses
+worth understanding, both correct decisions rather than bugs:
+
+- **Bouillon Julien** — Commons holds "Brasserie Julien" for the same venue. A similar-but-not-
+  equal name is explicitly on the reject list, and being wrong here would put a different
+  restaurant on the card.
+- **Le Buci** — Commons genuinely holds nothing.
+
+### Why imagery is not filtered to a single year
+
+Asked for "2026 only", I measured it before building it. The Eiffel Tower has **14,267**
+photographs on Commons and **234** carry the current year — 1.6%. Café de Flore has about six in
+total; Gasthof Simony has one, undated. A hard single-year filter would blank almost every card,
+which is the opposite of wanting current imagery.
+
+Recency is therefore graded and weighted heavily instead: a photograph from this year or last
+scores +22, three years +16, seven +9, twelve +2, and anything from before 1990 is rejected
+outright. The newest available always wins where one exists. Files with no year in the title —
+most of Commons — are neutral, because undated is not evidence of being old.
+
+## Anchoring a country
+
+A country's centroid is a geometric average, not a place. Indonesia's is -2.4834, 117.8903 —
+open water in the Makassar Strait, hundreds of kilometres from anywhere with a restaurant — so
+searching around it returned nothing at any radius. The same is true of anywhere long, hollow or
+made of islands.
+
+Large destinations therefore anchor on their most prominent settlement: one Overpass query for
+cities inside the destination's own boundary, ordered by the population OSM records. Indonesia
+now anchors on Jakarta and returns 397 places instead of 0.
+
+Three things that query taught me, each of which had it returning nothing:
+
+- `place~"^(city|town)$"` over a whole country is unaffordable — 504 after 37 seconds. Cities
+  alone answer in 11. Towns are only included at the smallest population magnitude, where the
+  country is small enough for the scan to be cheap anyway.
+- `out tags` returns tags and NO geometry, so every candidate was discarded for having no
+  coordinates. It needs `out tags center`.
+- The query legitimately takes ~40 seconds against a standard 25-second per-mirror cap, so it
+  timed out on every mirror and gave up on a query that does succeed. It has its own budget now.
+
+The answer is persisted, because it is the most expensive lookup in the app and never changes.

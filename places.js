@@ -23,6 +23,13 @@
 // Measured from this project: private.coffee ~4.4s, kumi ~15s, overpass-api.de refused the
 // connection outright. Ordered by observed reliability, and we rotate on failure rather than
 // giving up — a single mirror being down must not empty a destination page.
+// geo.js loads first in the browser, so geoCapitalOf is already a global there. Under Node
+// each file is its own module, and the test suites exercise this path, so pull it in.
+if(typeof geoCapitalOf === 'undefined' && typeof require === 'function'){
+  try { globalThis.geoCapitalOf = require('./geo.js').geoCapitalOf; } catch(e){}
+}
+
+const PLACES_USER_AGENT = 'TripFlow/1.0 (https://jiewei190-arch.github.io/asiatrip/)';
 const OVERPASS_ENDPOINTS = [
   'https://overpass.private.coffee/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
@@ -92,10 +99,15 @@ function prettyCuisine(raw){
 /* ---------------- fetch plumbing ---------------- */
 
 const PLACES_TIMEOUT_MS = 25000;
-/* How long to let Overpass work before Photon is allowed to answer instead. Measured healthy
- * Overpass responses in this project run 4-16s, so this waits out a normal slow one and gives up
- * on a stuck mirror rather than on the query. */
-const OVERPASS_PATIENCE_MS = 12000;
+/* Retained as the outer bound on how long a single Overpass attempt is given, and exported for
+ * the suites. It is no longer a delay before Photon is asked: both sources start together now,
+ * because waiting twenty seconds before beginning the fast one is not a race. */
+const OVERPASS_PATIENCE_MS = 20000;
+/* After Photon has answered, keep waiting this much longer for Overpass and use its richer
+ * result if it lands. Measured: a Tokyo attraction union takes ~15s and returns 400 places, so a
+ * 12s patience threw the good answer away, made the result look thin, and sent the fallback
+ * ladder climbing for nothing. */
+const OVERPASS_GRACE_MS = 15000;
 
 /* Named distinctly on purpose. data.js already had an `async function fetch` helper with the
  * arguments the OTHER way round (url, ms, opts). Both are top-level declarations in one shared
@@ -116,7 +128,7 @@ async function placesFetch(url, opts, ms){
 }
 
 /** Runs an Overpass QL query, rotating mirrors until one answers. */
-async function overpassQuery(ql, signal){
+async function overpassQuery(ql, signal, timeoutMs){
   let lastErr = null;
   for(let attempt = 0; attempt < OVERPASS_ENDPOINTS.length; attempt++){
     const endpoint = OVERPASS_ENDPOINTS[(overpassCursor + attempt) % OVERPASS_ENDPOINTS.length];
@@ -125,10 +137,16 @@ async function overpassQuery(ql, signal){
         method: 'POST',
         // Overpass answers 406 without an explicit Accept, and form-encoding is what the
         // public mirrors expect for a POSTed query.
-        headers: {'Accept':'application/json', 'Content-Type':'application/x-www-form-urlencoded'},
+        // The public mirrors answer an anonymous client with 429 and "please include a
+        // meaningful User-Agent". Browsers send their own and drop this header as forbidden,
+        // so it changes nothing in the app — but without it the Node test suites are throttled
+        // partway through a long run and read the refusals as "this country has no places".
+        // Indonesia reported zero restaurants that way while working perfectly in a browser.
+        headers: {'Accept':'application/json', 'Content-Type':'application/x-www-form-urlencoded',
+                  'User-Agent': PLACES_USER_AGENT},
         body: 'data=' + encodeURIComponent(ql),
         signal,
-      }, PLACES_TIMEOUT_MS);
+      }, timeoutMs || PLACES_TIMEOUT_MS);
       if(res.status === 429 || res.status === 504) throw new Error('busy ' + res.status);
       if(!res.ok) throw new Error('http ' + res.status);
       const json = await res.json();
@@ -273,7 +291,15 @@ function osmToPlace(el, kind, dest){
     if(/museum|gallery|artwork/.test(subtypeKey)) rec.tags = ['culture','art'];
     if(/castle|monument|ruins|archaeological_site|palace|fort/.test(subtypeKey)) rec.tags = ['history'];
     rec.duration = 75;
+    /* Real, published entry-cost data, and the only kind this app has: OSM's own fee and charge
+     * tags. Coverage is thin — around 6% of attractions in a large city carry fee, and 1% carry
+     * an actual charge — but thin real data is the whole point. The alternative the app shipped
+     * with was to print "Free" for every place whose price was unknown, which is not a gap, it
+     * is a false statement about somebody's ticketed museum. */
     rec.fee = t.fee === 'yes' ? 'Entry fee' : t.fee === 'no' ? 'Free' : '';
+    // e.g. "2700 JPY;3400 JPY" or "1800 JPY / person" — published verbatim, never parsed into a
+    // number we would then have to convert and thereby restate.
+    rec.charge = (t.charge || '').trim();
   }
 
   rec.desc = describePlace(rec, t, dest);
@@ -404,6 +430,112 @@ function discoveryRadiusKm(dest){
 
 const placesInFlight = new Map();   // canonical key -> Promise, so two tabs of the same page share one fetch
 
+/* ---------------- anchoring a large area ----------------
+ *
+ * A country's centroid is a geometric average, not a place. Indonesia's is -2.4834, 117.8903 —
+ * open water in the Makassar Strait, hundreds of kilometres from anywhere with a restaurant, so
+ * searching around it returns nothing however wide the radius goes. The same is true of Chile,
+ * Norway, Greece and any country that is long, hollow or made of islands.
+ *
+ * So a large destination is anchored on its most prominent settlement instead: one Overpass
+ * query for cities inside its own boundary, ordered by the population OSM records. That is real
+ * data, it works for any country without naming one, and it is cached like everything else. */
+
+const LARGE_TYPES = ['continent', 'country', 'state', 'region', 'province', 'county'];
+const ANCHOR_BUDGET_MS = 120000;      // paid once per destination, then cached
+const ANCHOR_QUERY_TIMEOUT_MS = 55000; // a country-sized scan legitimately takes ~40s
+const anchorCache = new Map();
+
+function needsSettlementAnchor(dest){
+  return LARGE_TYPES.includes(String(dest.placeType || '').toLowerCase());
+}
+
+/** The biggest city inside the destination's boundary, or null when we cannot tell. */
+const ANCHOR_STORE_PREFIX = 'tf:anchor:';
+
+/** Persisted, because this is the most expensive lookup in the app — a country-sized scan that
+ *  measured 106 seconds under load — and its answer never changes. Paid once, ever. */
+function readAnchorStore(key){
+  try{
+    const raw = localStorage.getItem(ANCHOR_STORE_PREFIX + key);
+    return raw ? JSON.parse(raw) : undefined;
+  }catch(e){ return undefined; }
+}
+function writeAnchorStore(key, value){
+  try{ localStorage.setItem(ANCHOR_STORE_PREFIX + key, JSON.stringify(value)); }catch(e){}
+}
+
+async function prominentSettlement(dest, signal){
+  const key = dest.placeId || dest.id;
+  if(anchorCache.has(key)) return anchorCache.get(key);
+  const stored = readAnchorStore(key);
+  if(stored !== undefined){ anchorCache.set(key, stored); return stored; }
+
+  /* The region's own capital, which Wikidata answers in about two tenths of a second, before
+   * falling back to the bounding-box scan below. That scan works — Indonesia anchors on Jakarta
+   * at 10,467,629 — but it takes around two minutes against a healthy mirror and returns
+   * nothing against a busy one; a browser run measured 796 seconds and still came back empty.
+   * A capital is always inside the region and always somewhere with real places mapped around
+   * it, which is the entire job here. */
+  const capital = (typeof geoCapitalOf === 'function') ? await geoCapitalOf(dest) : null;
+  if(capital){
+    anchorCache.set(key, capital);
+    writeAnchorStore(key, capital);
+    return capital;
+  }
+
+  const box = dest.bbox;
+  if(!box || box.minLat == null) return null;
+
+  const area = `(${box.minLat},${box.minLng},${box.maxLat},${box.maxLng})`;
+
+  /* Ask for the LARGEST cities first, by population magnitude, and widen only if nothing turns
+   * up. Scanning a whole country for every city and town is too much work for Overpass —
+   * Indonesia's bounding box returned 504 after 37 seconds — but asking only for places of a
+   * million or more answers in 11 seconds with 26 results. A small country finds nothing at that
+   * size and drops a digit, so this works for Cape Verde as well as for India. */
+  const MAGNITUDES = [
+    // `place=city` alone, not `city|town`. Including towns is what made this unaffordable:
+    // the same Indonesia query took 11 seconds for cities and timed out repeatedly once towns
+    // were in it, because a country holds thousands of them. Towns only come into it at the
+    // smallest magnitude, where the country is small enough for the scan to be cheap anyway.
+    {digits: '7,', places: 'city',        label: '1M+'},
+    {digits: '6,', places: 'city',        label: '100k+'},
+    {digits: '5,', places: 'city|town',   label: '10k+'},
+  ];
+  const started = Date.now();
+  let best = null;
+  for(const mag of MAGNITUDES){
+    // A whole-country page must not hang on finding its anchor. Out of budget, the centroid
+    // stands — worse, but bounded.
+    if(Date.now() - started > ANCHOR_BUDGET_MS) break;
+    const ql = `[out:json][timeout:25];(node[place~"^(${mag.places})$"]` +
+               // `out tags` alone returns tags and NO geometry, so every candidate was
+               // discarded for having no coordinates and the anchor always came back null.
+               `["population"~"^[0-9]{${mag.digits}}$"]${area};);out tags center 60;`;
+    try{
+      // This query is far heavier than a normal one: it scans a whole country's bounding box.
+      // Measured at 37 seconds for Indonesia, against a standard 25-second per-mirror cap — so
+      // it was timing out on every mirror and giving up on a query that does in fact succeed.
+      const els = await overpassQuery(ql, signal, ANCHOR_QUERY_TIMEOUT_MS);
+      for(const el of els){
+        const pop = parseInt((el.tags && el.tags.population) || '0', 10);
+        const lat = el.lat != null ? el.lat : (el.center && el.center.lat);
+        const lng = el.lon != null ? el.lon : (el.center && el.center.lon);
+        if(!pop || lat == null) continue;
+        if(!best || pop > best.pop) best = {lat, lng, pop,
+                                            name: (el.tags['name:en'] || el.tags.name || '')};
+      }
+    }catch(e){ /* try the next magnitude, then fall back to the centroid */ }
+    if(best) break;
+  }
+  anchorCache.set(key, best);
+  // Only a success is persisted: a failure here is usually a throttled mirror rather than a
+  // country with no cities, and remembering that would make a temporary outage permanent.
+  if(best) writeAnchorStore(key, best);
+  return best;
+}
+
 /** Discovers real places of one kind around a verified destination.
  *  Returns [] rather than throwing, so a page never breaks because a mirror was busy. */
 async function discoverPlaces(dest, kind, opts){
@@ -422,12 +554,45 @@ async function discoverPlaces(dest, kind, opts){
   if(placesInFlight.has(key)) return placesInFlight.get(key);
 
   const run = (async () => {
-    const radiusKm = discoveryRadiusKm(dest);
-    const radiusM = Math.round(radiusKm * 1000);
+    const baseRadiusKm = discoveryRadiusKm(dest);
     const spec = PLACE_KINDS[kind];
-    const ql = `[out:json][timeout:20];(` +
-      spec.overpass.map(sel => `${sel}(around:${radiusM},${dest.lat},${dest.lng});`).join('') +
-      `);out tags center 400;`;
+
+    // For a country or a region, search around its largest city rather than its centroid.
+    let anchor = {lat: dest.lat, lng: dest.lng};
+    let anchorNote = null;
+    if(needsSettlementAnchor(dest)){
+      const settlement = await prominentSettlement(dest, opts.signal);
+      if(settlement){
+        anchor = {lat: settlement.lat, lng: settlement.lng};
+        anchorNote = settlement.name || null;
+      }
+    }
+
+    // The ladder. Each rung is a genuinely different way of asking, not the same question again:
+    // a wider circle finds a village whose centre point sits off to one side; a bounding box uses
+    // the geocoder's own boundary instead of a circle; splitting the categories turns one
+    // expensive query into several cheap ones that a busy mirror will actually answer. Results
+    // from every rung are merged and deduplicated, so a partial answer still contributes.
+    const rungs = [];
+    rungs.push({label:'radius', km: baseRadiusKm});
+    rungs.push({label:'radius x2', km: baseRadiusKm * 2});
+    if(dest.bbox && dest.bbox.minLat != null) rungs.push({label:'bbox', bbox: dest.bbox});
+    rungs.push({label:'radius x4', km: baseRadiusKm * 4});
+    // No per-selector rung. It sounds cheaper and is measurably not: against Tokyo the combined
+    // union answered in 15s with 400 results while two of its three selectors on their own
+    // returned 504 after 31 and 171 seconds. Overpass optimises the union better than we can.
+    rungs.push({label:'radius x8', km: baseRadiusKm * 8});
+
+    const buildQL = (rung, selectors) => {
+      const area = rung.bbox
+        ? `(${rung.bbox.minLat},${rung.bbox.minLng},${rung.bbox.maxLat},${rung.bbox.maxLng})`
+        : `(around:${Math.round(Math.min(rung.km, 80) * 1000)},${anchor.lat},${anchor.lng})`;
+      return `[out:json][timeout:20];(` +
+        selectors.map(sel => `${sel}${area};`).join('') + `);out tags center 400;`;
+    };
+
+    const radiusKm = baseRadiusKm;
+    const ql = buildQL(rungs[0], spec.overpass);
 
     /* Overpass carries far richer tags, so it is preferred — but it is also the flakier source,
      * and rotating through three mirrors at 30s each meant a bad day for Overpass cost 66
@@ -438,15 +603,105 @@ async function discoverPlaces(dest, kind, opts){
      * which is most of the time; this only bounds the bad case. */
     const delay = ms => new Promise(r => setTimeout(r, ms));
     let elements = [];
+    const attempts = [];
+    // Overpass is started once and kept, never abandoned. Photon fills the page if Overpass is
+    // slow, and Overpass still replaces it when it lands — the earlier version raced them and
+    // discarded whichever lost, which meant a perfectly good 400-place answer was thrown away
+    // for arriving three seconds after the deadline.
+    let overpassSettled = false;
+    const overpassP = overpassQuery(ql, opts.signal)
+      .then(r => { overpassSettled = true; return r; })
+      .catch(() => { overpassSettled = true; return []; });
+
+    /* Both sources are STARTED now, together.
+     *
+     * This used to be `delay(OVERPASS_PATIENCE_MS).then(() => photonNearby(...))`, which reads
+     * like a race and is not one: Photon was not begun until twenty seconds had passed, and
+     * only then took its own second or two. So a destination somebody typed showed one card
+     * almost immediately and then sat half-empty — measured at 39.7 seconds to reach six cards
+     * — while the fast source had not been asked yet.
+     *
+     * Started in parallel, whichever has something useful first fills the page, and the grace
+     * window below still lets Overpass replace it with its richer tags when it lands. Nothing
+     * about "Overpass wins when it is healthy" changes; the twenty-second dead wait goes. */
+    const photonP = photonNearby(Object.assign({}, dest, anchor), kind, radiusKm, opts.signal)
+      .then(r => r || []).catch(() => []);
     try{
+      // First source with an actual answer. A source that comes back EMPTY defers to the other
+      // rather than winning the race with nothing, which would blank a page that had results
+      // on the way.
       elements = await Promise.race([
-        overpassQuery(ql, opts.signal).catch(() => []),
-        delay(OVERPASS_PATIENCE_MS).then(() =>
-          photonNearby(dest, kind, radiusKm, opts.signal).catch(() => [])),
+        overpassP.then(r => (r && r.length) ? r : photonP),
+        photonP.then(r => (r && r.length) ? r : overpassP),
       ]);
+      attempts.push(`${rungs[0].label}:${elements.length}${overpassSettled ? '' : ' (photon first)'}`);
+
+      if(!overpassSettled){
+        /* Give the richer source its remaining time, and KEEP WHAT IT SAYS even when it says
+         * less.
+         *
+         * This used to replace the Photon results only when Overpass returned MORE of them, and
+         * otherwise threw the whole response away — a response already in hand, already paid
+         * for. What went with it was every OSM identity tag: wikidata, wikimedia_commons,
+         * image, wikipedia. Those are the top rungs of the imagery ladder, so on any run Photon
+         * won the race, cards fell back to searching Commons by name and roughly a third of them
+         * ended up with no photograph at all. Measured on Tokyo: 40 of 40 attractions arrived
+         * with zero identity tags, and the resolver found one photograph between them.
+         *
+         * Merged by OSM identity instead. Overpass's tagged element wins for anything it
+         * describes, Photon's contribution survives for anything Overpass did not return, and
+         * nobody loses a card to a merge. */
+        const late = await Promise.race([overpassP, delay(OVERPASS_GRACE_MS).then(() => null)]);
+        if(late && late.length){
+          const idOf = e => `${e.type || ''}${e.id || ''}`;
+          const richer = new Map(late.map(e => [idOf(e), e]));
+          let upgraded = 0;
+          const merged = elements.map(e => {
+            const hit = richer.get(idOf(e));
+            if(hit){ richer.delete(idOf(e)); upgraded++; return hit; }
+            return e;
+          });
+          for(const leftover of richer.values()) merged.push(leftover);
+          attempts.push(`overpass-late:${late.length} (merged, ${upgraded} upgraded, ${merged.length} total)`);
+          elements = merged;
+        }
+      }
     }catch(e){ elements = []; }
+
+    // Thin or empty is not an answer yet — climb the ladder. "Thin" is judged against what this
+    // kind of destination should plausibly hold, so a hamlet with four cafes stops early and a
+    // capital with four does not.
+    const THIN = (dest.placeType === 'city' || dest.placeType === 'municipality') ? 25 : 8;
+    if(!(opts.signal && opts.signal.aborted)){
+      for(let i = 1; i < rungs.length && elements.length < THIN; i++){
+        const rung = rungs[i];
+        try{
+          let more = [];
+          if(rung.split){
+            // One selector at a time: cheaper per query, and a mirror that refuses the union
+            // will often answer the parts.
+            for(const sel of spec.overpass){
+              try{ more = more.concat(await overpassQuery(buildQL(rung, [sel]), opts.signal)); }
+              catch(e){ if(opts.signal && opts.signal.aborted) throw e; }
+            }
+          } else {
+            more = await overpassQuery(buildQL(rung, spec.overpass), opts.signal);
+          }
+          const before = elements.length;
+          elements = elements.concat(more);
+          attempts.push(`${rung.label}:+${elements.length - before}`);
+        }catch(e){
+          if(opts.signal && opts.signal.aborted) throw e;
+          attempts.push(`${rung.label}:failed`);
+        }
+      }
+    }
+    // Last resort before giving up: the other provider entirely, at the widest radius tried.
     if(!elements.length && !(opts.signal && opts.signal.aborted)){
-      try{ elements = await photonNearby(dest, kind, radiusKm, opts.signal); }catch(e){ /* nothing available */ }
+      try{
+        elements = await photonNearby(dest, kind, Math.min(baseRadiusKm * 4, 50), opts.signal);
+        attempts.push(`photon:${elements.length}`);
+      }catch(e){ attempts.push('photon:failed'); }
     }
 
     const mapped = [];
@@ -458,6 +713,12 @@ async function discoverPlaces(dest, kind, opts){
       if(rec && typeof placeWithinDestination === 'function' && placeWithinDestination(rec, dest)) mapped.push(rec);
     }
     const finalList = rankPlaces(dedupePlaces(mapped));
+    // Kept so a genuinely empty result can be shown as "we tried these and found nothing" rather
+    // than an unexplained blank.
+    finalList.attempts = attempts;
+    // Say so when the search was anchored somewhere other than the destination's own point, so
+    // the UI can tell a traveller that a country's results centre on its largest city.
+    if(anchorNote) finalList.anchoredOn = anchorNote;
     if(finalList.length) writePlacesCache(dest, kind, finalList);
     return finalList;
   })();
@@ -517,34 +778,73 @@ function cancelDiscoveryExcept(destId){
   }
 }
 
+/* The in-flight run for each destination and kind, so a second caller joins the query that is
+ * already going out instead of firing a duplicate at Overpass. This is what makes discovery
+ * awaitable without giving it a second code path: the planner and the destination page start
+ * exactly the same work, and whichever asks second waits on the first one's promise. */
+const placesDiscoveryPromises = new Map();   // destId -> {kind: Promise<number>}
+
 function discoverPlacesFor(dest, kinds){
-  if(!dest || (typeof hasVerifiedGeo === 'function' && !hasVerifiedGeo(dest))) return;
+  if(!dest || (typeof hasVerifiedGeo === 'function' && !hasVerifiedGeo(dest))) return Promise.resolve(0);
   cancelDiscoveryExcept(dest.id);
   let ctl = placesControllers.get(dest.id);
   if(!ctl){ ctl = new AbortController(); placesControllers.set(dest.id, ctl); }
   const list = kinds || ['restaurant', 'hotel', 'attraction'];
   const st = placesDiscoveryState.get(dest.id) || {};
   placesDiscoveryState.set(dest.id, st);
+  const running = placesDiscoveryPromises.get(dest.id) || {};
+  placesDiscoveryPromises.set(dest.id, running);
 
+  const started = [];
   for(const kind of list){
-    if(st[kind] === 'loading' || st[kind] === 'done') continue;
+    if(st[kind] === 'done'){ started.push(Promise.resolve(st[kind + ':count'] || 0)); continue; }
+    /* Unconditional, and it has to stay that way. notifyPlacesUpdated below is synchronous and
+     * the destination view answers it by calling straight back into here — so for the length of
+     * that call this kind is marked 'loading' with no promise recorded against it yet. A guard
+     * that only skipped when it found a promise fell through on that re-entry, notified again,
+     * and blew the stack. Record the promise BEFORE notifying, and skip on 'loading' whether or
+     * not one is there. */
+    if(st[kind] === 'loading'){ started.push(running[kind] || Promise.resolve(0)); continue; }
     st[kind] = 'loading';
-    notifyPlacesUpdated(dest, kind, 0);
-    discoverPlaces(dest, kind, {signal: ctl.signal})
+    const p = discoverPlaces(dest, kind, {signal: ctl.signal})
       .then(found => {
         // A cancelled destination must not write into the store, even if its request finished.
-        if(ctl.signal.aborted) return;
+        if(ctl.signal.aborted) return 0;
         st[kind] = 'done';
         st[kind + ':count'] = found.length;
         mergeDiscoveredPlaces(dest, kind, found);
         notifyPlacesUpdated(dest, kind, found.length);
+        return found.length;
       })
       .catch(() => {
-        if(ctl.signal.aborted) return;
+        if(ctl.signal.aborted) return 0;
         st[kind] = 'error';
         notifyPlacesUpdated(dest, kind, 0);
+        return 0;
       });
+    running[kind] = p;
+    started.push(p);
+    notifyPlacesUpdated(dest, kind, 0);   // after running[kind], so a re-entrant call sees it
   }
+  return Promise.all(started).then(counts => counts.reduce((a, b) => a + b, 0));
+}
+
+/** Discovery, waited for rather than fired and forgotten.
+ *
+ *  Bounded, and the bound is the point: a traveller pressing Plan should not sit on a spinner
+ *  because one Overpass mirror is slow. When the deadline passes this resolves anyway and the
+ *  caller plans with whatever has landed — discovery keeps running in the background and the
+ *  next render picks up the rest. Returns how many places the store holds for the destination,
+ *  so the caller can tell "found plenty" from "found nothing" and say so. */
+function awaitPlacesFor(dest, kinds, timeoutMs){
+  const budget = timeoutMs == null ? 12000 : timeoutMs;
+  const work = discoverPlacesFor(dest, kinds);
+  const count = () => (typeof PLACES === 'undefined' ? 0 : PLACES.filter(p => p.destId === dest.id).length);
+  if(!work || typeof work.then !== 'function') return Promise.resolve(count());
+  return Promise.race([
+    work.then(() => 'settled'),
+    new Promise(r => setTimeout(() => r('timeout'), budget)),
+  ]).then(how => ({ how, places: count() }));
 }
 
 /* ---------------- pagination ---------------- */
@@ -553,22 +853,13 @@ function discoverPlacesFor(dest, kinds){
  * return several hundred entities, and rendering them all costs a visible freeze on a phone. */
 const PLACES_PAGE_SIZE = 24;
 
-function pagePlaces(list, page, size){
-  const n = size || PLACES_PAGE_SIZE;
-  const p = Math.max(0, page || 0);
-  return {
-    items: list.slice(0, (p + 1) * n),   // cumulative: "Show more" appends rather than replaces
-    shown: Math.min((p + 1) * n, list.length),
-    total: list.length,
-    hasMore: (p + 1) * n < list.length,
-  };
-}
 
 if(typeof module !== 'undefined' && module.exports){
   module.exports = {
     PLACE_KINDS, OSM_SUBTYPE_LABEL, prettyCuisine, osmToPlace, dedupePlaces, rankPlaces,
-    placeCompleteness, discoverPlaces, discoverPlacesFor, pagePlaces, normName,
+    placeCompleteness, discoverPlaces, discoverPlacesFor, normName,
     discoveryRadiusKm, overpassQuery, photonNearby, DISCOVERY_RADIUS_KM, cancelDiscoveryExcept,
+    prominentSettlement, needsSettlementAnchor,
     OVERPASS_PATIENCE_MS,
   };
 }
