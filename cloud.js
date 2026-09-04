@@ -47,9 +47,19 @@ function cloudConfigProblem(url, anonKey){
   }
   // Supabase keys are JWTs: three dot-separated segments. A pasted password or project ref is
   // the common mistake and produces an opaque 401 much later if it is not caught here.
-  if(String(anonKey).split('.').length !== 3){
+  const parts = String(anonKey).split('.');
+  if(parts.length !== 3){
     return 'That does not look like an anon key — copy the long "anon public" key from Project Settings → API.';
   }
+  /* A service_role key is also a three-segment JWT, so the check above waves it through — and
+   * that key bypasses every row-level security policy. The modal warns against pasting it;
+   * a warning is not a control, so the role is read out of the payload and refused. */
+  try {
+    const body = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    if(body && body.role && body.role !== 'anon'){
+      return `That is the "${String(body.role).slice(0, 24)}" key, which bypasses every security policy and must never go in a web page. Copy the "anon public" key instead.`;
+    }
+  } catch(e){ /* not decodable: fall through, the server will reject it */ }
   return null;
 }
 
@@ -121,6 +131,22 @@ function tripUpdatedAt(trip){
   return isFinite(n) ? n : 0;
 }
 
+/** A trip arriving from the database, put through the app's own importer where one exists.
+ *
+ *  Row-level security means these rows are the traveller's own, so this is not a trust boundary
+ *  in the way a backup file is. It is here because it is the SAME KIND of path — an object from
+ *  outside this tab becoming state that gets rendered as HTML — and a row could have been
+ *  written by an older or compromised client. One normalisation, both doors.
+ *
+ *  Falls through untouched under Node, where the app's sanitiser is not loaded; the suites test
+ *  the sanitiser itself directly. */
+function cleanIncomingTrip(data){
+  if(typeof sanitiseImportedTrip === 'function'){
+    try { return sanitiseImportedTrip(data) || data; } catch(e){ return data; }
+  }
+  return data;
+}
+
 /** Reconciles local trips with remote rows. Pure, so the awkward cases are testable without a
  *  network: returns what to keep locally and what to push. */
 function mergeTrips(localTrips, remoteRows){
@@ -143,7 +169,7 @@ function mergeTrips(localTrips, remoteRows){
     const localAt = tripUpdatedAt(trip);
     const remoteAt = new Date(row.updated_at || 0).getTime() || 0;
     if(remoteAt > localAt){
-      keep.push(row.data);
+      keep.push(cleanIncomingTrip(row.data));
       if(localAt) conflicts.push({ id, title: trip.title, kept: 'cloud' });
     } else {
       keep.push(trip);
@@ -153,7 +179,7 @@ function mergeTrips(localTrips, remoteRows){
 
   for(const [id, row] of remote){
     if(local.has(id) || row.deleted || !row.data) continue;
-    keep.push(row.data);                                          // only in the cloud: pull it down
+    keep.push(cleanIncomingTrip(row.data));                       // only in the cloud: pull it down
   }
 
   return { keep, push, conflicts };
@@ -285,6 +311,7 @@ if(typeof module !== 'undefined' && module.exports){
   module.exports = { cloudConfig, cloudConfigProblem, saveCloudConfig, forgetCloudConfig,
                      cloudConfigured, mergeTrips, tripUpdatedAt, CLOUD_CONFIG_KEY,
                      cloudSignUp, cloudSignIn, cloudSignOut, cloudResetPassword, cloudCurrentUser,
-                     cloudPullTrips, cloudPushTrips, cloudDeleteTrip, __setCloudClientForTests,
+                     cloudPullTrips, cloudPushTrips, cloudDeleteTrip, cleanIncomingTrip,
+                     __setCloudClientForTests,
                      __cloud };
 }

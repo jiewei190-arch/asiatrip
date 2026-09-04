@@ -136,6 +136,60 @@ async function freshPage(browser, before){
     await page.close();
   }
 
+  console.log('\nA hostile backup file cannot run script on this origin');
+  {
+    // A backup is the one file a stranger can hand a traveller ("here is our trip, import it").
+    // Its contents are rendered into HTML all over the app, and since the Supabase session token
+    // now lives in localStorage, script running here is the traveller's cloud account too.
+    const page = await freshPage(browser);
+    const out = await page.evaluate(async () => {
+      window.__pwned = 0;
+      window.__pwn = () => { window.__pwned++; };
+      const evil = JSON.stringify({ format:'tripflow-backup', version:1, state: {
+        trips: [{
+          id: 'x" onmouseover="__pwn()',
+          title: '<img src=x onerror=__pwn()>',
+          destId: 'paris', destName: 'Paris', start: '2026-10-01', end: '2026-10-02', travelers: 2,
+          cover: 'javascript:__pwn()',
+          days: [{ date:'2026-10-01', stops: [
+            { id:'s1', name:'<svg onload=__pwn()>', image:'javascript:__pwn()' } ] }],
+        }],
+        notifications: [{ id:'n1', text:'hi', icon:'<img src=x onerror=__pwn()>', read:false, ts:1 }],
+        // A key the app does not own, smuggled in by Object.assign in the old version.
+        __proto_ish: { evil: true }, isAdmin: true,
+      }});
+      const res = restoreStateBackup(evil);
+      renderNotifications();
+      location.hash = '#/trips';
+      route();
+      await new Promise(r => setTimeout(r, 600));
+      const t = STATE.trips[0];
+      const notifHTML = ($('notifList') || {}).innerHTML || '';
+      return {
+        ok: res.ok,
+        cover: t.cover, stopImage: t.days[0].stops[0].image,
+        titleKept: t.title,
+        unknownKeys: ['__proto_ish','isAdmin'].filter(k => k in STATE),
+        liveOnerror: /<img[^>]+onerror=/i.test(document.body.innerHTML),
+        notifIconEscaped: notifHTML.includes('&lt;img'),
+        pwned: window.__pwned,
+      };
+    });
+    await page.waitForTimeout(400);
+    const pwnedAfter = await page.evaluate(() => window.__pwned);
+    check('the hostile backup still imports (it is data, not an error)', out.ok);
+    check('a javascript: cover is dropped', out.cover === '', JSON.stringify(out.cover));
+    check('a javascript: stop image is dropped', out.stopImage === '', JSON.stringify(out.stopImage));
+    check('the title is kept verbatim — escaping, not censoring, is the defence',
+          out.titleKept === '<img src=x onerror=__pwn()>', out.titleKept);
+    check('keys the app does not own are not carried in', out.unknownKeys.length === 0,
+          out.unknownKeys.join(','));
+    check('no live onerror attribute reaches the document', out.liveOnerror === false);
+    check('the notification icon is escaped, not parsed', out.notifIconEscaped);
+    check('nothing executed', pwnedAfter === 0, `${pwnedAfter} payloads fired`);
+    await page.close();
+  }
+
   await browser.close();
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exitCode = fail ? 1 : 0;

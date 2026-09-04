@@ -197,10 +197,13 @@ function destHeroSrc(dest, width){
    * having no credit at all. */
   if(typeof unsplashUrl === 'function'){
     const pinned = unsplashUrl('dest/' + (dest.id || ''), width);
-    if(pinned) return pinned;
+    if(pinned) return safeImageUrl(pinned);
   }
-  if(dest.hero && dest.hero.indexOf('data:image/svg') !== 0) return dest.hero;
-  return cachedWikiThumbnail([dest.name, dest.country].filter(Boolean)) || dest.hero;
+  // Through the same chokepoint as every other image URL. Nothing here is attacker-controlled
+  // today, but a helper whose output lands in a src="..." should not be the one exception —
+  // that is precisely how this class of bug survives a cleanup.
+  if(dest.hero && dest.hero.indexOf('data:image/svg') !== 0) return safeImageUrl(dest.hero);
+  return safeImageUrl(cachedWikiThumbnail([dest.name, dest.country].filter(Boolean)) || dest.hero);
 }
 /** Place image priority chain: the specific place first (most relevant — a named landmark,
  * restaurant, hotel), falling back to the destination's own photo if that specific place has no
@@ -519,6 +522,49 @@ function downloadStateBackup(){
 /** Reads a backup back in. Validated before anything is replaced: importing a file that is not
  *  a backup must not empty somebody's trips, which is the obvious way to turn a safety net into
  *  the accident it was meant to prevent. */
+/** Rebuilds a trip from known fields instead of trusting the object it was handed.
+ *
+ *  A backup file is the one place a stranger's data enters this app, and the app renders trip
+ *  fields into HTML all over. Escaping every sink is the primary defence and is done; this is
+ *  the second half of it — an imported file cannot introduce keys nobody planned for, and the
+ *  fields that end up in an `src` or an id are coerced to the shape they are supposed to be. */
+function sanitiseImportedTrip(t){
+  if(!t || typeof t !== 'object') return null;
+  const str = (v, max) => String(v == null ? '' : v).slice(0, max || 300);
+  const num = (v, d) => { const n = Number(v); return isFinite(n) ? n : d; };
+  const trip = {
+    id: str(t.id, 120) || uid('trip'),
+    title: str(t.title, 200) || 'Imported trip',
+    destId: str(t.destId, 120), destName: str(t.destName, 200),
+    start: str(t.start, 20), end: str(t.end, 20),
+    travelers: num(t.travelers, 2),
+    cover: safeImageUrl(t.cover) ? str(t.cover, 2000) : '',
+    notes: str(t.notes, 20000),
+    createdAt: num(t.createdAt, Date.now()), updatedAt: num(t.updatedAt, 0) || undefined,
+    days: Array.isArray(t.days) ? t.days.slice(0, 400).map(d => ({
+      date: str(d && d.date, 20),
+      note: str(d && d.note, 20000),
+      stops: Array.isArray(d && d.stops) ? d.stops.slice(0, 200).map(sp => Object.assign({}, sp, {
+        id: str(sp && sp.id, 120) || uid('stop'),
+        name: str(sp && sp.name, 300),
+        image: safeImageUrl(sp && sp.image) ? str(sp.image, 2000) : '',
+      })) : [],
+    })) : [],
+    budget: (t.budget && typeof t.budget === 'object')
+      ? { total: num(t.budget.total, 0), style: str(t.budget.style, 40),
+          expenses: Array.isArray(t.budget.expenses) ? t.budget.expenses.slice(0, 2000) : [] }
+      : { total: 0, style: 'moderate', expenses: [] },
+    collaborators: Array.isArray(t.collaborators) ? t.collaborators.slice(0, 50) : [],
+    activity: Array.isArray(t.activity) ? t.activity.slice(0, 500) : [],
+    bookings: Array.isArray(t.bookings) ? t.bookings.slice(0, 200) : [],
+    packing: Array.isArray(t.packing) ? t.packing.slice(0, 500) : [],
+  };
+  return trip;
+}
+
+/** Reads a backup back in. Validated before anything is replaced: importing a file that is not
+ *  a backup must not empty somebody's trips, which is the obvious way to turn a safety net into
+ *  the accident it was meant to prevent. */
 function restoreStateBackup(text){
   let parsed;
   try { parsed = JSON.parse(text); }
@@ -527,7 +573,31 @@ function restoreStateBackup(text){
   if(!state || !Array.isArray(state.trips)){
     return { ok: false, reason: 'That file is not a TripFlow backup — no trips found in it.' };
   }
-  STATE = Object.assign(defaultState(), state);
+  /* Only the keys this app owns, rebuilt field by field. The previous version did
+   * Object.assign(defaultState(), state), which copied every key in the file verbatim —
+   * including `notifications`, whose `icon` was rendered into HTML unescaped and re-rendered on
+   * every subsequent load. A file somebody was talked into importing could run script on this
+   * origin, and since the Supabase session token now lives in localStorage that meant the
+   * traveller's cloud account as well as their browser. */
+  const fresh = defaultState();
+  fresh.trips = state.trips.slice(0, 500).map(sanitiseImportedTrip).filter(Boolean);
+  if(Array.isArray(state.notifications)){
+    fresh.notifications = state.notifications.slice(0, 200).map(n => ({
+      id: String((n && n.id) || uid('notif')).slice(0, 120),
+      text: String((n && n.text) || '').slice(0, 500),
+      icon: String((n && n.icon) || '🔔').slice(0, 16),
+      read: !!(n && n.read),
+      tripId: (n && n.tripId) ? String(n.tripId).slice(0, 120) : null,
+      ts: Number((n && n.ts)) || Date.now(),
+    }));
+  }
+  if(state.settings && typeof state.settings === 'object'){
+    fresh.settings = Object.assign({}, fresh.settings, {
+      currencyCode: String(state.settings.currencyCode || fresh.settings.currencyCode || 'USD').slice(0, 3),
+      email: String(state.settings.email || fresh.settings.email || '').slice(0, 200),
+    });
+  }
+  STATE = fresh;
   saveState();
   return { ok: true, trips: STATE.trips.length };
 }
@@ -909,7 +979,7 @@ function runGlobalSearch(q){
     let h = `<div class="gsearch-group">${esc(label)}</div>`;
     matches.forEach(p=>{
       const pd = DESTINATIONS.find(d=>d.id===p.destId);
-      h += `<button class="gsearch-row" data-place="${p.id}"><img src="${p.image}" alt="" data-photo-q="${esc(photoQuery(p.name, pd.name))}"><div><div>${esc(p.name)}</div><div class="small">${esc(pd.name)} · ${placeTypeLabel(p.type)}</div></div></button>`;
+      h += `<button class="gsearch-row" data-place="${esc(p.id)}"><img src="${safeImageUrl(p.image)}" alt="" data-photo-q="${esc(photoQuery(p.name, pd.name))}"><div><div>${esc(p.name)}</div><div class="small">${esc(pd.name)} · ${placeTypeLabel(p.type)}</div></div></button>`;
     });
     return h;
   };
@@ -946,7 +1016,7 @@ function runGlobalPlaceSearch(q, localHTML, results){
       html += `<div class="gsearch-group">Destinations worldwide</div>`;
       fresh.forEach((r, i) => {
         __globalSearchResults[i] = r;
-        html += `<button class="gsearch-row" data-geo="${i}">
+        html += `<button class="gsearch-row" data-geo="${esc(i)}">
           <div class="ic globeIc">${r.flag || '🌍'}</div>
           <div><div>${esc(r.name)}</div><div class="small">${esc(r.context || r.country || '')}${r.typeLabel ? ` · ${esc(r.typeLabel)}` : ''}</div></div>
         </button>`;
@@ -990,8 +1060,8 @@ function renderNotifications(){
   const list = $('notifList');
   if(!STATE.notifications.length){ list.innerHTML = '<div class="empty" style="margin:14px">No notifications yet.</div>'; return; }
   list.innerHTML = STATE.notifications.map(n=>`
-    <button class="notifItem ${n.read?'':'unread'}" data-id="${n.id}">
-      <div class="notifIcon">${n.icon}</div>
+    <button class="notifItem ${n.read?'':'unread'}" data-id="${esc(n.id)}">
+      <div class="notifIcon">${esc(n.icon)}</div>
       <div><div>${esc(n.text)}</div><div class="small">${timeAgo(n.ts)}</div></div>
     </button>`).join('');
   list.querySelectorAll('.notifItem').forEach(b=>b.onclick=()=>{
@@ -1046,7 +1116,7 @@ function renderCurrencyOptions(select, rows){
     const sym = (typeof currencySymbol === 'function') ? currencySymbol(r.code) : '';
     const where = r.countries && r.countries.length
       ? ' · ' + r.countries.slice(0,3).join(', ') + (r.countries.length > 3 ? '…' : '') : '';
-    return `<option value="${r.code}">${r.code} — ${esc(r.name)}${sym && sym !== r.code ? ' ('+esc(sym)+')' : ''}${esc(where)}</option>`;
+    return `<option value="${esc(r.code)}">${r.code} — ${esc(r.name)}${sym && sym !== r.code ? ' ('+esc(sym)+')' : ''}${esc(where)}</option>`;
   }).join('');
 }
 
@@ -1193,10 +1263,36 @@ function claimFirstFreeImage(candidates, placeId){
  *
  *  A curated place ships with a real, hand-checked photograph of itself and uses it. Everything
  *  else starts empty and stays empty until a photograph of THAT place is verified. */
+/* One chokepoint for every image URL that reaches the DOM.
+ *
+ * A place's `image` used to be interpolated straight into src="..." while the attributes beside
+ * it on the same line were escaped — so a value containing a double quote could close the
+ * attribute and add an onerror handler of its own. Nothing reachable put attacker text there
+ * until Restore-from-backup arrived: that reads an arbitrary JSON file and replaces the whole
+ * state, which hands somebody who can talk a traveller into importing a file complete control
+ * of every field, `image` included.
+ *
+ * So this both ESCAPES and restricts the scheme. Escaping alone would still admit
+ * javascript: — harmless on <img>, not harmless the day one of these is reused in an <a>. */
+function safeImageUrl(url){
+  const raw = String(url == null ? '' : url).trim();
+  if(!raw) return '';
+  // Relative paths (images/place/x.jpg) and protocol-relative are ours; absolute URLs must be
+  // http(s) or a data: image. Anything else — javascript:, vbscript:, file: — is dropped.
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(raw);
+  if(scheme){
+    const s = scheme[1].toLowerCase();
+    const ok = (s === 'http' || s === 'https') ||
+               (s === 'data' && /^data:image\//i.test(raw));
+    if(!ok) return '';
+  }
+  return esc(raw);
+}
+
 function placeImageSrc(p){
   const id = p.placeId || p.id || p.name;
   try{
-    if(p.image){ claimImage(p.image, id); return p.image; }
+    if(p.image){ claimImage(p.image, id); return safeImageUrl(p.image); }
     return '';
   }catch(e){ return ''; }
 }
@@ -1256,12 +1352,12 @@ function placeCardHTML(p, opts){
     : p.type==='restaurant' ? (p.cuisine || p.category || 'Place to eat')
     : (p.stars ? `${p.stars}★ ${p.category || 'Hotel'}` : (p.category || 'Place to stay'));
   return `
-  <div class="placeCard" data-place="${p.id}">
+  <div class="placeCard" data-place="${esc(p.id)}">
     <div class="placeImgWrap">
       ${placeImageSrc(p) ? '' : placeImagePlaceholderHTML(p)}
       <img src="${placeImageSrc(p)}" alt="${esc(p.name)}" loading="lazy" ${placeImageSrc(p) ? '' : 'hidden'} data-photo-place="${esc(p.id)}" data-photo-q="${esc(photoQuery(p.name, dest&&dest.name))}">
       <span class="placeCatBadge">${esc(catLabel)}</span>
-      <button class="placeSaveBtn" data-save="${p.id}" title="Save">${isSaved?'♥':'♡'}</button>
+      <button class="placeSaveBtn" data-save="${esc(p.id)}" title="Save">${isSaved?'♥':'♡'}</button>
     </div>
     <div class="placeBody">
       <h4>${esc(p.name)}</h4>
@@ -1269,9 +1365,9 @@ function placeCardHTML(p, opts){
       ${!opts.noDesc ? `<p class="placeDesc">${esc(displayDesc(p, dest))}</p>` : ''}
       <div class="small">📍 ${esc(p.area)}${dest && opts.showDest ? ' · '+esc(dest.name) : ''}</div>
       <div class="placeFoot">
-        <button class="btn primary" data-add="${p.id}"><i class="fa-solid fa-plus"></i> Add to Trip</button>
-        <button class="btn" data-detail="${p.id}"><i class="fa-solid fa-circle-info"></i> Details</button>
-        <button class="btn" data-mapview="${p.id}"><i class="fa-solid fa-map-location-dot"></i></button>
+        <button class="btn primary" data-add="${esc(p.id)}"><i class="fa-solid fa-plus"></i> Add to Trip</button>
+        <button class="btn" data-detail="${esc(p.id)}"><i class="fa-solid fa-circle-info"></i> Details</button>
+        <button class="btn" data-mapview="${esc(p.id)}"><i class="fa-solid fa-map-location-dot"></i></button>
       </div>
     </div>
   </div>`;
@@ -1284,9 +1380,9 @@ function renderActiveFilterChips(containerId, chips, onClearAll){
   if(!el) return;
   if(!chips.length){ el.innerHTML=''; el.classList.add('hidden'); return; }
   el.classList.remove('hidden');
-  el.innerHTML = chips.map((c,i)=>`<button class="filterChip" data-chip="${i}">${esc(c.label)} <i class="fa-solid fa-xmark"></i></button>`).join('')
+  el.innerHTML = chips.map((c,i)=>`<button class="filterChip" data-chip="${esc(i)}">${esc(c.label)} <i class="fa-solid fa-xmark"></i></button>`).join('')
     + `<button class="linklike" id="${containerId}ClearAll">Clear all filters</button>`;
-  chips.forEach((c,i)=>{ const b = el.querySelector(`[data-chip="${i}"]`); if(b) b.onclick = c.onRemove; });
+  chips.forEach((c,i)=>{ const b = el.querySelector(`[data-chip="${esc(i)}"]`); if(b) b.onclick = c.onRemove; });
   const clearBtn = $(containerId+'ClearAll');
   if(clearBtn) clearBtn.onclick = onClearAll;
 }
@@ -1402,7 +1498,7 @@ function openAddToTrip(placeId){
         <button class="btn primary block" style="margin-top:12px" id="atCreateBtn">＋ Create a trip to ${esc(dest.name)}</button>`;
     } else {
       html = `<div class="field" style="margin-bottom:12px"><label>Trip</label>
-        <select id="atTripSelect">${existing.map(t=>`<option value="${t.id}">${esc(t.title)}</option>`).join('')}</select></div>
+        <select id="atTripSelect">${existing.map(t=>`<option value="${esc(t.id)}">${esc(t.title)}</option>`).join('')}</select></div>
         <div class="small" style="font-weight:700;margin-bottom:8px">Choose a day</div>
         <div class="pillRow" id="atDayRow"></div>`;
     }
@@ -1417,7 +1513,7 @@ function openAddToTrip(placeId){
     function renderDays(){
       const t = getTrip(select.value);
       chosenDay = clamp(chosenDay, 0, t.days.length-1);
-      $('atDayRow').innerHTML = t.days.map((d,i)=>`<button class="pill ${i===chosenDay?'active':''}" data-day="${i}">Day ${i+1} · ${fmtDateShort(d.date)}</button>`).join('') +
+      $('atDayRow').innerHTML = t.days.map((d,i)=>`<button class="pill ${i===chosenDay?'active':''}" data-day="${esc(i)}">Day ${i+1} · ${fmtDateShort(d.date)}</button>`).join('') +
         `<button class="pill" data-newday="1">＋ New day</button>`;
       $('atDayRow').querySelectorAll('[data-day]').forEach(btn=>btn.onclick=()=>{ chosenDay = Number(btn.dataset.day); renderDays(); });
       $('atDayRow').querySelector('[data-newday]').onclick = ()=>{
@@ -1509,7 +1605,7 @@ function renderSaveToBody(){
   const p = placeById(__saveToPlaceId);
   const html = STATE.collections.map(c=>{
     const has = c.placeIds.includes(p.id);
-    return `<label class="listRow" style="cursor:pointer"><div class="left"><input type="checkbox" class="check" data-coll="${c.id}" ${has?'checked':''}><span>${c.icon} ${esc(c.name)}</span></div><span class="small">${c.placeIds.length} saved</span></label>`;
+    return `<label class="listRow" style="cursor:pointer"><div class="left"><input type="checkbox" class="check" data-coll="${esc(c.id)}" ${has?'checked':''}><span>${c.icon} ${esc(c.name)}</span></div><span class="small">${c.placeIds.length} saved</span></label>`;
   }).join('') + `<button class="btn block" style="margin-top:10px" id="stoNewColl">＋ Create new collection</button>`;
   $('saveToBody').innerHTML = html;
   $('saveToBody').querySelectorAll('[data-coll]').forEach(cb=>cb.onchange=()=>{
@@ -1555,7 +1651,7 @@ function renderHomeView(){
   }
 }
 function destCardHTML(d, tagLabel){
-  return `<button class="destCard" data-dest="${d.id}">
+  return `<button class="destCard" data-dest="${esc(d.id)}">
     ${tagLabel?`<span class="destCardTag">${esc(tagLabel)}</span>`:''}
     <img src="${destHeroSrc(d, 640)}" alt="${esc(d.name)}" loading="lazy" data-photo-dest="${esc(d.id)}" data-photo-q="${esc(destPhotoQuery(d))}">
     <div class="destCardBody"><h4>${d.flag} ${esc(d.name)}</h4><span>${esc(d.country)}</span></div>
@@ -1950,7 +2046,7 @@ function renderDestinationView(idOrName, tab){
     saveState();
   };
 
-  $('destTabs').innerHTML = DEST_TABS.map(([key,label])=>`<button class="dtab ${destState.tab===key?'active':''}" data-tab="${key}">${label}</button>`).join('');
+  $('destTabs').innerHTML = DEST_TABS.map(([key,label])=>`<button class="dtab ${destState.tab===key?'active':''}" data-tab="${esc(key)}">${label}</button>`).join('');
   $('destTabs').querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{
     navigate(`#/destination/${encodeURIComponent(dest.id)}/${b.dataset.tab}`);
   });
@@ -2233,7 +2329,7 @@ function renderDestRestaurants(dest, body){
       <div class="filterGroup"><label>Price</label><select id="rPrice"><option value="any">Any price</option><option value="1">$</option><option value="2">$$</option><option value="3">$$$</option><option value="4">$$$$</option></select></div>
       <div class="filterGroup"><label>Sort</label><select id="rSort"><option value="rec">Recommended</option><option value="distance">Distance</option></select></div>
       <button class="toggleChip" id="rOpen">🕒 Open Now</button>
-      <div class="pillRow" id="rDietary">${DIETARY_OPTIONS.map(d=>`<button class="pill" data-diet="${d}">${d.replace(/-/g,' ')}</button>`).join('')}</div>
+      <div class="pillRow" id="rDietary">${DIETARY_OPTIONS.map(d=>`<button class="pill" data-diet="${esc(d)}">${d.replace(/-/g,' ')}</button>`).join('')}</div>
     </div>
     <div class="activeFilters hidden" id="restActiveFilters"></div>
     <div id="restGrid"></div>`;
@@ -2409,7 +2505,7 @@ function renderDestItinerary(dest, body){
     return `<div class="card" style="margin-bottom:14px">
       <div class="panelHead" style="padding:0 0 12px;border:0">
         <div><h3 style="margin:0">${esc(t.title)}</h3><div class="small">${fmtDateFull(t.start)} – ${fmtDateFull(t.end)} · ${t.days.length} days · ${tripStopCount(t)} stops</div></div>
-        <button class="btn primary" data-open="${t.id}">Open Trip Planner →</button>
+        <button class="btn primary" data-open="${esc(t.id)}">Open Trip Planner →</button>
       </div>
       <div class="dayTabs" style="border:0;padding:0">${t.days.map((d,i)=>`<span class="dayTab" style="cursor:default">Day ${i+1} · ${d.stops.length} stops</span>`).join('')}</div>
       <div class="small" style="margin-top:8px">Planned spend: <strong>${fmt$(planned)}</strong> of ${fmt$(t.budget.total)} budget</div>
@@ -2448,19 +2544,19 @@ function renderDestMap(dest, body){
       </div>
     </div>`;
   const legends = [['attraction','Attractions','var(--cat-attraction)'],['restaurant','Restaurants','var(--cat-restaurant)'],['hotel','Hotels','var(--cat-hotel)']];
-  $('destMapLegend').innerHTML = legends.map(([k,l,c])=>`<button class="legend ${destState.mapCats.has(k)?'active':''}" data-cat="${k}"><span class="legendDot" style="background:${c}"></span>${l}</button>`).join('');
+  $('destMapLegend').innerHTML = legends.map(([k,l,c])=>`<button class="legend ${destState.mapCats.has(k)?'active':''}" data-cat="${esc(k)}"><span class="legendDot" style="background:${c}"></span>${l}</button>`).join('');
   window.__destMapDest = dest;
   window.__destMapPlaceId = null;
   function draw(){
     const list = PLACES.filter(p=>p.destId===dest.id && destState.mapCats.has(p.type));
     $('destMapList').innerHTML = list.map(p=>`
-      <div class="mapPlaceRow ${p.id===window.__destMapPlaceId?'active':''}" data-mapplace="${p.id}">
-        <div class="stopThumb"><span class="num" style="background:${catColor(p.type)}">${catEmoji(p.type)}</span><img src="${p.image}" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
+      <div class="mapPlaceRow ${p.id===window.__destMapPlaceId?'active':''}" data-mapplace="${esc(p.id)}">
+        <div class="stopThumb"><span class="num" style="background:${catColor(p.type)}">${catEmoji(p.type)}</span><img src="${safeImageUrl(p.image)}" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
         <div class="mapPlaceInfo">
           <h4>${esc(p.name)}</h4>
           <p>${esc(p.area||'')}</p>
         </div>
-        <button class="btn sm primary" data-popadd="${p.id}">＋</button>
+        <button class="btn sm primary" data-popadd="${esc(p.id)}">＋</button>
       </div>`).join('') || `<div class="empty small">No places in this category.</div>`;
     $('destMapList').querySelectorAll('[data-mapplace]').forEach(row=>row.addEventListener('click',(e)=>{
       if(e.target.closest('[data-popadd]')) return;
@@ -2787,17 +2883,17 @@ function ideaCardHTML(idea){
   }
   add(destHeroSrc(dest), destPhotoQuery(dest));
   const budgetLabel = idea.budgetStyle.charAt(0).toUpperCase()+idea.budgetStyle.slice(1);
-  return `<div class="ideaCard" data-idea="${idea.id}">
-    <div class="ideaCoverRow">${imgs.map(i=>`<img src="${i.src}" alt="" loading="lazy" data-photo-q="${esc(i.q)}">`).join('')}</div>
+  return `<div class="ideaCard" data-idea="${esc(idea.id)}">
+    <div class="ideaCoverRow">${imgs.map(i=>`<img src="${safeImageUrl(i.src)}" alt="" loading="lazy" data-photo-q="${esc(i.q)}">`).join('')}</div>
     <div class="ideaBody">
       <h3>${idea.emoji} ${esc(idea.title)}</h3>
       <p>${esc(idea.desc)}</p>
       <div class="ideaMeta"><span>📅 ${idea.days} days</span><span>💰 ${budgetLabel}</span><span>🚶 ${esc(idea.pace)} pace</span></div>
       <div class="ideaActivities">${coverOrder.slice(0,5).map(p=>`<span class="actChip">${esc(p.name)}</span>`).join('')}</div>
       <div class="ideaFoot">
-        <button class="btn primary" data-viewit="${idea.id}">View Itinerary</button>
-        <button class="btn" data-customize="${idea.id}">Customize</button>
-        <button class="btn" data-savetrip="${idea.id}">Save Trip</button>
+        <button class="btn primary" data-viewit="${esc(idea.id)}">View Itinerary</button>
+        <button class="btn" data-customize="${esc(idea.id)}">Customize</button>
+        <button class="btn" data-savetrip="${esc(idea.id)}">Save Trip</button>
       </div>
     </div>
   </div>`;
@@ -3011,7 +3107,7 @@ function itineraryCardHTML(place, time, dest){
     typeof place.price === 'number' ? (place.price > 0 ? `💰 ${fmt$(place.price)}` : 'Free') : '',
   ].filter(Boolean);
   return `<div class="itCard">
-    <div class="itThumb"><img src="${place.image}" alt="" loading="lazy" data-photo-q="${esc(photoQuery(place.name, dest.name))}"></div>
+    <div class="itThumb"><img src="${safeImageUrl(place.image)}" alt="" loading="lazy" data-photo-q="${esc(photoQuery(place.name, dest.name))}"></div>
     <div class="itBody">
       <div class="itTop"><h4>${esc(place.name)}</h4><span class="itKind">${emoji} ${esc(kindLabel)}</span></div>
       <p class="itDesc">${esc(displayDesc(place, dest))}</p>
@@ -3037,7 +3133,7 @@ function openItineraryPreview(ideaId){
           </div>
           <button class="xbtn" data-x="1">×</button>
         </div>
-        <div class="ipDayTabs">${days.map((d,i)=>`<button class="pill ${i===current?'active':''}" data-day="${i}">Day ${i+1}</button>`).join('')}</div>
+        <div class="ipDayTabs">${days.map((d,i)=>`<button class="pill ${i===current?'active':''}" data-day="${esc(i)}">Day ${i+1}</button>`).join('')}</div>
         ${day.length ? `<div class="daySummary">
           ${s.area?`<span class="dsArea">📍 ${esc(s.area)}</span>`:''}
           <span>${s.count} ${s.count===1?'stop':'stops'}</span>
@@ -3116,7 +3212,7 @@ function openCustomizeModal(ideaId){
   $('custDuration').value = idea.days;
   $('custBudget').value = idea.budgetStyle.charAt(0).toUpperCase()+idea.budgetStyle.slice(1);
   $('custPace').value = idea.pace;
-  $('custInterests').innerHTML = INTERESTS.map(([key,icon,label,sub])=>`<button class="pref ${idea.interests.includes(key)?'active':''}" data-pref="${key}"><b>${icon} ${label}</b><span>${esc(sub)}</span></button>`).join('');
+  $('custInterests').innerHTML = INTERESTS.map(([key,icon,label,sub])=>`<button class="pref ${idea.interests.includes(key)?'active':''}" data-pref="${esc(key)}"><b>${icon} ${label}</b><span>${esc(sub)}</span></button>`).join('');
   $('custInterests').querySelectorAll('.pref').forEach(b=>b.onclick=()=>b.classList.toggle('active'));
   openModal('modal-customize');
 }
@@ -3186,8 +3282,8 @@ function tripCardHTML(t){
   const pct = clamp(Math.round(planned/(t.budget.total||1)*100),0,140);
   const over = planned>t.budget.total;
   const progress = computeTripProgress(t);
-  return `<div class="tripCard2" data-trip="${t.id}">
-    <div class="tripCoverWrap"><img src="${t.cover||destHeroSrc(dest)}" alt="" data-photo-dest="${esc(dest.id)}" data-photo-q="${esc(destPhotoQuery(dest))}"><span class="badge2">${dest.flag} ${esc(dest.name)}</span></div>
+  return `<div class="tripCard2" data-trip="${esc(t.id)}">
+    <div class="tripCoverWrap"><img src="${safeImageUrl(t.cover) || destHeroSrc(dest)}" alt="" data-photo-dest="${esc(dest.id)}" data-photo-q="${esc(destPhotoQuery(dest))}"><span class="badge2">${dest.flag} ${esc(dest.name)}</span></div>
     <div class="tripCardBody">
       <h3>${esc(t.title)}</h3>
       <div class="tripMetaRow"><span>📅 ${fmtDateShort(t.start)} – ${fmtDateShort(t.end)}</span><span>${t.days.length} days</span></div>
@@ -3198,13 +3294,13 @@ function tripCardHTML(t){
         <div class="small" style="display:flex;justify-content:space-between;margin-bottom:4px"><span>${fmt$(planned)} planned</span><span>${over?'⚠ over budget':fmt$(t.budget.total)+' budget'}</span></div>
         <div class="progress ${over?'over':''}"><div style="width:${Math.min(pct,100)}%"></div></div>
       </div>
-      <div class="avatarStack" style="margin-top:10px">${t.collaborators.map(c=>`<div class="avatar sm" title="${esc(c.name)}">${c.initials}</div>`).join('')}</div>
+      <div class="avatarStack" style="margin-top:10px">${t.collaborators.map(c=>`<div class="avatar sm" title="${esc(c.name)}">${esc(c.initials)}</div>`).join('')}</div>
       <div class="tripFoot">
-        <button class="btn primary" data-open="${t.id}">Open</button>
-        <button class="btn" data-edit="${t.id}">Edit</button>
-        <button class="btn" data-dup="${t.id}">Duplicate</button>
-        <button class="btn" data-share="${t.id}">Share</button>
-        <button class="btn danger" data-del="${t.id}">Delete</button>
+        <button class="btn primary" data-open="${esc(t.id)}">Open</button>
+        <button class="btn" data-edit="${esc(t.id)}">Edit</button>
+        <button class="btn" data-dup="${esc(t.id)}">Duplicate</button>
+        <button class="btn" data-share="${esc(t.id)}">Share</button>
+        <button class="btn danger" data-del="${esc(t.id)}">Delete</button>
       </div>
     </div>
   </div>`;
@@ -3338,7 +3434,7 @@ function renderShareCollabList(t){
 function renderSavedView(collId){
   const tabsEl = $('collectionTabs');
   const activeId = collId || STATE.collections[0].id;
-  tabsEl.innerHTML = STATE.collections.map(c=>`<button class="collTab ${c.id===activeId?'active':''}" data-coll="${c.id}">${c.icon} ${esc(c.name)} <span class="small">(${c.placeIds.length})</span></button>`).join('');
+  tabsEl.innerHTML = STATE.collections.map(c=>`<button class="collTab ${c.id===activeId?'active':''}" data-coll="${esc(c.id)}">${c.icon} ${esc(c.name)} <span class="small">(${c.placeIds.length})</span></button>`).join('');
   tabsEl.querySelectorAll('[data-coll]').forEach(b=>b.onclick=()=>navigate(`#/saved/${b.dataset.coll}`));
   const active = STATE.collections.find(c=>c.id===activeId) || STATE.collections[0];
   const grid = $('savedGrid');
@@ -3349,7 +3445,7 @@ function renderSavedView(collId){
   }).filter(Boolean);
   grid.innerHTML = items.map(p=>{
     if(p.__isDest){
-      return `<div class="placeCard"><div class="placeImgWrap"><img src="${destHeroSrc(p)}" alt="" data-photo-dest="${esc(p.id)}" data-photo-q="${esc(destPhotoQuery(p))}"><span class="placeCatBadge">Destination</span></div><div class="placeBody"><h4>${p.flag} ${esc(p.name)}</h4><p class="placeDesc">${esc(p.tagline)}</p><div class="placeFoot"><button class="btn primary block" data-godest="${p.id}">Explore</button><button class="btn" data-unsavedest="${p.id}">Remove</button></div></div></div>`;
+      return `<div class="placeCard"><div class="placeImgWrap"><img src="${destHeroSrc(p)}" alt="" data-photo-dest="${esc(p.id)}" data-photo-q="${esc(destPhotoQuery(p))}"><span class="placeCatBadge">Destination</span></div><div class="placeBody"><h4>${p.flag} ${esc(p.name)}</h4><p class="placeDesc">${esc(p.tagline)}</p><div class="placeFoot"><button class="btn primary block" data-godest="${esc(p.id)}">Explore</button><button class="btn" data-unsavedest="${esc(p.id)}">Remove</button></div></div></div>`;
     }
     return placeCardHTML(p,{showDest:true});
   }).join('');
@@ -3400,8 +3496,8 @@ function renderSavedMap(collection, places, unmappable){
   frame.src = gmapsCoordEmbedUrl(avgLat.toFixed(5), avgLng.toFixed(5), zoom);
   list.innerHTML = `
     ${unmappable ? `<p class="small" style="margin:0 0 10px">${unmappable} saved ${unmappable===1?'item has':'items have'} no single location to plot (saved destinations), so ${unmappable===1?"it isn't":"they aren't"} shown here.</p>` : ''}
-    ${places.map(p=>`<button class="mapPlaceRow" data-savedfocus="${p.id}">
-      <div class="stopThumb"><img src="${p.image}" alt="" data-photo-q="${esc(photoQuery(p.name, (findDestination(p.destId)||{}).name))}"></div>
+    ${places.map(p=>`<button class="mapPlaceRow" data-savedfocus="${esc(p.id)}">
+      <div class="stopThumb"><img src="${safeImageUrl(p.image)}" alt="" data-photo-q="${esc(photoQuery(p.name, (findDestination(p.destId)||{}).name))}"></div>
       <div><div>${esc(p.name)}</div><div class="small">${esc(p.area||'')}</div></div>
     </button>`).join('')}`;
   list.querySelectorAll('[data-savedfocus]').forEach(b=>b.onclick=()=>{
@@ -3659,7 +3755,7 @@ function splitDayByNow(day, nowMinutes){
 function travelStopRowHTML(s, destName, state){
   return `<div class="travelStop ${state}">
     <div class="travelTime">${fmtTime12(s.time)}</div>
-    <div class="stopThumb"><img src="${s.image}" alt="" data-photo-q="${esc(photoQuery(s.name, destName))}"></div>
+    <div class="stopThumb"><img src="${safeImageUrl(s.image)}" alt="" data-photo-q="${esc(photoQuery(s.name, destName))}"></div>
     <div class="travelInfo">
       <h4>${esc(s.name)}</h4>
       <div class="small">${esc(s.category||'')}${s.area?` · ${esc(s.area)}`:''}${s.duration?` · ${s.duration} min`:''}</div>
@@ -3694,7 +3790,7 @@ function renderTravelView(){
           <h3 style="margin:0">${days===1?'day':'days'} until ${esc(next.title)}</h3>
           <p class="small" style="margin:2px 0 0">${dest.flag} ${esc(dest.name)} · starts ${fmtDateFull(next.start)}</p>
         </div>
-        <button class="btn primary" data-opentrip="${next.id}">Open trip</button>
+        <button class="btn primary" data-opentrip="${esc(next.id)}">Open trip</button>
       </div>
       ${firstDay && firstDay.stops.length ? `<div class="card" style="margin-top:16px">
         <h3>First day, once you land</h3>
@@ -3715,7 +3811,7 @@ function renderTravelView(){
   if(!day){
     body.innerHTML = `<div class="card"><h3>${esc(trip.title)}</h3>
       <p class="small">You're on this trip, but today (${fmtDateFull(today)}) doesn't have a day planned in the itinerary yet.</p>
-      <button class="btn primary" style="margin-top:10px" data-opentrip="${trip.id}">Open itinerary</button></div>`;
+      <button class="btn primary" style="margin-top:10px" data-opentrip="${esc(trip.id)}">Open itinerary</button></div>`;
     body.querySelectorAll('[data-opentrip]').forEach(b=>b.onclick=()=>navigate(`#/trip/${b.dataset.opentrip}/itinerary`));
     return;
   }
@@ -3736,7 +3832,7 @@ function renderTravelView(){
         <h3 style="margin:2px 0 0">${esc(trip.title)}</h3>
         <p class="small" style="margin:2px 0 0">${fmtDateFull(today)} · ${day.stops.length} stop${day.stops.length===1?'':'s'} · ${fmt$(spend)} planned today${transitMins?` · ~${transitMins} min moving${modeSummary?` (${esc(modeSummary)})`:''}`:''}</p>
       </div>
-      <button class="btn" data-opentrip="${trip.id}">Full itinerary</button>
+      <button class="btn" data-opentrip="${esc(trip.id)}">Full itinerary</button>
     </div>
     ${clock ? `<div class="card clockCard" style="margin-top:14px">
       <div class="clockTime">${clock.time12}</div>
@@ -3809,7 +3905,7 @@ function renderPlannerView(tripId, ptab){
   else if(ptab==='itinerary') renderPlannerItinerary(trip);
   else renderDashboardTab(trip);
 }
-function renderCollabStack(trip){ $('collabStack').innerHTML = trip.collaborators.map(c=>`<div class="avatar sm" title="${esc(c.name)}">${c.initials}</div>`).join(''); }
+function renderCollabStack(trip){ $('collabStack').innerHTML = trip.collaborators.map(c=>`<div class="avatar sm" title="${esc(c.name)}">${esc(c.initials)}</div>`).join(''); }
 
 /* ---------------- More ideas for your trip ----------------
    Real places in this destination that are not already planned, ranked by what the traveller
@@ -3933,7 +4029,7 @@ function renderDashboardTab(trip){
             <div class="nsIcon">${s.icon}</div>
             <h4>${esc(s.title)}</h4>
             <p class="small">${esc(s.desc)}</p>
-            <button class="btn primary sm" data-nextstep="${i}">${esc(s.cta)}</button>
+            <button class="btn primary sm" data-nextstep="${esc(i)}">${esc(s.cta)}</button>
           </div>`).join('')}
         </div>`}
         ${isOver ? '' : renderMoreIdeasHTML(trip, dest)}
@@ -3943,7 +4039,7 @@ function renderDashboardTab(trip){
             <div class="small" style="font-weight:700;margin-bottom:10px">Day 1 · ${fmtDateFull(upcomingDay.date)}</div>
             ${upcomingDay.stops.slice(0,5).map(s=>`<div class="upcomingRow">
               <span class="upTime">${fmtTime12(s.time)}</span>
-              <div class="stopThumb"><img src="${s.image}" data-photo-q="${esc(photoQuery(s.name, dest.name))}"></div>
+              <div class="stopThumb"><img src="${safeImageUrl(s.image)}" data-photo-q="${esc(photoQuery(s.name, dest.name))}"></div>
               <span>${esc(s.name)}</span>
             </div>`).join('')}
             <button class="linklike" style="margin-top:10px" data-goitin="1">View full itinerary →</button>
@@ -3966,7 +4062,7 @@ function renderDashboardTab(trip){
         </div>
       </div>
     </div>`;
-  nextSteps.forEach((s,i)=>{ const b = body.querySelector(`[data-nextstep="${i}"]`); if(b) b.onclick = s.go; });
+  nextSteps.forEach((s,i)=>{ const b = body.querySelector(`[data-nextstep="${esc(i)}"]`); if(b) b.onclick = s.go; });
   body.querySelectorAll('[data-goitin]').forEach(b=>b.onclick=()=>navigate(`#/trip/${trip.id}/itinerary`));
   body.querySelectorAll('[data-ideaadd]').forEach(b=>b.onclick=()=>{
     const p = placeById(b.dataset.ideaadd);
@@ -4262,7 +4358,7 @@ function renderTripSearch(trip){
       return;
     }
     panel.innerHTML = results.slice(0, 40).map((r, i) => `
-      <button class="listRow" data-tripsearch="${i}" style="width:100%;text-align:left">
+      <button class="listRow" data-tripsearch="${esc(i)}" style="width:100%;text-align:left">
         <div class="left">
           <span style="font-size:18px">${TRIP_SEARCH_ICON[r.kind] || '•'}</span>
           <div>
@@ -4347,7 +4443,7 @@ function renderTripMapTab(trip){
         <div class="rowgap">
           <select id="tripMapDayFilter" class="btn sm">
             <option value="all">All ${total} days</option>
-            ${trip.days.map((d, i) => `<option value="${i}">Day ${i + 1} · ${fmtDateFull(d.date)}</option>`).join('')}
+            ${trip.days.map((d, i) => `<option value="${esc(i)}">Day ${i + 1} · ${fmtDateFull(d.date)}</option>`).join('')}
           </select>
           <button class="btn sm" id="tripMapFit"><i class="fa-solid fa-crosshairs"></i> Fit</button>
         </div>
@@ -4571,7 +4667,7 @@ function renderUnscheduledTab(trip){
 
   function drawDayZones(){
     $('dayDropZones').innerHTML = trip.days.map((d,i)=>`
-      <div class="dayDropZone" data-dropday="${i}">
+      <div class="dayDropZone" data-dropday="${esc(i)}">
         <div class="small" style="font-weight:700">Day ${i+1} · ${fmtDateShort(d.date)}</div>
         <div class="small">${d.stops.length} stop${d.stops.length===1?'':'s'}</div>
       </div>`).join('');
@@ -4602,16 +4698,16 @@ function renderUnscheduledTab(trip){
     else arr.sort((a,b)=>(b.rating||0)-(a.rating||0));
 
     $('unschedList').innerHTML = arr.length ? arr.map(p=>`
-      <div class="unschedCard" draggable="true" data-place="${p.id}">
-        <div class="stopThumb"><img src="${p.image}" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
+      <div class="unschedCard" draggable="true" data-place="${esc(p.id)}">
+        <div class="stopThumb"><img src="${safeImageUrl(p.image)}" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
         <div class="unschedInfo">
           <h4>${esc(p.name)}</h4>
           <p class="small">${esc(p.category||p.cuisine||p.type)}${p.area?' · '+esc(p.area):''}</p>
         </div>
         <div class="unschedActions">
-          <select class="uDayPick" data-dayfor="${p.id}" aria-label="Add ${esc(p.name)} to day"><option value="">Add to day…</option>${trip.days.map((d,i)=>`<option value="${i}">Day ${i+1}</option>`).join('')}</select>
-          <button class="btn sm" data-viewmap="${p.id}" title="View on map"><i class="fa-solid fa-map-location-dot"></i></button>
-          <button class="btn sm danger" data-unsave="${p.id}" title="Remove from saved"><i class="fa-solid fa-trash"></i></button>
+          <select class="uDayPick" data-dayfor="${esc(p.id)}" aria-label="Add ${esc(p.name)} to day"><option value="">Add to day…</option>${trip.days.map((d,i)=>`<option value="${esc(i)}">Day ${i+1}</option>`).join('')}</select>
+          <button class="btn sm" data-viewmap="${esc(p.id)}" title="View on map"><i class="fa-solid fa-map-location-dot"></i></button>
+          <button class="btn sm danger" data-unsave="${esc(p.id)}" title="Remove from saved"><i class="fa-solid fa-trash"></i></button>
         </div>
       </div>`).join('') : `<div class="empty">No unscheduled places match those filters. <button class="linklike" data-clearfilters="1">Clear filters</button></div>`;
 
@@ -4748,10 +4844,10 @@ function renderPackingTab(trip){
             ${trip.packing.filter(i=>i.category===cat).map(i=>`
               <div class="listRow">
                 <label class="left" style="cursor:pointer;flex:1">
-                  <input type="checkbox" data-pkcheck="${i.id}" ${i.checked?'checked':''}>
+                  <input type="checkbox" data-pkcheck="${esc(i.id)}" ${i.checked?'checked':''}>
                   <span style="${i.checked?'text-decoration:line-through;color:var(--muted)':''}">${esc(i.text)}</span>
                 </label>
-                <button class="btn sm danger" data-pkremove="${i.id}"><i class="fa-solid fa-trash"></i></button>
+                <button class="btn sm danger" data-pkremove="${esc(i.id)}"><i class="fa-solid fa-trash"></i></button>
               </div>`).join('')}
           </div>
         </div>`).join('')}
@@ -4809,7 +4905,7 @@ function openBookingModal(trip, bookingId){
   __bookingEditId = bookingId || null;
   const existing = bookingId ? tripBookings(trip).find(b=>b.id===bookingId) : null;
   $('bookingModalTitle').textContent = existing ? 'Edit booking' : 'Add booking';
-  $('bookingType').innerHTML = BOOKING_TYPES.map(([k,e,label])=>`<option value="${k}">${e} ${esc(label)}</option>`).join('');
+  $('bookingType').innerHTML = BOOKING_TYPES.map(([k,e,label])=>`<option value="${esc(k)}">${e} ${esc(label)}</option>`).join('');
   $('bookingType').value = existing ? existing.type : 'hotel';
   $('bookingTitle').value = existing ? existing.title : '';
   $('bookingConf').value = existing ? (existing.confirmation||'') : '';
@@ -4876,8 +4972,8 @@ function renderBookingsTab(trip){
             ${b.notes?`<p class="small" style="margin:6px 0 0">${esc(b.notes)}</p>`:''}
           </div>
           <div class="bkActions">
-            <button class="btn sm" data-bkedit="${b.id}">Edit</button>
-            <button class="btn sm danger" data-bkdel="${b.id}"><i class="fa-solid fa-trash"></i></button>
+            <button class="btn sm" data-bkedit="${esc(b.id)}">Edit</button>
+            <button class="btn sm danger" data-bkdel="${esc(b.id)}"><i class="fa-solid fa-trash"></i></button>
           </div>
         </div>`;
       }).join('')}</div>`
@@ -4963,7 +5059,7 @@ function renderTripProgress(trip){
       </button>`).join('')}
     </div>`;
   items.forEach(i=>{
-    const btn = el.querySelector(`[data-pkey="${i.key}"]`);
+    const btn = el.querySelector(`[data-pkey="${esc(i.key)}"]`);
     if(btn) btn.onclick = i.go;
   });
 }
@@ -4986,7 +5082,7 @@ function plannerMapSearch(trip){
 
 function renderPlannerItinerary(trip){
   plannerState.day = clamp(plannerState.day, 0, trip.days.length-1);
-  $('dayTabs2').innerHTML = trip.days.map((d,i)=>`<button class="dayTab ${i===plannerState.day?'active':''}" data-day="${i}">Day ${i+1}${trip.days.length>1?` <span class="rmDay" data-rmday="${i}">✕</span>`:''}</button>`).join('');
+  $('dayTabs2').innerHTML = trip.days.map((d,i)=>`<button class="dayTab ${i===plannerState.day?'active':''}" data-day="${esc(i)}">Day ${i+1}${trip.days.length>1?` <span class="rmDay" data-rmday="${esc(i)}">✕</span>`:''}</button>`).join('');
   $('dayTabs2').querySelectorAll('.dayTab').forEach(b=>b.onclick=(e)=>{ if(e.target.closest('[data-rmday]')) return; plannerState.day=Number(b.dataset.day); renderPlannerItinerary(trip); });
   $('dayTabs2').querySelectorAll('[data-rmday]').forEach(b=>b.onclick=(e)=>{
     e.stopPropagation();
@@ -5010,7 +5106,7 @@ function renderPlannerItinerary(trip){
   });
 
   const day = trip.days[plannerState.day];
-  $('dayToolbar').innerHTML = `<label class="small" style="font-weight:700">Date</label><input type="date" id="dayDateInput" value="${day.date}"><span class="small">${day.stops.length} stop${day.stops.length===1?'':'s'} · drag cards to reorder</span><button class="btn sm" id="dayNoteToggle" style="margin-left:auto"><i class="fa-regular fa-note-sticky"></i> Day note${day.note?' •':''}</button>`;
+  $('dayToolbar').innerHTML = `<label class="small" style="font-weight:700">Date</label><input type="date" id="dayDateInput" value="${esc(day.date)}"><span class="small">${day.stops.length} stop${day.stops.length===1?'':'s'} · drag cards to reorder</span><button class="btn sm" id="dayNoteToggle" style="margin-left:auto"><i class="fa-regular fa-note-sticky"></i> Day note${day.note?' •':''}</button>`;
   $('dayDateInput').onchange = (e)=>{ day.date = e.target.value; saveState(); toast('Day date updated.'); };
   $('dayNoteToggle').onclick = ()=>$('dayNoteBox').classList.toggle('hidden');
 
@@ -5100,7 +5196,7 @@ function renderWeatherForDay(trip, day){
         return `<div class="weatherAdvice">
           <b>⚠️ ${w.rain}% chance of rain, and ${outdoor.length} of today's stops are outdoors.</b>
           ${alts.length ? `<p class="small" style="margin:5px 0 7px">Indoor options in ${esc(dest.name)} you could swap in:</p>
-            <div class="altRow">${alts.map(p=>`<button class="btn sm" data-altadd="${p.id}">+ ${esc(p.name)}</button>`).join('')}</div>`
+            <div class="altRow">${alts.map(p=>`<button class="btn sm" data-altadd="${esc(p.id)}">+ ${esc(p.name)}</button>`).join('')}</div>`
           : `<p class="small" style="margin:5px 0 0">Worth packing a rain layer — there aren't obvious indoor swaps in this destination's places yet.</p>`}
         </div>`;
       })() : ''}`;
@@ -5182,14 +5278,14 @@ function renderDayNote(trip, day){
 function stopHTML(s, i, total, destName){
   const showTransit = i < total-1;
   return `
-  <div class="stop" draggable="true" data-idx="${i}" data-stopid="${s.id}">
+  <div class="stop" draggable="true" data-idx="${esc(i)}" data-stopid="${esc(s.id)}">
     <div class="stopTop">
-      <div class="stopThumb"><img src="${s.image}" alt="" data-photo-q="${esc(photoQuery(s.name, destName))}"><span class="num ${s.type}">${i+1}</span></div>
+      <div class="stopThumb"><img src="${safeImageUrl(s.image)}" alt="" data-photo-q="${esc(photoQuery(s.name, destName))}"><span class="num ${s.type}">${i+1}</span></div>
       <div class="stopBody">
         <h4>${esc(s.name)}</h4>
         <p>${esc(s.category||'')}${s.area?' · '+esc(s.area):''}</p>
         <div class="stopMeta">
-          <input class="stopTimeInput" type="time" value="${s.time}" data-time="${s.id}">
+          <input class="stopTimeInput" type="time" value="${esc(s.time)}" data-time="${esc(s.id)}">
           <span>${s.cost?fmt$(s.cost):'Free'}</span>
           ${s.rating?`<span>★ ${s.rating}</span>`:''}
         </div>
@@ -5199,17 +5295,17 @@ function stopHTML(s, i, total, destName){
           <button class="voteBtn ${s.votes.userVoted==='skip'?'active':''}" data-vote="${s.id}::skip">❌ ${s.votes.skip}</button>
         </div>
         <div class="stopActions">
-          <button class="btn sm" data-note="${s.id}"><i class="fa-regular fa-note-sticky"></i> Note</button>
-          <button class="btn sm" data-comment="${s.id}"><i class="fa-regular fa-comment"></i> Comment${s.comments.length?` (${s.comments.length})`:''}</button>
+          <button class="btn sm" data-note="${esc(s.id)}"><i class="fa-regular fa-note-sticky"></i> Note</button>
+          <button class="btn sm" data-comment="${esc(s.id)}"><i class="fa-regular fa-comment"></i> Comment${s.comments.length?` (${s.comments.length})`:''}</button>
           <a class="btn sm" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.name)}"><i class="fa-solid fa-diamond-turn-right"></i> Directions</a>
-          <button class="btn sm danger" data-rm="${s.id}"><i class="fa-solid fa-trash"></i> Remove</button>
+          <button class="btn sm danger" data-rm="${esc(s.id)}"><i class="fa-solid fa-trash"></i> Remove</button>
         </div>
-        <div class="noteBox ${s.note?'':'hidden'}" data-notebox="${s.id}">
-          <div class="stopNote"><textarea placeholder="Add a note for this stop…">${esc(s.note||'')}</textarea><button class="btn sm primary" data-savenote="${s.id}">Save</button></div>
+        <div class="noteBox ${s.note?'':'hidden'}" data-notebox="${esc(s.id)}">
+          <div class="stopNote"><textarea placeholder="Add a note for this stop…">${esc(s.note||'')}</textarea><button class="btn sm primary" data-savenote="${esc(s.id)}">Save</button></div>
         </div>
-        <div class="commentThread hidden" data-thread="${s.id}">
+        <div class="commentThread hidden" data-thread="${esc(s.id)}">
           ${s.comments.map(c=>`<div class="commentRow"><b>${esc(c.author)}:</b> ${esc(c.text)}</div>`).join('')}
-          <div class="shareRow" style="margin-top:6px"><input placeholder="Add a comment…" data-commentinput="${s.id}"><button class="btn sm primary" data-postcomment="${s.id}">Post</button></div>
+          <div class="shareRow" style="margin-top:6px"><input placeholder="Add a comment…" data-commentinput="${esc(s.id)}"><button class="btn sm primary" data-postcomment="${esc(s.id)}">Post</button></div>
         </div>
       </div>
     </div>
@@ -5220,7 +5316,7 @@ function transitRowHTML(s){
   const modes = ['Walk','Taxi','Transit','Drive'];
   return `<div class="transitRow">
     <i class="fa-solid fa-shoe-prints"></i>
-    <select data-transitmode="${s.id}">${modes.map(m=>`<option ${s.transitToNext.mode===m?'selected':''}>${m}</option>`).join('')}</select>
+    <select data-transitmode="${esc(s.id)}">${modes.map(m=>`<option ${s.transitToNext.mode===m?'selected':''}>${m}</option>`).join('')}</select>
     <span>~${s.transitToNext.mins} min to next stop</span>
   </div>`;
 }
@@ -5267,16 +5363,16 @@ function wireStopEvents(trip, day){
     else{ if(s.votes.userVoted) s.votes[s.votes.userVoted]--; s.votes[kind]++; s.votes.userVoted=kind; }
     saveState(); renderTimeline(trip, day);
   });
-  el.querySelectorAll('[data-note]').forEach(b=>b.onclick=()=>el.querySelector(`[data-notebox="${b.dataset.note}"]`).classList.toggle('hidden'));
+  el.querySelectorAll('[data-note]').forEach(b=>b.onclick=()=>el.querySelector(`[data-notebox="${esc(b.dataset.note)}"]`).classList.toggle('hidden'));
   el.querySelectorAll('[data-savenote]').forEach(b=>b.onclick=()=>{
     const s = day.stops.find(x=>x.id===b.dataset.savenote);
-    s.note = el.querySelector(`[data-notebox="${s.id}"] textarea`).value.trim();
+    s.note = el.querySelector(`[data-notebox="${esc(s.id)}"] textarea`).value.trim();
     saveState(); renderTimeline(trip, day); toast('Note saved.');
   });
-  el.querySelectorAll('[data-comment]').forEach(b=>b.onclick=()=>el.querySelector(`[data-thread="${b.dataset.comment}"]`).classList.toggle('hidden'));
+  el.querySelectorAll('[data-comment]').forEach(b=>b.onclick=()=>el.querySelector(`[data-thread="${esc(b.dataset.comment)}"]`).classList.toggle('hidden'));
   el.querySelectorAll('[data-postcomment]').forEach(b=>b.onclick=()=>{
     const s = day.stops.find(x=>x.id===b.dataset.postcomment);
-    const inp = el.querySelector(`[data-commentinput="${s.id}"]`);
+    const inp = el.querySelector(`[data-commentinput="${esc(s.id)}"]`);
     const text = inp.value.trim();
     if(!text) return;
     s.comments.push({author:'You', text, ts:Date.now()});
@@ -5315,7 +5411,7 @@ function openAddPlaceSearch(trip){
     $('addToTripBody').innerHTML = `
       <input id="addPlaceSearchInput" placeholder="Search attractions, restaurants, hotels…" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:12px;font-weight:600;background:var(--surface2);color:var(--ink)" value="${esc(q||'')}">
       <div class="list" style="max-height:360px;overflow:auto">
-        ${arr.length? arr.map(p=>`<div class="listRow"><div class="left"><img src="${p.image}" style="width:38px;height:38px;border-radius:8px;object-fit:cover;flex-shrink:0" data-photo-q="${esc(photoQuery(p.name, dest.name))}"><div><div>${esc(p.name)}</div><div class="small">${catEmoji(p.type)} ${esc(p.category||p.cuisine||'Hotel')}${p.area?' · '+esc(p.area):''}</div></div></div><button class="btn primary sm" data-quickadd="${p.id}">＋ Add</button></div>`).join('') : '<div class="empty">No matching places.</div>'}
+        ${arr.length? arr.map(p=>`<div class="listRow"><div class="left"><img src="${safeImageUrl(p.image)}" style="width:38px;height:38px;border-radius:8px;object-fit:cover;flex-shrink:0" data-photo-q="${esc(photoQuery(p.name, dest.name))}"><div><div>${esc(p.name)}</div><div class="small">${catEmoji(p.type)} ${esc(p.category||p.cuisine||'Hotel')}${p.area?' · '+esc(p.area):''}</div></div></div><button class="btn primary sm" data-quickadd="${esc(p.id)}">＋ Add</button></div>`).join('') : '<div class="empty">No matching places.</div>'}
       </div>`;
     $('addPlaceSearchInput').oninput = debounce(e=>render(e.target.value),150);
     $('addToTripBody').querySelectorAll('[data-quickadd]').forEach(b=>b.onclick=()=>{
@@ -5397,7 +5493,7 @@ function renderPlannerMapInner(trip, day){
     if(plottable.length>GMAPS_MAX_WAYPOINTS) note = `Showing route for the first ${GMAPS_MAX_WAYPOINTS} of ${plottable.length} stops.`;
   }
   $('map2').innerHTML = navigator.onLine===false ? mapUnavailableHTML()
-    : `<iframe id="map2Frame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen src="${src}"></iframe>`;
+    : `<iframe id="map2Frame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen src="${esc(src)}"></iframe>`;
   window.__plannerMapDest = dest;
   const legends = [['attraction','Attractions','var(--cat-attraction)'],['restaurant','Restaurants','var(--cat-restaurant)'],['hotel','Hotels','var(--cat-hotel)']];
   $('mapLegend2').innerHTML = legends.map(([k,l,c])=>`<span class="legend"><span class="legendDot" style="background:${c}"></span>${l}</span>`).join('') + (note?`<span class="small" style="margin-left:auto">${esc(note)}</span>`:'');
@@ -5444,7 +5540,7 @@ function initOptimizeModal(){
 const EXPENSE_CATS = ['Flights','Hotels','Food','Activities','Transportation','Miscellaneous'];
 const CAT_ICONS = {Flights:'✈️',Hotels:'🏨',Food:'🍜',Activities:'🎟️',Transportation:'🚇',Miscellaneous:'🛍️'};
 function renderBudgetTab(trip){
-  $('budgetStyleRow').innerHTML = ['budget','moderate','luxury'].map(s=>`<button class="styleBtn ${trip.budget.style===s?'active':''}" data-style="${s}">${s.charAt(0).toUpperCase()+s.slice(1)}</button>`).join('');
+  $('budgetStyleRow').innerHTML = ['budget','moderate','luxury'].map(s=>`<button class="styleBtn ${trip.budget.style===s?'active':''}" data-style="${esc(s)}">${s.charAt(0).toUpperCase()+s.slice(1)}</button>`).join('');
   $('budgetStyleRow').querySelectorAll('[data-style]').forEach(b=>b.onclick=()=>{
     trip.budget.style = b.dataset.style;
     const dest = destForTrip(trip);
@@ -5474,7 +5570,7 @@ function renderBudgetTab(trip){
 
   $('expenseList').innerHTML = trip.budget.expenses.length ? trip.budget.expenses.map(e=>`
     <div class="listRow"><div class="left"><span>${CAT_ICONS[e.cat]||'💵'}</span><div><div>${esc(e.desc)}</div><div class="small">${esc(e.cat)}</div></div></div>
-    <div style="display:flex;align-items:center;gap:10px"><strong>${fmt$(e.amount)}</strong><button class="btn sm danger" data-rmexp="${e.id}">Remove</button></div></div>`).join('')
+    <div style="display:flex;align-items:center;gap:10px"><strong>${fmt$(e.amount)}</strong><button class="btn sm danger" data-rmexp="${esc(e.id)}">Remove</button></div></div>`).join('')
     : '<div class="empty">No manual expenses yet — itinerary stops are counted automatically above.</div>';
   $('expenseList').querySelectorAll('[data-rmexp]').forEach(b=>b.onclick=()=>{
     trip.budget.expenses = trip.budget.expenses.filter(e=>e.id!==b.dataset.rmexp);
@@ -5642,7 +5738,7 @@ function renderPollList(trip){
       return `<div class="pollCard">
         <div class="pollHead">
           <h4>${esc(p.question)}</h4>
-          <button class="btn sm danger" data-polldel="${p.id}"><i class="fa-solid fa-trash"></i></button>
+          <button class="btn sm danger" data-polldel="${esc(p.id)}"><i class="fa-solid fa-trash"></i></button>
         </div>
         <div class="small" style="margin-bottom:9px">${total} vote${total===1?'':'s'}${total?'':' yet'}</div>
         ${p.options.map(o=>{
@@ -5819,7 +5915,7 @@ function openApiKeysModal(){
         ${current ? '<span class="keyOn">connected</span>' : '<span class="keyOff">not connected</span>'}
       </div>
       <p class="small" style="margin:2px 0 7px">${esc(p.role)}</p>
-      <input type="password" autocomplete="off" spellcheck="false" data-key="${p.id}"
+      <input type="password" autocomplete="off" spellcheck="false" data-key="${esc(p.id)}"
              placeholder="Paste key — leave blank to remove" value="${esc(current)}">
       <p class="small keyWhere">Free key from <b>${esc(p.where)}</b>${p.hint?` · ${esc(p.hint)}`:''}</p>
     </div>`;
