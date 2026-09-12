@@ -7,6 +7,18 @@ every other application receive the clicks normally.
 Set the speed however you think about it: an interval in hours/minutes/seconds/
 milliseconds, or straight in clicks per second. The two boxes stay in sync.
 
+## Two versions
+
+| | Needs | Start it with |
+| --- | --- | --- |
+| **Python version** | Python installed | `run.bat` |
+| **No-install version** | nothing — uses the PowerShell and .NET already in Windows | `Run-AutoClicker.bat` |
+
+They do the same job the same way: same `SendInput` clicks, same global F6
+hotkey, same Esc panic stop. Use whichever starts. The no-install version has a
+slightly smaller feature set — no fixed-point clicking, since clicking wherever
+the cursor sits is what games want anyway.
+
 ## Running it
 
 Double-click **`run.bat`**.
@@ -118,6 +130,9 @@ reclaim with the mouse. The hotkey and Esc still stop it at any speed.
 | `run.bat` | Launcher |
 | `run-as-admin.bat` | Launcher, elevated, for games that run as administrator |
 | `run-debug.bat` | Launcher that shows what went wrong if the app won't start |
+| `AutoClicker.ps1` | The no-install version: its own click engine and window |
+| `Run-AutoClicker.bat` | Starts the no-install version |
+| `Run-AutoClicker-AsAdmin.bat` | The same, elevated |
 
 ## macOS and Linux
 
