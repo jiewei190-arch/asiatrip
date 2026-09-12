@@ -1,0 +1,6 @@
+# Windows needs nothing installed - clicks go through the Win32 API directly
+# and the interface is Python's built-in tkinter.
+#
+# macOS and Linux use pynput as the input layer instead:
+#     pip install -r requirements.txt
+pynput>=1.7.6; sys_platform != "win32"
