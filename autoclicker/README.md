@@ -20,6 +20,36 @@ If your game runs as administrator, use **`run-as-admin.bat`** instead. Windows
 blocks a normal program from sending input to an elevated window, and the app
 will tell you so in the status line if that happens.
 
+## If nothing happens when you run it
+
+Open PowerShell **in this folder** (shift + right-click the folder → "Open
+PowerShell window here") and type:
+
+```
+py -3 autoclicker.py
+```
+
+If that says `py` is not recognised, try `python autoclicker.py`. Any error
+will be printed right there instead of vanishing.
+
+Or just double-click **`run-debug.bat`** — it checks everything (files, Python,
+tkinter), starts the app with errors visible, and waits so you can read the
+output.
+
+The two usual causes:
+
+- **Python isn't installed**, or Windows is pointing at the Microsoft Store
+  placeholder rather than a real install. Get Python from
+  [python.org](https://www.python.org/downloads/) and tick **"Add python.exe to
+  PATH"** during setup.
+- **Python has no tkinter** — the built-in library that draws the window.
+  Microsoft Store Python is usually the one missing it; the python.org
+  installer includes it.
+
+One thing that will never work: typing the speed into a PowerShell or Command
+Prompt window. Those just echo what you type. The number goes into the Auto
+Clicker window itself, which appears once the app starts.
+
 ## Using it
 
 1. Set the speed — type a clicks-per-second value, or fill in the interval
@@ -87,6 +117,7 @@ reclaim with the mouse. The hotkey and Esc still stop it at any speed.
 | `backend.py` | How clicks reach the OS: `SendInput` on Windows, pynput elsewhere |
 | `run.bat` | Launcher |
 | `run-as-admin.bat` | Launcher, elevated, for games that run as administrator |
+| `run-debug.bat` | Launcher that shows what went wrong if the app won't start |
 
 ## macOS and Linux
 

@@ -16,10 +16,47 @@ import random
 import sys
 import threading
 import time
-import tkinter as tk
+import traceback
 from dataclasses import dataclass
 from pathlib import Path
-from tkinter import ttk
+
+LOG_PATH = Path(__file__).with_name("autoclicker-error.log")
+
+
+def report_fatal(title: str, message: str) -> None:
+    """Make a startup failure visible even when there is no console.
+
+    run.bat launches this with pythonw.exe, which has no stdout and no stderr,
+    so an unhandled error would otherwise look exactly like nothing happening.
+    The message box goes through user32 rather than tkinter, because a missing
+    tkinter is one of the things this has to be able to report.
+    """
+    sys.stderr.write(f"{title}: {message}\n")
+    try:
+        LOG_PATH.write_text(f"{title}\n\n{message}\n", encoding="utf-8")
+    except OSError:
+        pass
+    if sys.platform == "win32":
+        try:
+            ctypes.windll.user32.MessageBoxW(None, message, title, 0x10)
+        except Exception:
+            pass
+
+
+try:
+    import tkinter as tk
+    from tkinter import ttk
+except ImportError as exc:  # pragma: no cover - startup guard
+    report_fatal(
+        "Auto Clicker cannot start",
+        "This copy of Python is missing tkinter, the built-in library that "
+        "draws the window.\n\n"
+        "It is usually missing on Python installed from the Microsoft Store.\n\n"
+        "Fix: install Python from https://www.python.org/downloads/ and tick "
+        '"Add python.exe to PATH" during setup, then run run.bat again.\n\n'
+        f"({exc})",
+    )
+    sys.exit(1)
 
 import backend
 
@@ -567,6 +604,18 @@ class AutoClickerApp:
 
 
 def main() -> None:
+    try:
+        _start()
+    except Exception:
+        report_fatal(
+            "Auto Clicker stopped with an error",
+            "Something went wrong while starting up. The details were saved to:\n"
+            f"{LOG_PATH}\n\n{traceback.format_exc()}",
+        )
+        raise
+
+
+def _start() -> None:
     if sys.platform == "win32":
         try:  # crisp text on scaled displays
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
