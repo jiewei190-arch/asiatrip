@@ -38,12 +38,19 @@ global.CustomEvent = function(n, o){ this.type = n; Object.assign(this, o); };
 const dataSrc = fs.readFileSync(path.join(ROOT, 'data.js'), 'utf8');
 const DEST_RADIUS_KM = eval('(' + dataSrc.match(/const DEST_RADIUS_KM = (\{[\s\S]*?\});/)[1] + ')');
 global.DEST_RADIUS_KM = DEST_RADIUS_KM;
-for(const fn of ['geoDistanceKm', 'hasVerifiedGeo', 'destinationRadiusKm', 'placeWithinDestination']){
+/* currencyCodeForCountry is lifted with the rest because it is the function the APP calls.
+ * This suite used to assert against Currency.currencyForDestination() instead — a second
+ * implementation of the same idea that nothing ships. A suite that checks different code from
+ * the one that runs is how this project spent days believing Medellin was broken after it had
+ * been fixed, so the duplicate is gone and the real one is what is tested. */
+for(const fn of ['geoDistanceKm', 'hasVerifiedGeo', 'destinationRadiusKm', 'placeWithinDestination',
+                 'currencyCodeForCountry']){
   const src = dataSrc.match(new RegExp('function ' + fn + '\\([\\s\\S]*?\\n}', 'm'))[0];
   eval(src);
   global[fn] = eval(fn);
 }
 
+const Geo = require(path.join(ROOT, 'geo.js'));
 const Places = require(path.join(ROOT, 'places.js'));
 const CurrencyData = require(path.join(ROOT, 'currency-data.js'));
 Object.assign(global, CurrencyData);
@@ -66,44 +73,50 @@ const CASES = [
   {q:'Zanzibar',               kind:'island',       country:'Tanzania',    currency:'TZS'},
   {q:'Paris, Texas',           kind:'ambiguous',    country:'United States', currency:'USD'},
   {q:'London, Ontario',        kind:'ambiguous',    country:'Canada',      currency:'CAD'},
+
+  /* The spread asked for in the foundation brief: major cities, mid-size cities, islands,
+     whole countries, and places nobody optimises for. */
+  {q:'New York City',          kind:'city',         country:'United States', currency:'USD'},
+  {q:'London',                 kind:'city',         country:'United Kingdom', currency:'GBP'},
+  {q:'Chengdu',                kind:'city',         country:'China',       currency:'CNY'},
+  {q:'Kyoto',                  kind:'city',         country:'Japan',       currency:'JPY'},
+  {q:'Porto',                  kind:'city',         country:'Portugal',    currency:'EUR'},
+  {q:'Medellin',               kind:'city',         country:'Colombia',    currency:'COP'},
+  {q:'Bali',                   kind:'island',       country:'Indonesia',   currency:'IDR'},
+  {q:'Santorini',              kind:'island',       country:'Greece',      currency:'EUR'},
+  {q:'Madeira',                kind:'island',       country:'Portugal',    currency:'EUR'},
+  {q:'Cape Verde',             kind:'country',      country:'Cape Verde',  currency:'CVE'},
+  {q:'Morocco',                kind:'country',      country:'Morocco',     currency:'MAD'},
+  {q:'Indonesia',              kind:'country',      country:'Indonesia',   currency:'IDR'},
+  {q:'Ushuaia',                kind:'remote town',  country:'Argentina',   currency:'ARS'},
+  // Svalbard, not "Svalbard and Jan Mayen". That was the ISO 3166 entry rather than what the
+  // geocoder says, and the app deliberately shows the country OSM gives it rather than a label
+  // of its own: Photon returns Norway, which is whose territory Longyearbyen is on. The
+  // currency check (NOK) is the one that would catch a real mistake here.
+  {q:'Longyearbyen',           kind:'remote town',  country:'Norway',      currency:'NOK'},
 ];
 
-/* ---------------- geocoding (the same keyless source geo.js uses) ---------------- */
-
-/** Photon throttles a long run, and a throttled request looks identical to "this place does not
- *  exist" unless you retry. Six destinations in the first full run reported as ungeocodable and
- *  every one of them resolved first try on its own, so the failures were mine, not the data's. */
-async function geocodeOnce(query){
-  const url = `https://photon.komoot.io/api?q=${encodeURIComponent(query)}&limit=8&lang=en`;
-  const res = await fetch(url, {headers:{'Accept':'application/json'}});
-  if(!res.ok) throw new Error('geocode http ' + res.status);
-  return res.json();
-}
+/* ---------------- geocoding (the app's own resolver) ---------------- */
 
 async function geocode(query){
-  let json = null, lastErr = null;
+  /* The app's own resolver, imported rather than reimplemented.
+   *
+   * This harness used to carry a private copy of the ranking logic, and the copy drifted:
+   * it reported Medellin resolving to the Philippines for days after the app had been fixed
+   * and verified at 12/12. A suite that reimplements what it is checking tests something
+   * nobody ships. Everything below is now the same code path a typed destination takes,
+   * including the population tiebreak, so a green run here means the product is green. */
+  let geo = null;
   for(let attempt = 0; attempt < 3; attempt++){
     if(attempt) await new Promise(r => setTimeout(r, 1500 * attempt));
-    try{ json = await geocodeOnce(query); lastErr = null; break; }
-    catch(e){ lastErr = e; }
+    geo = await Geo.geoResolve(query);
+    if(geo) break;
   }
-  if(lastErr) throw lastErr;
-  const PLACE_TYPES = new Set(['city','town','village','hamlet','state','region','county',
-                               'country','island','municipality','locality','district','suburb']);
-  const feats = (json.features || []).filter(f => {
-    const p = f.properties || {};
-    return PLACE_TYPES.has(p.osm_value) || PLACE_TYPES.has(p.type);
-  });
-  const f = feats[0] || (json.features || [])[0];
-  if(!f) return null;
-  const p = f.properties || {}, c = (f.geometry || {}).coordinates || [];
-  const ext = Array.isArray(p.extent) && p.extent.length === 4 ? p.extent : null;
+  if(!geo) return null;
   return {
-    name: p.name, country: p.country, countryCode: (p.countrycode || '').toUpperCase(),
-    lat: c[1], lng: c[0], placeType: p.osm_value || p.type, geoVerified: true,
-    id: 'test-' + (p.osm_id || p.name), placeId: `osm:${p.osm_type || 'X'}${p.osm_id || 0}`,
-    bbox: ext ? {minLng:Math.min(ext[0],ext[2]), maxLng:Math.max(ext[0],ext[2]),
-                 minLat:Math.min(ext[1],ext[3]), maxLat:Math.max(ext[1],ext[3])} : null,
+    name: geo.name, country: geo.country, countryCode: geo.countryCode,
+    lat: geo.lat, lng: geo.lng, placeType: geo.type, geoVerified: true,
+    id: 'test-' + (geo.osmId || geo.name), placeId: geo.placeId, bbox: geo.bbox,
   };
 }
 
@@ -142,7 +155,7 @@ function mark(ok, soft){
     }
 
     const countryOk = (dest.country || '').toLowerCase() === c.country.toLowerCase();
-    const detected = Currency.currencyForDestination(dest);
+    const detected = currencyCodeForCountry(dest.country, dest.countryCode);
     const currencyOk = detected === c.currency;
 
     const eat  = await Places.discoverPlaces(dest, 'restaurant');
@@ -154,7 +167,12 @@ function mark(ok, soft){
     const unnamed = all.filter(p => !p.name);
     const noId    = all.filter(p => !/^osm:/.test(p.placeId || ''));
     const fakeNum = all.filter(p => p.rating != null || p.reviews != null);
-    const dupes   = all.length - new Set(all.map(p=>p.placeId)).size;
+    // Duplicates mean the SAME entity listed twice within one category. A place appearing under
+    // both food and stays is not a duplicate: OSM tags a hotel-with-restaurant as both, and
+    // showing it in each list is correct. Giethoorn's De Kruumte is exactly that.
+    const dupeIn = list => list.length - new Set(list.map(p=>p.placeId)).size;
+    const dupes   = dupeIn(eat) + dupeIn(stay);
+    const dualUse = stay.filter(p => eat.some(e => e.placeId === p.placeId)).length;
 
     const boundsOk = outside.length === 0 && unnamed.length === 0 && noId.length === 0
                      && fakeNum.length === 0 && dupes === 0;
@@ -178,7 +196,8 @@ function mark(ok, soft){
     if(!currencyOk) why.push(`expected ${c.currency}`);
     if(outside.length) why.push(`${outside.length} out of bounds`);
     if(fakeNum.length) why.push(`${fakeNum.length} carry invented ratings`);
-    if(dupes) why.push(`${dupes} duplicates`);
+    if(dupes) why.push(`${dupes} duplicates within a category`);
+    if(dualUse) why.push(`${dualUse} hotel${dualUse===1?'':'s'} with a restaurant (listed in both, correctly)`);
     if(!eat.length) why.push('no food mapped');
     if(!stay.length) why.push('no stays mapped');
     console.log(row + (why.length ? '  ' + why.join('; ') : ''));
@@ -204,5 +223,11 @@ function mark(ok, soft){
   }
 
   console.log(`\n${pass} passed, ${fail} failed, ${warn} warnings (thin map data, not defects)\n`);
-  process.exit(fail ? 1 : 0);
+  /* process.exitCode rather than process.exit(): when stdout is redirected to a file or a pipe,
+   * Node writes it asynchronously and process.exit() discards whatever is still buffered. Two
+   * full worldwide runs lost their closing summary that way — the tally, the sample of what was
+   * found and the currency checks were simply gone, and the run looked like it had died at
+   * whichever destination happened to be last flushed. Setting the code instead lets Node drain
+   * stdout and exit on its own. */
+  process.exitCode = fail ? 1 : 0;
 })();

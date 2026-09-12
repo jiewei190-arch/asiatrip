@@ -123,6 +123,30 @@ function check(name, cond, detail){
     check('every one is inside the destination', res.allInBounds);
     check('there are no duplicates', res.dupes === 0, `${res.dupes} duplicates`);
     check('no invented star ratings', res.anyRating === false);
+
+  /* The same rule, applied to EVERY place rather than only the discovered ones. The curated
+   * twelve carried 132 hardcoded ratings and 132 review counts for a long time after the
+   * discovered path was cleaned — every rating between 4.3 and 4.8, which is not a distribution
+   * any real dataset produces — plus generateReviews(), which attached made-up people and
+   * templated review text to real, named businesses. */
+  const wide = await page.evaluate(() => ({
+    total: PLACES.length,
+    withRating: PLACES.filter(p => p.rating != null).length,
+    withReviews: PLACES.filter(p => p.reviews != null).length,
+    withGuestRating: PLACES.filter(p => p.guestRating != null).length,
+    reviewGenerator: typeof generateReviews,
+    reviewNames: typeof REVIEW_NAMES,
+    starsOnScreen: document.querySelectorAll('.stars').length,
+    reviewBlocks: document.querySelectorAll('.pdReview').length,
+  }));
+  check('not one place anywhere carries a rating', wide.withRating === 0,
+        `${wide.withRating} of ${wide.total}`);
+  check('not one carries a review count', wide.withReviews === 0, `${wide.withReviews}`);
+  check('not one carries a guest score', wide.withGuestRating === 0, `${wide.withGuestRating}`);
+  check('the review fabricator is gone from the code', wide.reviewGenerator === 'undefined');
+  check('so is its cast of invented reviewers', wide.reviewNames === 'undefined');
+  check('no star row is rendered anywhere', wide.starsOnScreen === 0, `${wide.starsOnScreen} on screen`);
+  check('no review block is rendered anywhere', wide.reviewBlocks === 0);
     check('no invented review counts', res.anyReviews === false);
     check('no invented prices', res.anyPrice === false);
     console.log('        found: ' + res.names.join(', '));
@@ -146,16 +170,37 @@ function check(name, cond, detail){
 
   console.log('\n5. Pagination renders a page, not everything');
   {
-    const res = await page.evaluate(() => {
-      const fake = Array.from({length: 300}, (_, i) => ({placeId:'osm:N'+i, name:'P'+i}));
-      const p0 = pagePlaces(fake, 0);
-      const p1 = pagePlaces(fake, 1);
-      return {first:p0.items.length, second:p1.items.length, total:p0.total, more:p0.hasMore};
+    /* Against the pagination the app SHIPS. This used to call pagePlaces(), a second
+     * implementation in places.js that renderPagedPlaceGrid() does not use — so it verified
+     * behaviour nobody could reach. A dense city returns several hundred entities and putting
+     * them all in the DOM at once is a visible freeze on a phone, which is the thing worth
+     * checking, so the check now drives the real grid. */
+    const res = await page.evaluate(async () => {
+      const dest = DESTINATIONS.find(d => d.id === 'paris');
+      const fake = Array.from({length: 300}, (_, i) => ({
+        id:'fake'+i, placeId:'osm:N'+i, destId:dest.id, name:'Fake place '+i,
+        type:'attraction', category:'Museum', lat:dest.lat, lng:dest.lng, source:'test' }));
+      const holder = document.createElement('div');
+      holder.id = 'pagingProbe';
+      document.body.appendChild(holder);
+      renderPagedPlaceGrid('pagingProbe', fake, dest, 'attraction', placeCardHTML);
+      const first = holder.querySelectorAll('.placeCard').length;
+      const more = holder.querySelector('[data-showmore]');
+      const label = more ? more.textContent : '';
+      if(more) more.click();
+      await new Promise(r => setTimeout(r, 300));
+      const second = holder.querySelectorAll('.placeCard').length;
+      const nested = holder.querySelectorAll('.placeGrid .placeGrid').length;
+      holder.remove();
+      return { first, second, label, nested };
     });
-    check('the first page is bounded', res.first > 0 && res.first <= 30, `${res.first} items`);
-    check('showing more appends rather than replaces', res.second > res.first);
-    check('the total is reported honestly', res.total === 300);
-    check('it knows there is more to show', res.more === true);
+    check('the first render is bounded, not all 300', res.first > 0 && res.first <= 60, `${res.first} cards`);
+    check('a "Show more" is offered while there is more', /Show more/.test(res.label), res.label);
+    check('and it says how many are left', /\d+ more/.test(res.label), res.label);
+    check('showing more appends rather than replaces', res.second > res.first,
+          `${res.first} then ${res.second}`);
+    // The bug that made every card a third of a third of the width on a phone.
+    check('no grid is nested inside another grid', res.nested === 0);
   }
 
   console.log('\n6. Currency: complete catalogue, searchable, dual prices, honest gaps');
@@ -213,5 +258,11 @@ function check(name, cond, detail){
 
   await browser.close();
   console.log(`\n${pass} passed, ${fail} failed\n`);
-  process.exit(fail ? 1 : 0);
+  /* process.exitCode rather than process.exit(): when stdout is redirected to a file or a pipe,
+   * Node writes it asynchronously and process.exit() discards whatever is still buffered. Two
+   * full worldwide runs lost their closing summary that way — the tally, the sample of what was
+   * found and the currency checks were simply gone, and the run looked like it had died at
+   * whichever destination happened to be last flushed. Setting the code instead lets Node drain
+   * stdout and exit on its own. */
+  process.exitCode = fail ? 1 : 0;
 })();

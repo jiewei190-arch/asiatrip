@@ -663,7 +663,10 @@ async function resolveDestinationPhoto(dest){
 }
 
 /* ---- Geocoding via OpenStreetMap Nominatim (no key) — real coordinates for ANY place typed, worldwide ---- */
-const GEOCODE_CACHE_KEY = 'tripflow_geocode_cache_v1';
+/* v2: v1 cached country names in whatever language the place itself spoke, because the lookup never asked
+ * for English. Bumped rather than migrated — the entries are cheap to refetch and a mixed cache
+ * would show some travellers "Austria" and others "Österreich" with no way to tell which. */
+const GEOCODE_CACHE_KEY = 'tripflow_geocode_cache_v2';
 let __geocodeCache = null;
 function geocodeCache(){ if(!__geocodeCache) __geocodeCache = readJSONCache(GEOCODE_CACHE_KEY); return __geocodeCache; }
 /** Place kinds Nominatim may return when resolving a destination. Its free-text search
@@ -683,7 +686,7 @@ async function geocodeCity(query){
   if(cache[key]) return cache[key];
   let result = null;
   try{
-    const res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&q=${encodeURIComponent(query)}`, 8000, {headers:{'Accept':'application/json'}});
+    const res = await fetchWithTimeout(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=8&accept-language=en&q=${encodeURIComponent(query)}`, 8000, {headers:{'Accept':'application/json','Accept-Language':'en'}});
     if(res && res.ok){
       const arr = await res.json();
       // Take the first result that is actually a PLACE. Without this the first result can be
@@ -698,10 +701,35 @@ async function geocodeCity(query){
           lat: parseFloat(a.lat), lng: parseFloat(a.lon),
           city: addr.city || addr.town || addr.village || addr.municipality || addr.county || a.name || query,
           country: addr.country || '',
+          // The ISO code, not just the display name: currency and the cost estimate are both
+          // keyed on it, and without it a typed destination reported no cost estimate at all
+          // while its country sat in the table under a name nothing matched.
+          countryCode: (addr.country_code || '').toUpperCase(),
         };
       }
     }
   }catch(e){}
+
+  /* Nominatim asks for no more than one request a second and enforces it, so a traveller who
+   * types a few destinations in quick succession gets nothing back — and until now nothing back
+   * meant a destination with no coordinates, which means no discovery, which means an itinerary
+   * with empty days. One geocoder was a single point of failure for the whole product.
+   *
+   * geo.js already talks to Photon, with a ranker that has been calibrated against a holdout set
+   * and knows that Salvador is a city in Brazil rather than a country in Central America. It is
+   * the better answer; it is second here only because Nominatim's address breakdown gives a
+   * cleaner country name, and geoResolve is asked for exactly the same shape. */
+  if(!result && typeof geoResolve === 'function'){
+    try {
+      const hit = await geoResolve(query);
+      if(hit && hit.lat != null && hit.lng != null){
+        result = { lat: hit.lat, lng: hit.lng,
+                   city: hit.name || query, country: hit.country || '',
+                   countryCode: (hit.countryCode || '').toUpperCase() };
+      }
+    }catch(e){}
+  }
+
   // Same rule as the photo cache: only persist a confirmed real result, so a transient failure
   // retries next time instead of permanently sticking.
   if(result){ cache[key] = result; writeJSONCache(GEOCODE_CACHE_KEY, cache); }
@@ -937,29 +965,69 @@ function applyEnrichment(dest, payload){
   if(!dest.__geo){
     if(payload.lat != null) dest.lat = payload.lat;
     if(payload.lng != null) dest.lng = payload.lng;
+    // Confirmed only when the payload says a geocoder produced them. A payload that fell back to
+    // whatever the destination already had must not launder those coordinates into verified ones.
+    if(payload.geocoded && payload.lat != null && payload.lng != null) dest.geoVerified = true;
     if(payload.country){ dest.country = payload.country; dest.currencyCode = currencyCodeForCountry(payload.country); }
   }
   if(payload.attractions && payload.attractions.length){
-    for(let i=PLACES.length-1;i>=0;i--){ if(PLACES[i].destId===dest.id && PLACES[i].type==='attraction') PLACES.splice(i,1); }
-    payload.attractions.forEach((p,i)=>{
+    // ADD, never replace. This block used to splice out every attraction the destination already
+    // had before pushing its own, which meant that whenever Wikipedia enrichment finished after
+    // OpenStreetMap discovery — the usual order, since enrichment is the faster call — it
+    // deleted several hundred real discovered attractions and left its own handful behind. That
+    // is why a destination could show four hundred restaurants beside seven things to do.
+    //
+    // Enrichment and discovery are two sources for the same question and both return real
+    // places; the right thing is to merge them and drop repeats by name.
+    const seen = new Set(PLACES.filter(p => p.destId === dest.id && p.type === 'attraction')
+      .map(p => String(p.name || '').trim().toLowerCase()));
+    payload.attractions.forEach((p, i) => {
+      const key = String(p.name || '').trim().toLowerCase();
+      if(!key || seen.has(key)) return;
+      seen.add(key);
       PLACES.push(Object.assign({ id:`${dest.id}-a${i+1}`, destId:dest.id, type:'attraction', source:'live' }, p,
         { image: p.image || img(dest.id+'-attr-'+i, 640,480, p.name) }));
     });
   }
   dest.__enriched = true;
 }
-async function enrichGenericDestination(dest){
-  if(dest.__enriched || dest.__enriching) return false;
+/** Resolves a typed destination: real coordinates, and real landmarks from Wikipedia.
+ *
+ *  A caller that arrives while this is already running gets the SAME promise rather than a bare
+ *  false. That distinction decides whether the itinerary has anything in it: the preferences step
+ *  starts this in the background, and generation starts it again a moment later. Returning false
+ *  to the second caller told it the work was finished when it had barely begun, so it planned
+ *  against a destination that still had no coordinates — and a destination with no coordinates is
+ *  one discovery refuses to search. Forty-five stops or none, depending on a race. */
+function enrichGenericDestination(dest){
+  if(!dest || dest.__enriched) return Promise.resolve(false);
+  if(dest.__enriching && dest.__enrichPromise) return dest.__enrichPromise;
+  dest.__enrichPromise = __enrichGenericDestination(dest);
+  return dest.__enrichPromise;
+}
+async function __enrichGenericDestination(dest){
+  if(dest.__enriched) return false;
   dest.__enriching = true;
   try{
     const cache = enrichCache();
-    if(cache[dest.id] && cache[dest.id].attractions && cache[dest.id].attractions.length){ applyEnrichment(dest, cache[dest.id]); return true; }
+    if(cache[dest.id] && cache[dest.id].attractions && cache[dest.id].attractions.length){
+      applyEnrichment(dest, cache[dest.id]);
+      /* Cached before coordinates carried their provenance, so the destination can come back
+       * from cache with real coordinates that nothing has confirmed — and unconfirmed
+       * coordinates mean discovery refuses to run for it, forever. One cheap geocode settles it
+       * rather than throwing away a good cache of attractions. */
+      if(!hasVerifiedGeo(dest)){
+        const cachedGeo = await geocodeCity(destGeoQuery(dest));
+        if(cachedGeo) applyGeoToDestination(dest, cachedGeo);
+      }
+      return true;
+    }
     // A destination picked from search already carries real coordinates from geo.js, so
     // geocoding it again is a redundant Nominatim round-trip on the critical path — and
     // Nominatim is the slowest and least reliable call in the app. Skipping it is why the
     // real local attractions now appear promptly instead of after a long spell of
     // placeholders; only a destination that arrived without coordinates still needs it.
-    const geo = dest.__geo ? null : await geocodeCity(dest.name + (dest.country ? ', '+dest.country : ''));
+    const geo = dest.__geo ? null : await geocodeCity(destGeoQuery(dest));
     const lat = geo ? geo.lat : dest.lat, lng = geo ? geo.lng : dest.lng;
     const pois = await fetchNearbyWikiPOIs(lat, lng, 40);
     if(!geo && !pois.length){ dest.__enriched = true; return false; }
@@ -980,11 +1048,17 @@ async function enrichGenericDestination(dest){
         image: p.image,
       };
     });
-    const payload = { lat, lng, country: geo && geo.country, attractions };
+    // Coordinates carry where they came from. Without this the enrichment wrote a real geocoded
+    // latitude onto a destination still flagged geoVerified:false, and hasVerifiedGeo — which is
+    // what gates OpenStreetMap discovery — kept saying no. Every destination a traveller typed
+    // rather than picked from the bundled thirty was therefore locked out of discovery entirely:
+    // a real city, real coordinates sitting right there on the object, and six places.
+    const payload = { lat, lng, country: geo && geo.country, attractions, geocoded: !!geo };
     // Only persist once there's real attraction data to show for it — an empty list here is
     // just as likely a transient POI-fetch failure as a genuinely quiet destination, so leave
     // it to retry on the next visit rather than caching a permanent dead end.
     if(attractions.length){ cache[dest.id] = payload; writeJSONCache(ENRICH_CACHE_KEY, cache); }
+    if(geo) applyGeoToDestination(dest, geo);   // the one place that owns "these are confirmed"
     applyEnrichment(dest, payload);
     return true;
   } finally { dest.__enriching = false; }
@@ -1026,47 +1100,20 @@ const INTERESTS = [
   ['romantic','💑','Romantic','sunsets, fine dining, views'],
 ];
 
-const REVIEW_NAMES = ['Alex M.','Priya K.','Jordan T.','Sofia R.','Liam C.','Mei L.','Noah B.','Ava S.','Diego F.','Hana Y.','Emma W.','Lucas P.','Zara Q.','Ethan G.','Nina V.'];
-const REVIEW_TEMPLATES = {
-  attraction: [
-    "Absolutely worth the visit — go early to beat the crowds.",
-    "Beautiful spot, better than the photos honestly. Budget 1.5–2 hours.",
-    "A must-see. We almost skipped it and would have regretted that.",
-    "Loved the atmosphere here. A little touristy but still special.",
-    "Great for photos and just soaking in the local culture.",
-    "Worth the trip — bring cash for the small stalls nearby."
-  ],
-  restaurant: [
-    "The food here was incredible — we came back a second night.",
-    "Small menu but everything was executed perfectly. No reservation needed at lunch.",
-    "Best meal of the trip. A bit of a wait but moved fast.",
-    "Great value for the quality. Loved the local ingredients.",
-    "Cozy spot, friendly staff, and the flavors were spot on.",
-    "Portions were generous and the vibe was exactly what we wanted."
-  ],
-  hotel: [
-    "Room was spotless and the location made everything walkable.",
-    "Staff went above and beyond — upgraded us on arrival.",
-    "Great breakfast, comfy beds, and the view was unreal.",
-    "Quiet, clean, and close to everything we wanted to see.",
-    "A little pricey but worth it for the service and location.",
-    "Perfect base for exploring — would book again in a heartbeat."
-  ]
-};
-
-function generateReviews(place, seedKey){
-  const pool = REVIEW_TEMPLATES[place.type] || REVIEW_TEMPLATES.attraction;
-  const n = 3;
-  const out = [];
-  let h = 0; for(const c of (seedKey||place.name)) h = (h*31 + c.charCodeAt(0)) % 997;
-  for(let i=0;i<n;i++){
-    const ni = (h + i*7) % REVIEW_NAMES.length;
-    const ti = (h + i*13) % pool.length;
-    const rating = Math.max(3, Math.min(5, Math.round((place.rating||4.5) + (i===2?-0.5:0))));
-    out.push({ name: REVIEW_NAMES[ni], rating, text: pool[ti], daysAgo: 3 + ((h+i*17)%160) });
-  }
-  return out;
-}
+/* Reviews are not shown, and this is where they used to be invented.
+ *
+ * REVIEW_NAMES held fifteen made-up people ("Alex M.", "Priya K."), REVIEW_TEMPLATES held six
+ * lines of review text per category, and generateReviews() hashed a place id to pick a name, a
+ * line and a plausible "12 days ago". The place detail then rendered all three under a heading
+ * that said Reviews.
+ *
+ * These were attached to REAL, NAMED businesses. A fabricated person praising a restaurant that
+ * exists is not placeholder content — it is a fake review of somebody's livelihood, and a
+ * traveller cannot tell it from a real one. It went the same way as the invented star ratings
+ * and the stand-in photographs, for the same reason.
+ *
+ * OpenStreetMap has no ratings and no reviews, so there is nothing truthful to put here. The
+ * detail view now shows what is actually known about a place and stops there. */
 
 /* ---------------- DESTINATIONS (raw, nested) ---------------- */
 const DESTINATIONS_RAW = [
@@ -1086,25 +1133,25 @@ const DESTINATIONS_RAW = [
     localTransport:'Tokyo Metro and JR Lines — get a Suica or Pasmo IC card for easy tap-to-ride.',
     etiquette:"Don't eat while walking, keep phone calls off trains, remove shoes when entering homes and some restaurants, tipping is not customary." },
   attractions:[
-    {name:'Senso-ji Temple', category:'Culture', rating:4.7, reviews:48210, priceLevel:0, price:0, area:'Asakusa', lat:35.7148,lng:139.7967, desc:"Tokyo's oldest temple, approached through a lantern-lit market street.", tags:['culture','history','photography'], duration:90},
-    {name:'Shibuya Sky', category:'Viewpoint', rating:4.6, reviews:21870, priceLevel:2, price:25, area:'Shibuya', lat:35.6580,lng:139.7016, desc:"Open-air rooftop deck with 360° views over Shibuya Crossing.", tags:['photography','nightlife'], duration:75},
-    {name:'Meiji Jingu Shrine', category:'Nature', rating:4.7, reviews:31450, priceLevel:0, price:0, area:'Harajuku', lat:35.6764,lng:139.6993, desc:"A forested shrine sanctuary in the middle of the city.", tags:['nature','relax','culture'], duration:80},
-    {name:'teamLab Planets', category:'Art', rating:4.6, reviews:18320, priceLevel:3, price:32, area:'Toyosu', lat:35.6462,lng:139.7930, desc:"Immersive, barefoot digital art installations that react to you.", tags:['art','photography'], duration:120},
-    {name:'Tsukiji Outer Market', category:'Market', rating:4.6, reviews:26900, priceLevel:1, price:15, area:'Tsukiji', lat:35.6655,lng:139.7708, desc:"Narrow lanes of sushi counters, tamagoyaki and seafood snacks.", tags:['food','shopping'], duration:90},
-    {name:'Kappabashi Kitchen Town', category:'Shopping', rating:4.5, reviews:5210, priceLevel:1, price:10, area:'Asakusa', lat:35.7143,lng:139.7906, desc:"Chef knives, ceramics and famously realistic plastic food models.", tags:['shopping','hidden'], duration:60},
+    {name:'Senso-ji Temple', category:'Culture', priceLevel:0, price:0, area:'Asakusa', lat:35.7148,lng:139.7967, desc:"Tokyo's oldest temple, approached through a lantern-lit market street.", tags:['culture','history','photography'], duration:90},
+    {name:'Shibuya Sky', category:'Viewpoint', priceLevel:2, price:25, area:'Shibuya', lat:35.6580,lng:139.7016, desc:"Open-air rooftop deck with 360° views over Shibuya Crossing.", tags:['photography','nightlife'], duration:75},
+    {name:'Meiji Jingu Shrine', category:'Nature', priceLevel:0, price:0, area:'Harajuku', lat:35.6764,lng:139.6993, desc:"A forested shrine sanctuary in the middle of the city.", tags:['nature','relax','culture'], duration:80},
+    {name:'teamLab Planets', category:'Art', priceLevel:3, price:32, area:'Toyosu', lat:35.6462,lng:139.7930, desc:"Immersive, barefoot digital art installations that react to you.", tags:['art','photography'], duration:120},
+    {name:'Tsukiji Outer Market', category:'Market', priceLevel:1, price:15, area:'Tsukiji', lat:35.6655,lng:139.7708, desc:"Narrow lanes of sushi counters, tamagoyaki and seafood snacks.", tags:['food','shopping'], duration:90},
+    {name:'Kappabashi Kitchen Town', category:'Shopping', priceLevel:1, price:10, area:'Asakusa', lat:35.7143,lng:139.7906, desc:"Chef knives, ceramics and famously realistic plastic food models.", tags:['shopping','hidden'], duration:60},
   ],
   restaurants:[
-    {name:'Ichiran Ramen Shibuya', cuisine:'Ramen', rating:4.5, reviews:12040, priceLevel:2, price:13, area:'Shibuya', lat:35.6595,lng:139.7005, desc:"Solo tonkotsu ramen booths with a build-your-own flavor form.", tags:['food'], dietary:[], hours:'11:00 AM – 11:00 PM'},
-    {name:'Omoide Yokocho', cuisine:'Yakitori', rating:4.4, reviews:9800, priceLevel:2, price:22, area:'Shinjuku', lat:35.6935,lng:139.6982, desc:"Tiny smoke-filled yakitori lanes tucked beside Shinjuku Station.", tags:['food','nightlife'], dietary:[], hours:'5:00 PM – 12:00 AM'},
-    {name:'Sushi Dai', cuisine:'Sushi', rating:4.7, reviews:6400, priceLevel:3, price:45, area:'Toyosu', lat:35.6455,lng:139.7715, desc:"Legendary omakase counter — arrive early, the line is worth it.", tags:['food'], dietary:[], hours:'6:00 AM – 1:30 PM'},
-    {name:'Afuri Ramen', cuisine:'Ramen', rating:4.5, reviews:7100, priceLevel:2, price:15, area:'Ebisu', lat:35.6467,lng:139.7100, desc:"Citrusy yuzu-shio ramen in a sleek, modern noodle bar.", tags:['food'], dietary:['vegetarian'], hours:'11:00 AM – 11:00 PM'},
-    {name:'Gonpachi Nishi-Azabu', cuisine:'Izakaya', rating:4.4, reviews:5300, priceLevel:3, price:38, area:'Nishi-Azabu', lat:35.6590,lng:139.7256, desc:"Dramatic wooden izakaya hall said to have inspired Kill Bill.", tags:['food','nightlife','romantic'], dietary:[], hours:'11:30 AM – 3:30 AM'},
+    {name:'Ichiran Ramen Shibuya', cuisine:'Ramen', priceLevel:2, price:13, area:'Shibuya', lat:35.6595,lng:139.7005, desc:"Solo tonkotsu ramen booths with a build-your-own flavor form.", tags:['food'], dietary:[], hours:'11:00 AM – 11:00 PM'},
+    {name:'Omoide Yokocho', cuisine:'Yakitori', priceLevel:2, price:22, area:'Shinjuku', lat:35.6935,lng:139.6982, desc:"Tiny smoke-filled yakitori lanes tucked beside Shinjuku Station.", tags:['food','nightlife'], dietary:[], hours:'5:00 PM – 12:00 AM'},
+    {name:'Sushi Dai', cuisine:'Sushi', priceLevel:3, price:45, area:'Toyosu', lat:35.6455,lng:139.7715, desc:"Legendary omakase counter — arrive early, the line is worth it.", tags:['food'], dietary:[], hours:'6:00 AM – 1:30 PM'},
+    {name:'Afuri Ramen', cuisine:'Ramen', priceLevel:2, price:15, area:'Ebisu', lat:35.6467,lng:139.7100, desc:"Citrusy yuzu-shio ramen in a sleek, modern noodle bar.", tags:['food'], dietary:['vegetarian'], hours:'11:00 AM – 11:00 PM'},
+    {name:'Gonpachi Nishi-Azabu', cuisine:'Izakaya', priceLevel:3, price:38, area:'Nishi-Azabu', lat:35.6590,lng:139.7256, desc:"Dramatic wooden izakaya hall said to have inspired Kill Bill.", tags:['food','nightlife','romantic'], dietary:[], hours:'11:30 AM – 3:30 AM'},
   ],
   hotels:[
-    {name:'Park Hyatt Tokyo', stars:5, guestRating:9.3, price:520, area:'Shinjuku', lat:35.6852,lng:139.6900, desc:"Iconic skyline views made famous on the big screen.", amenities:['Pool','Spa','Gym','Bar','Free WiFi']},
-    {name:'Shibuya Stream Excel Hotel', stars:4, guestRating:8.9, price:210, area:'Shibuya', lat:35.6570,lng:139.7010, desc:"Sleek rooms steps from Shibuya Crossing and the station.", amenities:['Gym','Bar','Free WiFi','Restaurant']},
-    {name:'Asakusa View Hotel', stars:4, guestRating:8.6, price:165, area:'Asakusa', lat:35.7139,lng:139.7980, desc:"Old-town charm with Skytree views from upper floors.", amenities:['Pool','Bar','Free WiFi']},
-    {name:'UNPLAN Kagurazaka Hostel', stars:2, guestRating:8.7, price:48, area:'Kagurazaka', lat:35.7013,lng:139.7405, desc:"Design-forward hostel in a quiet, café-lined neighborhood.", amenities:['Free WiFi','Shared kitchen','Lounge']},
+    {name:'Park Hyatt Tokyo', stars:5, price:520, area:'Shinjuku', lat:35.6852,lng:139.6900, desc:"Iconic skyline views made famous on the big screen.", amenities:['Pool','Spa','Gym','Bar','Free WiFi']},
+    {name:'Shibuya Stream Excel Hotel', stars:4, price:210, area:'Shibuya', lat:35.6570,lng:139.7010, desc:"Sleek rooms steps from Shibuya Crossing and the station.", amenities:['Gym','Bar','Free WiFi','Restaurant']},
+    {name:'Asakusa View Hotel', stars:4, price:165, area:'Asakusa', lat:35.7139,lng:139.7980, desc:"Old-town charm with Skytree views from upper floors.", amenities:['Pool','Bar','Free WiFi']},
+    {name:'UNPLAN Kagurazaka Hostel', stars:2, price:48, area:'Kagurazaka', lat:35.7013,lng:139.7405, desc:"Design-forward hostel in a quiet, café-lined neighborhood.", amenities:['Free WiFi','Shared kitchen','Lounge']},
   ]
 },
 
@@ -1123,25 +1170,25 @@ const DESTINATIONS_RAW = [
     localTransport:'Paris Métro and RER trains — a Navigo Easy card covers most rides.',
     etiquette:"Always greet with \"Bonjour\" before starting a conversation, dress a bit more formally than casual tourist wear, tipping isn't required (service is included) but rounding up is appreciated." },
   attractions:[
-    {name:'Eiffel Tower', category:'Landmark', rating:4.7, reviews:302000, priceLevel:2, price:28, area:'Champ de Mars', lat:48.8584,lng:2.2945, desc:"Paris's icon — best viewed from Trocadéro at sunset.", tags:['photography','romantic'], duration:120},
-    {name:'The Louvre', category:'Museum', rating:4.7, reviews:265000, priceLevel:2, price:22, area:'1st Arrondissement', lat:48.8606,lng:2.3376, desc:"The world's largest art museum, home to the Mona Lisa.", tags:['culture','art','history'], duration:180},
-    {name:'Montmartre & Sacré-Cœur', category:'Neighborhood', rating:4.7, reviews:118000, priceLevel:0, price:0, area:'Montmartre', lat:48.8867,lng:2.3431, desc:"Cobblestone lanes, artists' squares and a basilica with a view.", tags:['culture','photography','hidden'], duration:150},
-    {name:"Musée d'Orsay", category:'Museum', rating:4.7, reviews:76000, priceLevel:2, price:18, area:'7th Arrondissement', lat:48.8600,lng:2.3266, desc:"Impressionist masterpieces inside a former Beaux-Arts train station.", tags:['culture','art'], duration:120},
-    {name:'Seine River Cruise', category:'Tour', rating:4.6, reviews:54000, priceLevel:2, price:18, area:'Pont Neuf', lat:48.8566,lng:2.3376, desc:"An hour gliding past Notre-Dame, the Louvre and the Eiffel Tower.", tags:['romantic','photography'], duration:70},
-    {name:'Le Marais', category:'Neighborhood', rating:4.6, reviews:39000, priceLevel:1, price:0, area:'Le Marais', lat:48.8575,lng:2.3622, desc:"Historic Jewish quarter turned boutique-and-falafel wonderland.", tags:['shopping','food','hidden'], duration:120},
+    {name:'Eiffel Tower', category:'Landmark', priceLevel:2, price:28, area:'Champ de Mars', lat:48.8584,lng:2.2945, desc:"Paris's icon — best viewed from Trocadéro at sunset.", tags:['photography','romantic'], duration:120},
+    {name:'The Louvre', category:'Museum', priceLevel:2, price:22, area:'1st Arrondissement', lat:48.8606,lng:2.3376, desc:"The world's largest art museum, home to the Mona Lisa.", tags:['culture','art','history'], duration:180},
+    {name:'Montmartre & Sacré-Cœur', category:'Neighborhood', priceLevel:0, price:0, area:'Montmartre', lat:48.8867,lng:2.3431, desc:"Cobblestone lanes, artists' squares and a basilica with a view.", tags:['culture','photography','hidden'], duration:150},
+    {name:"Musée d'Orsay", category:'Museum', priceLevel:2, price:18, area:'7th Arrondissement', lat:48.8600,lng:2.3266, desc:"Impressionist masterpieces inside a former Beaux-Arts train station.", tags:['culture','art'], duration:120},
+    {name:'Seine River Cruise', category:'Tour', priceLevel:2, price:18, area:'Pont Neuf', lat:48.8566,lng:2.3376, desc:"An hour gliding past Notre-Dame, the Louvre and the Eiffel Tower.", tags:['romantic','photography'], duration:70},
+    {name:'Le Marais', category:'Neighborhood', priceLevel:1, price:0, area:'Le Marais', lat:48.8575,lng:2.3622, desc:"Historic Jewish quarter turned boutique-and-falafel wonderland.", tags:['shopping','food','hidden'], duration:120},
   ],
   restaurants:[
-    {name:"L'As du Fallafel", cuisine:'Middle Eastern', rating:4.5, reviews:14200, priceLevel:1, price:10, area:'Le Marais', lat:48.8572,lng:2.3600, desc:"The falafel line everyone tells you about — worth the wait.", tags:['food'], dietary:['vegetarian'], hours:'11:00 AM – 12:00 AM'},
-    {name:'Café de Flore', cuisine:'French Café', rating:4.3, reviews:19800, priceLevel:3, price:32, area:'Saint-Germain', lat:48.8540,lng:2.3328, desc:"Historic literary café — perfect for people-watching over coffee.", tags:['food','romantic'], dietary:['vegetarian'], hours:'7:30 AM – 1:30 AM'},
-    {name:'Bistrot Paul Bert', cuisine:'French Bistro', rating:4.6, reviews:6300, priceLevel:3, price:48, area:'11th Arrondissement', lat:48.8532,lng:2.3838, desc:"Classic steak-frites bistro locals actually eat at.", tags:['food','romantic'], dietary:[], hours:'12:00 PM – 11:00 PM'},
-    {name:'Marché des Enfants Rouges', cuisine:'Market', rating:4.5, reviews:8100, priceLevel:1, price:14, area:'Le Marais', lat:48.8631,lng:2.3629, desc:"Paris's oldest covered market with global street-food stalls.", tags:['food','shopping'], dietary:['vegetarian','vegan'], hours:'8:30 AM – 8:00 PM'},
-    {name:'Septime', cuisine:'Modern French', rating:4.7, reviews:3200, priceLevel:4, price:95, area:'11th Arrondissement', lat:48.8534,lng:2.3789, desc:"Tasting-menu darling of Paris's new-wave dining scene.", tags:['food','romantic'], dietary:[], hours:'7:00 PM – 10:30 PM'},
+    {name:"L'As du Fallafel", cuisine:'Middle Eastern', priceLevel:1, price:10, area:'Le Marais', lat:48.8572,lng:2.3600, desc:"The falafel line everyone tells you about — worth the wait.", tags:['food'], dietary:['vegetarian'], hours:'11:00 AM – 12:00 AM'},
+    {name:'Café de Flore', cuisine:'French Café', priceLevel:3, price:32, area:'Saint-Germain', lat:48.8540,lng:2.3328, desc:"Historic literary café — perfect for people-watching over coffee.", tags:['food','romantic'], dietary:['vegetarian'], hours:'7:30 AM – 1:30 AM'},
+    {name:'Bistrot Paul Bert', cuisine:'French Bistro', priceLevel:3, price:48, area:'11th Arrondissement', lat:48.8532,lng:2.3838, desc:"Classic steak-frites bistro locals actually eat at.", tags:['food','romantic'], dietary:[], hours:'12:00 PM – 11:00 PM'},
+    {name:'Marché des Enfants Rouges', cuisine:'Market', priceLevel:1, price:14, area:'Le Marais', lat:48.8631,lng:2.3629, desc:"Paris's oldest covered market with global street-food stalls.", tags:['food','shopping'], dietary:['vegetarian','vegan'], hours:'8:30 AM – 8:00 PM'},
+    {name:'Septime', cuisine:'Modern French', priceLevel:4, price:95, area:'11th Arrondissement', lat:48.8534,lng:2.3789, desc:"Tasting-menu darling of Paris's new-wave dining scene.", tags:['food','romantic'], dietary:[], hours:'7:00 PM – 10:30 PM'},
   ],
   hotels:[
-    {name:'Hôtel Plaza Athénée', stars:5, guestRating:9.4, price:850, area:'8th Arrondissement', lat:48.8659,lng:2.3033, desc:"Legendary luxury with red awnings on Avenue Montaigne.", amenities:['Spa','Restaurant','Bar','Free WiFi']},
-    {name:'Hôtel Malte Opera', stars:4, guestRating:8.7, price:190, area:'2nd Arrondissement', lat:48.8698,lng:2.3350, desc:"Boutique charm minutes from the Opéra and grand boulevards.", amenities:['Free WiFi','Breakfast']},
-    {name:'Le Citizen Hotel', stars:4, guestRating:8.8, price:175, area:'Canal Saint-Martin', lat:48.8712,lng:2.3654, desc:"Minimalist design hotel beside the trendy canal.", amenities:['Free WiFi','Bar']},
-    {name:'Generator Paris', stars:2, guestRating:8.3, price:55, area:'10th Arrondissement', lat:48.8809,lng:2.3600, desc:"Stylish hostel with a rooftop bar and skyline views.", amenities:['Bar','Free WiFi','Rooftop']},
+    {name:'Hôtel Plaza Athénée', stars:5, price:850, area:'8th Arrondissement', lat:48.8659,lng:2.3033, desc:"Legendary luxury with red awnings on Avenue Montaigne.", amenities:['Spa','Restaurant','Bar','Free WiFi']},
+    {name:'Hôtel Malte Opera', stars:4, price:190, area:'2nd Arrondissement', lat:48.8698,lng:2.3350, desc:"Boutique charm minutes from the Opéra and grand boulevards.", amenities:['Free WiFi','Breakfast']},
+    {name:'Le Citizen Hotel', stars:4, price:175, area:'Canal Saint-Martin', lat:48.8712,lng:2.3654, desc:"Minimalist design hotel beside the trendy canal.", amenities:['Free WiFi','Bar']},
+    {name:'Generator Paris', stars:2, price:55, area:'10th Arrondissement', lat:48.8809,lng:2.3600, desc:"Stylish hostel with a rooftop bar and skyline views.", amenities:['Bar','Free WiFi','Rooftop']},
   ]
 },
 
@@ -1160,25 +1207,25 @@ const DESTINATIONS_RAW = [
     localTransport:'Scooter rental is common, or hire a private driver for the day; Gojek/Grab ride-hailing apps work well.',
     etiquette:'Dress modestly when visiting temples (a sarong is often required), use your right hand for giving/receiving, remove shoes before entering homes.' },
   attractions:[
-    {name:'Tegallalang Rice Terraces', category:'Nature', rating:4.5, reviews:41200, priceLevel:1, price:3, area:'Ubud', lat:-8.4312,lng:115.2777, desc:"Emerald stepped rice paddies with jungle swings overlooking the valley.", tags:['nature','photography'], duration:90},
-    {name:'Uluwatu Temple', category:'Culture', rating:4.6, reviews:38700, priceLevel:1, price:4, area:'Uluwatu', lat:-8.8291,lng:115.0849, desc:"Clifftop sea temple famous for sunset Kecak fire dances.", tags:['culture','photography','romantic'], duration:100},
-    {name:'Sacred Monkey Forest', category:'Nature', rating:4.4, reviews:36400, priceLevel:1, price:4, area:'Ubud', lat:-8.5188,lng:115.2588, desc:"Jungle sanctuary of moss-covered temples and free-roaming macaques.", tags:['nature'], duration:70},
-    {name:'Tirta Empul Water Temple', category:'Culture', rating:4.6, reviews:19800, priceLevel:1, price:3, area:'Tampaksiring', lat:-8.4155,lng:115.3153, desc:"Sacred spring where locals and visitors take ritual purification baths.", tags:['culture','hidden'], duration:80},
-    {name:'Nusa Penida Day Trip', category:'Nature', rating:4.7, reviews:22100, priceLevel:3, price:45, area:'Nusa Penida', lat:-8.7276,lng:115.5444, desc:"Dramatic cliffs, turquoise coves and the iconic Kelingking viewpoint.", tags:['nature','adventure','photography'], duration:480},
-    {name:'Canggu Surf Lesson', category:'Adventure', rating:4.6, reviews:8900, priceLevel:2, price:25, area:'Canggu', lat:-8.6478,lng:115.1385, desc:"Beginner-friendly waves with laid-back beach clubs steps away.", tags:['adventure','relax'], duration:120},
+    {name:'Tegallalang Rice Terraces', category:'Nature', priceLevel:1, price:3, area:'Ubud', lat:-8.4312,lng:115.2777, desc:"Emerald stepped rice paddies with jungle swings overlooking the valley.", tags:['nature','photography'], duration:90},
+    {name:'Uluwatu Temple', category:'Culture', priceLevel:1, price:4, area:'Uluwatu', lat:-8.8291,lng:115.0849, desc:"Clifftop sea temple famous for sunset Kecak fire dances.", tags:['culture','photography','romantic'], duration:100},
+    {name:'Sacred Monkey Forest', category:'Nature', priceLevel:1, price:4, area:'Ubud', lat:-8.5188,lng:115.2588, desc:"Jungle sanctuary of moss-covered temples and free-roaming macaques.", tags:['nature'], duration:70},
+    {name:'Tirta Empul Water Temple', category:'Culture', priceLevel:1, price:3, area:'Tampaksiring', lat:-8.4155,lng:115.3153, desc:"Sacred spring where locals and visitors take ritual purification baths.", tags:['culture','hidden'], duration:80},
+    {name:'Nusa Penida Day Trip', category:'Nature', priceLevel:3, price:45, area:'Nusa Penida', lat:-8.7276,lng:115.5444, desc:"Dramatic cliffs, turquoise coves and the iconic Kelingking viewpoint.", tags:['nature','adventure','photography'], duration:480},
+    {name:'Canggu Surf Lesson', category:'Adventure', priceLevel:2, price:25, area:'Canggu', lat:-8.6478,lng:115.1385, desc:"Beginner-friendly waves with laid-back beach clubs steps away.", tags:['adventure','relax'], duration:120},
   ],
   restaurants:[
-    {name:'Locavore', cuisine:'Modern Indonesian', rating:4.8, reviews:4100, priceLevel:4, price:65, area:'Ubud', lat:-8.5060,lng:115.2620, desc:"Tasting-menu darling built entirely on Indonesian ingredients.", tags:['food'], dietary:['vegetarian-options'], hours:'6:00 PM – 10:00 PM'},
-    {name:'Warung Babi Guling Ibu Oka', cuisine:'Balinese', rating:4.4, reviews:9200, priceLevel:1, price:6, area:'Ubud', lat:-8.5069,lng:115.2624, desc:"Legendary roast suckling pig warung, a Ubud institution.", tags:['food'], dietary:[], hours:'11:00 AM – 5:00 PM'},
-    {name:'La Brisa Beach Club', cuisine:'Seafood', rating:4.5, reviews:12300, priceLevel:3, price:28, area:'Canggu', lat:-8.6555,lng:115.1319, desc:"Driftwood-boat beach club with sunset seafood and cocktails.", tags:['food','nightlife','romantic'], dietary:['vegan'], hours:'8:00 AM – 12:00 AM'},
-    {name:'Sisterfields Café', cuisine:'Brunch', rating:4.5, reviews:7600, priceLevel:2, price:12, area:'Seminyak', lat:-8.6890,lng:115.1660, desc:"Bright Australian-style brunch spot loved by digital nomads.", tags:['food','relax'], dietary:['vegetarian','vegan'], hours:'7:00 AM – 10:00 PM'},
-    {name:'Metis Restaurant', cuisine:'French-Balinese', rating:4.5, reviews:3900, priceLevel:3, price:32, area:'Seminyak', lat:-8.6805,lng:115.1615, desc:"Rice-paddy views with elegant French-Indonesian plates.", tags:['food','romantic'], dietary:[], hours:'11:00 AM – 11:00 PM'},
+    {name:'Locavore', cuisine:'Modern Indonesian', priceLevel:4, price:65, area:'Ubud', lat:-8.5060,lng:115.2620, desc:"Tasting-menu darling built entirely on Indonesian ingredients.", tags:['food'], dietary:['vegetarian-options'], hours:'6:00 PM – 10:00 PM'},
+    {name:'Warung Babi Guling Ibu Oka', cuisine:'Balinese', priceLevel:1, price:6, area:'Ubud', lat:-8.5069,lng:115.2624, desc:"Legendary roast suckling pig warung, a Ubud institution.", tags:['food'], dietary:[], hours:'11:00 AM – 5:00 PM'},
+    {name:'La Brisa Beach Club', cuisine:'Seafood', priceLevel:3, price:28, area:'Canggu', lat:-8.6555,lng:115.1319, desc:"Driftwood-boat beach club with sunset seafood and cocktails.", tags:['food','nightlife','romantic'], dietary:['vegan'], hours:'8:00 AM – 12:00 AM'},
+    {name:'Sisterfields Café', cuisine:'Brunch', priceLevel:2, price:12, area:'Seminyak', lat:-8.6890,lng:115.1660, desc:"Bright Australian-style brunch spot loved by digital nomads.", tags:['food','relax'], dietary:['vegetarian','vegan'], hours:'7:00 AM – 10:00 PM'},
+    {name:'Metis Restaurant', cuisine:'French-Balinese', priceLevel:3, price:32, area:'Seminyak', lat:-8.6805,lng:115.1615, desc:"Rice-paddy views with elegant French-Indonesian plates.", tags:['food','romantic'], dietary:[], hours:'11:00 AM – 11:00 PM'},
   ],
   hotels:[
-    {name:'Four Seasons Sayan', stars:5, guestRating:9.6, price:780, area:'Ubud', lat:-8.4890,lng:115.2660, desc:"Jungle-canopy resort built around a lotus pond and river gorge.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
-    {name:'COMO Uma Ubud', stars:5, guestRating:9.2, price:420, area:'Ubud', lat:-8.5130,lng:115.2530, desc:"Wellness-focused resort with rice-field yoga pavilions.", amenities:['Pool','Spa','Gym','Free WiFi']},
-    {name:'The Slow Canggu', stars:4, guestRating:8.9, price:150, area:'Canggu', lat:-8.6570,lng:115.1370, desc:"Design-forward boutique hotel near Canggu's beach clubs.", amenities:['Pool','Bar','Free WiFi']},
-    {name:'Puri Garden Hostel', stars:2, guestRating:8.5, price:18, area:'Ubud', lat:-8.5050,lng:115.2600, desc:"Budget-friendly courtyard hostel walkable to Ubud center.", amenities:['Pool','Free WiFi','Breakfast']},
+    {name:'Four Seasons Sayan', stars:5, price:780, area:'Ubud', lat:-8.4890,lng:115.2660, desc:"Jungle-canopy resort built around a lotus pond and river gorge.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
+    {name:'COMO Uma Ubud', stars:5, price:420, area:'Ubud', lat:-8.5130,lng:115.2530, desc:"Wellness-focused resort with rice-field yoga pavilions.", amenities:['Pool','Spa','Gym','Free WiFi']},
+    {name:'The Slow Canggu', stars:4, price:150, area:'Canggu', lat:-8.6570,lng:115.1370, desc:"Design-forward boutique hotel near Canggu's beach clubs.", amenities:['Pool','Bar','Free WiFi']},
+    {name:'Puri Garden Hostel', stars:2, price:18, area:'Ubud', lat:-8.5050,lng:115.2600, desc:"Budget-friendly courtyard hostel walkable to Ubud center.", amenities:['Pool','Free WiFi','Breakfast']},
   ]
 },
 
@@ -1197,25 +1244,25 @@ const DESTINATIONS_RAW = [
     localTransport:'Local buses connect the main towns; renting an ATV or car gives the most flexibility.',
     etiquette:'Modest dress is appreciated at churches, tipping 5–10% is customary but not mandatory.' },
   attractions:[
-    {name:'Oia Sunset Point', category:'Viewpoint', rating:4.8, reviews:61000, priceLevel:0, price:0, area:'Oia', lat:36.4610,lng:25.3753, desc:"The postcard sunset over blue-domed churches and the caldera.", tags:['romantic','photography'], duration:90},
-    {name:'Fira to Oia Caldera Hike', category:'Nature', rating:4.7, reviews:15400, priceLevel:0, price:0, area:'Fira', lat:36.4167,lng:25.4320, desc:"A 3-hour clifftop trail with the island's best views the whole way.", tags:['nature','adventure','photography'], duration:180},
-    {name:'Red Beach', category:'Beach', rating:4.4, reviews:18700, priceLevel:0, price:0, area:'Akrotiri', lat:36.3500,lng:25.3958, desc:"Volcanic red cliffs framing a striking crescent of dark sand.", tags:['relax','photography'], duration:120},
-    {name:'Akrotiri Archaeological Site', category:'History', rating:4.5, reviews:8100, priceLevel:1, price:12, area:'Akrotiri', lat:36.3512,lng:25.4030, desc:"A Bronze Age city preserved in volcanic ash — the 'Greek Pompeii'.", tags:['history','culture'], duration:90},
-    {name:'Santo Wines Sunset Tasting', category:'Wine', rating:4.6, reviews:9200, priceLevel:2, price:35, area:'Pyrgos', lat:36.3800,lng:25.4460, desc:"Volcanic-soil wines paired with caldera views at golden hour.", tags:['romantic','relax'], duration:90},
-    {name:'Ammoudi Bay', category:'Hidden gem', rating:4.6, reviews:6800, priceLevel:1, price:0, area:'Oia', lat:36.4650,lng:25.3690, desc:"A quiet fishing cove below Oia with cliffside seafood tavernas.", tags:['hidden','relax','food'], duration:100},
+    {name:'Oia Sunset Point', category:'Viewpoint', priceLevel:0, price:0, area:'Oia', lat:36.4610,lng:25.3753, desc:"The postcard sunset over blue-domed churches and the caldera.", tags:['romantic','photography'], duration:90},
+    {name:'Fira to Oia Caldera Hike', category:'Nature', priceLevel:0, price:0, area:'Fira', lat:36.4167,lng:25.4320, desc:"A 3-hour clifftop trail with the island's best views the whole way.", tags:['nature','adventure','photography'], duration:180},
+    {name:'Red Beach', category:'Beach', priceLevel:0, price:0, area:'Akrotiri', lat:36.3500,lng:25.3958, desc:"Volcanic red cliffs framing a striking crescent of dark sand.", tags:['relax','photography'], duration:120},
+    {name:'Akrotiri Archaeological Site', category:'History', priceLevel:1, price:12, area:'Akrotiri', lat:36.3512,lng:25.4030, desc:"A Bronze Age city preserved in volcanic ash — the 'Greek Pompeii'.", tags:['history','culture'], duration:90},
+    {name:'Santo Wines Sunset Tasting', category:'Wine', priceLevel:2, price:35, area:'Pyrgos', lat:36.3800,lng:25.4460, desc:"Volcanic-soil wines paired with caldera views at golden hour.", tags:['romantic','relax'], duration:90},
+    {name:'Ammoudi Bay', category:'Hidden gem', priceLevel:1, price:0, area:'Oia', lat:36.4650,lng:25.3690, desc:"A quiet fishing cove below Oia with cliffside seafood tavernas.", tags:['hidden','relax','food'], duration:100},
   ],
   restaurants:[
-    {name:'Ammoudi Fish Tavern', cuisine:'Seafood', rating:4.6, reviews:5100, priceLevel:3, price:38, area:'Ammoudi Bay', lat:36.4652,lng:25.3688, desc:"Just-caught seafood steps from the water below Oia.", tags:['food','romantic'], dietary:[], hours:'12:00 PM – 10:00 PM'},
-    {name:'Metaxi Mas', cuisine:'Greek', rating:4.7, reviews:7300, priceLevel:2, price:28, area:'Exo Gonia', lat:36.3800,lng:25.4550, desc:"Family taverna locals drive across the island to eat at.", tags:['food'], dietary:['vegetarian'], hours:'1:00 PM – 11:00 PM'},
-    {name:'To Psaraki', cuisine:'Seafood', rating:4.5, reviews:3200, priceLevel:2, price:26, area:'Vlychada', lat:36.3480,lng:25.4110, desc:"Unpretentious harbor-side spot for grilled octopus and ouzo.", tags:['food','hidden'], dietary:[], hours:'12:00 PM – 11:00 PM'},
-    {name:'Selene', cuisine:'Fine Dining Greek', rating:4.7, reviews:1900, priceLevel:4, price:85, area:'Pyrgos', lat:36.3806,lng:25.4552, desc:"Tasting menus built on heirloom Cycladic ingredients.", tags:['food','romantic'], dietary:[], hours:'7:00 PM – 11:00 PM'},
-    {name:'Melitini', cuisine:'Cretan-Greek', rating:4.6, reviews:2600, priceLevel:2, price:24, area:'Pyrgos', lat:36.3790,lng:25.4545, desc:"Cozy courtyard taverna with slow-cooked lamb and local cheeses.", tags:['food'], dietary:['vegetarian'], hours:'6:00 PM – 11:00 PM'},
+    {name:'Ammoudi Fish Tavern', cuisine:'Seafood', priceLevel:3, price:38, area:'Ammoudi Bay', lat:36.4652,lng:25.3688, desc:"Just-caught seafood steps from the water below Oia.", tags:['food','romantic'], dietary:[], hours:'12:00 PM – 10:00 PM'},
+    {name:'Metaxi Mas', cuisine:'Greek', priceLevel:2, price:28, area:'Exo Gonia', lat:36.3800,lng:25.4550, desc:"Family taverna locals drive across the island to eat at.", tags:['food'], dietary:['vegetarian'], hours:'1:00 PM – 11:00 PM'},
+    {name:'To Psaraki', cuisine:'Seafood', priceLevel:2, price:26, area:'Vlychada', lat:36.3480,lng:25.4110, desc:"Unpretentious harbor-side spot for grilled octopus and ouzo.", tags:['food','hidden'], dietary:[], hours:'12:00 PM – 11:00 PM'},
+    {name:'Selene', cuisine:'Fine Dining Greek', priceLevel:4, price:85, area:'Pyrgos', lat:36.3806,lng:25.4552, desc:"Tasting menus built on heirloom Cycladic ingredients.", tags:['food','romantic'], dietary:[], hours:'7:00 PM – 11:00 PM'},
+    {name:'Melitini', cuisine:'Cretan-Greek', priceLevel:2, price:24, area:'Pyrgos', lat:36.3790,lng:25.4545, desc:"Cozy courtyard taverna with slow-cooked lamb and local cheeses.", tags:['food'], dietary:['vegetarian'], hours:'6:00 PM – 11:00 PM'},
   ],
   hotels:[
-    {name:'Canaves Oia Suites', stars:5, guestRating:9.5, price:650, area:'Oia', lat:36.4605,lng:25.3760, desc:"Cave-style suites carved into the caldera cliffside.", amenities:['Pool','Spa','Bar','Free WiFi']},
-    {name:'Grace Hotel Santorini', stars:5, guestRating:9.4, price:590, area:'Imerovigli', lat:36.4310,lng:25.4290, desc:"Infinity pools cascading down the caldera edge.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
-    {name:'Aria Suites', stars:4, guestRating:9.0, price:240, area:'Fira', lat:36.4172,lng:25.4310, desc:"Bright caldera-view suites in the heart of Fira.", amenities:['Pool','Free WiFi','Breakfast']},
-    {name:'Santorini Camping', stars:2, guestRating:8.1, price:35, area:'Fira', lat:36.4090,lng:25.4400, desc:"Budget-friendly bungalows a short walk from town.", amenities:['Pool','Free WiFi']},
+    {name:'Canaves Oia Suites', stars:5, price:650, area:'Oia', lat:36.4605,lng:25.3760, desc:"Cave-style suites carved into the caldera cliffside.", amenities:['Pool','Spa','Bar','Free WiFi']},
+    {name:'Grace Hotel Santorini', stars:5, price:590, area:'Imerovigli', lat:36.4310,lng:25.4290, desc:"Infinity pools cascading down the caldera edge.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
+    {name:'Aria Suites', stars:4, price:240, area:'Fira', lat:36.4172,lng:25.4310, desc:"Bright caldera-view suites in the heart of Fira.", amenities:['Pool','Free WiFi','Breakfast']},
+    {name:'Santorini Camping', stars:2, price:35, area:'Fira', lat:36.4090,lng:25.4400, desc:"Budget-friendly bungalows a short walk from town.", amenities:['Pool','Free WiFi']},
   ]
 },
 
@@ -1234,25 +1281,25 @@ const DESTINATIONS_RAW = [
     localTransport:'Subway and buses (get a MetroCard or tap-to-pay OMNY) — walking is often fastest in Manhattan.',
     etiquette:'Tipping 18–20% at restaurants is expected, walk on the right on sidewalks, stand right/walk left on escalators.' },
   attractions:[
-    {name:'Top of the Rock', category:'Viewpoint', rating:4.7, reviews:88000, priceLevel:3, price:40, area:'Midtown', lat:40.7590,lng:-73.9787, desc:"An open-air deck with the Empire State Building in your skyline.", tags:['photography'], duration:75},
-    {name:'The Met', category:'Museum', rating:4.8, reviews:112000, priceLevel:2, price:30, area:'Upper East Side', lat:40.7794,lng:-73.9632, desc:"Two million works spanning 5,000 years of art history.", tags:['culture','art','history'], duration:180},
-    {name:'Central Park', category:'Nature', rating:4.8, reviews:190000, priceLevel:0, price:0, area:'Manhattan', lat:40.7829,lng:-73.9654, desc:"843 acres of lakes, bridges and skyline views in the middle of it all.", tags:['nature','relax'], duration:120},
-    {name:'High Line', category:'Park', rating:4.7, reviews:68000, priceLevel:0, price:0, area:'Chelsea', lat:40.7480,lng:-74.0048, desc:"An elevated rail line reborn as a mile-long garden walkway.", tags:['nature','photography','hidden'], duration:60},
-    {name:'Brooklyn Bridge Walk', category:'Landmark', rating:4.8, reviews:75000, priceLevel:0, price:0, area:'DUMBO', lat:40.7061,lng:-73.9969, desc:"Walk into Brooklyn for the classic Manhattan skyline shot.", tags:['photography','romantic'], duration:60},
-    {name:'Chelsea Market', category:'Market', rating:4.6, reviews:52000, priceLevel:1, price:18, area:'Chelsea', lat:40.7424,lng:-74.0061, desc:"A converted factory packed with global food stalls and shops.", tags:['food','shopping'], duration:75},
+    {name:'Top of the Rock', category:'Viewpoint', priceLevel:3, price:40, area:'Midtown', lat:40.7590,lng:-73.9787, desc:"An open-air deck with the Empire State Building in your skyline.", tags:['photography'], duration:75},
+    {name:'The Met', category:'Museum', priceLevel:2, price:30, area:'Upper East Side', lat:40.7794,lng:-73.9632, desc:"Two million works spanning 5,000 years of art history.", tags:['culture','art','history'], duration:180},
+    {name:'Central Park', category:'Nature', priceLevel:0, price:0, area:'Manhattan', lat:40.7829,lng:-73.9654, desc:"843 acres of lakes, bridges and skyline views in the middle of it all.", tags:['nature','relax'], duration:120},
+    {name:'High Line', category:'Park', priceLevel:0, price:0, area:'Chelsea', lat:40.7480,lng:-74.0048, desc:"An elevated rail line reborn as a mile-long garden walkway.", tags:['nature','photography','hidden'], duration:60},
+    {name:'Brooklyn Bridge Walk', category:'Landmark', priceLevel:0, price:0, area:'DUMBO', lat:40.7061,lng:-73.9969, desc:"Walk into Brooklyn for the classic Manhattan skyline shot.", tags:['photography','romantic'], duration:60},
+    {name:'Chelsea Market', category:'Market', priceLevel:1, price:18, area:'Chelsea', lat:40.7424,lng:-74.0061, desc:"A converted factory packed with global food stalls and shops.", tags:['food','shopping'], duration:75},
   ],
   restaurants:[
-    {name:"Katz's Delicatessen", cuisine:'Deli', rating:4.5, reviews:29000, priceLevel:2, price:24, area:'Lower East Side', lat:40.7223,lng:-73.9874, desc:"The pastrami sandwich that launched a thousand imitators.", tags:['food'], dietary:[], hours:'8:00 AM – 10:45 PM'},
-    {name:"Joe's Pizza", cuisine:'Pizza', rating:4.5, reviews:15200, priceLevel:1, price:5, area:'Greenwich Village', lat:40.7308,lng:-74.0021, desc:"A no-frills New York slice institution since 1975.", tags:['food'], dietary:['vegetarian'], hours:'10:00 AM – 4:00 AM'},
-    {name:'Peter Luger Steak House', cuisine:'Steakhouse', rating:4.5, reviews:8700, priceLevel:4, price:95, area:'Williamsburg', lat:40.7099,lng:-73.9624, desc:"Century-old dry-aged porterhouse in an old-school dining room.", tags:['food','romantic'], dietary:[], hours:'11:45 AM – 9:45 PM'},
-    {name:"Xi'an Famous Foods", cuisine:'Chinese', rating:4.4, reviews:6300, priceLevel:1, price:12, area:'East Village', lat:40.7280,lng:-73.9860, desc:"Hand-pulled biang biang noodles with fiery Xi'an spice.", tags:['food'], dietary:['vegetarian-options'], hours:'11:00 AM – 10:00 PM'},
-    {name:'Rooftop at 230 Fifth', cuisine:'Bar & Lounge', rating:4.3, reviews:19800, priceLevel:3, price:22, area:'NoMad', lat:40.7440,lng:-73.9880, desc:"Skyline cocktails with an Empire State Building backdrop.", tags:['nightlife','romantic'], dietary:[], hours:'4:00 PM – 4:00 AM'},
+    {name:"Katz's Delicatessen", cuisine:'Deli', priceLevel:2, price:24, area:'Lower East Side', lat:40.7223,lng:-73.9874, desc:"The pastrami sandwich that launched a thousand imitators.", tags:['food'], dietary:[], hours:'8:00 AM – 10:45 PM'},
+    {name:"Joe's Pizza", cuisine:'Pizza', priceLevel:1, price:5, area:'Greenwich Village', lat:40.7308,lng:-74.0021, desc:"A no-frills New York slice institution since 1975.", tags:['food'], dietary:['vegetarian'], hours:'10:00 AM – 4:00 AM'},
+    {name:'Peter Luger Steak House', cuisine:'Steakhouse', priceLevel:4, price:95, area:'Williamsburg', lat:40.7099,lng:-73.9624, desc:"Century-old dry-aged porterhouse in an old-school dining room.", tags:['food','romantic'], dietary:[], hours:'11:45 AM – 9:45 PM'},
+    {name:"Xi'an Famous Foods", cuisine:'Chinese', priceLevel:1, price:12, area:'East Village', lat:40.7280,lng:-73.9860, desc:"Hand-pulled biang biang noodles with fiery Xi'an spice.", tags:['food'], dietary:['vegetarian-options'], hours:'11:00 AM – 10:00 PM'},
+    {name:'Rooftop at 230 Fifth', cuisine:'Bar & Lounge', priceLevel:3, price:22, area:'NoMad', lat:40.7440,lng:-73.9880, desc:"Skyline cocktails with an Empire State Building backdrop.", tags:['nightlife','romantic'], dietary:[], hours:'4:00 PM – 4:00 AM'},
   ],
   hotels:[
-    {name:'The Plaza', stars:5, guestRating:9.2, price:780, area:'Midtown', lat:40.7644,lng:-73.9744, desc:"Legendary Fifth Avenue landmark facing Central Park.", amenities:['Spa','Restaurant','Bar','Free WiFi']},
-    {name:'The Ludlow Hotel', stars:4, guestRating:8.9, price:340, area:'Lower East Side', lat:40.7203,lng:-73.9877, desc:"Moody, design-driven rooms in the heart of downtown nightlife.", amenities:['Bar','Free WiFi','Restaurant']},
-    {name:'Pod 51 Hotel', stars:3, guestRating:8.4, price:145, area:'Midtown East', lat:40.7530,lng:-73.9730, desc:"Compact, budget-savvy rooms with a rooftop lounge.", amenities:['Free WiFi','Rooftop']},
-    {name:'HI NYC Hostel', stars:2, guestRating:8.0, price:55, area:'Upper West Side', lat:40.8010,lng:-73.9700, desc:"Historic building turned social, budget-friendly hostel.", amenities:['Free WiFi','Shared kitchen']},
+    {name:'The Plaza', stars:5, price:780, area:'Midtown', lat:40.7644,lng:-73.9744, desc:"Legendary Fifth Avenue landmark facing Central Park.", amenities:['Spa','Restaurant','Bar','Free WiFi']},
+    {name:'The Ludlow Hotel', stars:4, price:340, area:'Lower East Side', lat:40.7203,lng:-73.9877, desc:"Moody, design-driven rooms in the heart of downtown nightlife.", amenities:['Bar','Free WiFi','Restaurant']},
+    {name:'Pod 51 Hotel', stars:3, price:145, area:'Midtown East', lat:40.7530,lng:-73.9730, desc:"Compact, budget-savvy rooms with a rooftop lounge.", amenities:['Free WiFi','Rooftop']},
+    {name:'HI NYC Hostel', stars:2, price:55, area:'Upper West Side', lat:40.8010,lng:-73.9700, desc:"Historic building turned social, budget-friendly hostel.", amenities:['Free WiFi','Shared kitchen']},
   ]
 },
 
@@ -1271,25 +1318,25 @@ const DESTINATIONS_RAW = [
     localTransport:'Metro (2 lines), buses and trams — validate paper tickets before boarding.',
     etiquette:'Dress modestly (shoulders/knees covered) to enter churches, cappuccino is considered a morning-only drink locally, tipping is not required.' },
   attractions:[
-    {name:'The Colosseum', category:'History', rating:4.8, reviews:210000, priceLevel:2, price:24, area:'Centro Storico', lat:41.8902,lng:12.4922, desc:"The ancient arena that once held 50,000 roaring spectators.", tags:['history','culture','photography'], duration:120},
-    {name:'Vatican Museums & Sistine Chapel', category:'Museum', rating:4.7, reviews:158000, priceLevel:3, price:32, area:'Vatican City', lat:41.9065,lng:12.4536, desc:"Michelangelo's ceiling and miles of Renaissance masterpieces.", tags:['culture','art','history'], duration:180},
-    {name:'Trevi Fountain', category:'Landmark', rating:4.7, reviews:196000, priceLevel:0, price:0, area:'Centro Storico', lat:41.9009,lng:12.4833, desc:"Toss a coin over your shoulder to guarantee your return.", tags:['photography','romantic'], duration:30},
-    {name:'Pantheon', category:'History', rating:4.8, reviews:110000, priceLevel:0, price:0, area:'Centro Storico', lat:41.8986,lng:12.4769, desc:"A 2,000-year-old dome still standing exactly as built.", tags:['history','culture'], duration:45},
-    {name:'Trastevere Evening Walk', category:'Neighborhood', rating:4.7, reviews:41200, priceLevel:0, price:0, area:'Trastevere', lat:41.8896,lng:12.4696, desc:"Ivy-covered lanes, trattorias and Rome's liveliest evenings.", tags:['nightlife','food','hidden'], duration:120},
-    {name:'Borghese Gallery & Gardens', category:'Museum', rating:4.7, reviews:38700, priceLevel:2, price:22, area:'Villa Borghese', lat:41.9142,lng:12.4922, desc:"Bernini sculptures inside a garden villa above the city.", tags:['art','culture','relax'], duration:120},
+    {name:'The Colosseum', category:'History', priceLevel:2, price:24, area:'Centro Storico', lat:41.8902,lng:12.4922, desc:"The ancient arena that once held 50,000 roaring spectators.", tags:['history','culture','photography'], duration:120},
+    {name:'Vatican Museums & Sistine Chapel', category:'Museum', priceLevel:3, price:32, area:'Vatican City', lat:41.9065,lng:12.4536, desc:"Michelangelo's ceiling and miles of Renaissance masterpieces.", tags:['culture','art','history'], duration:180},
+    {name:'Trevi Fountain', category:'Landmark', priceLevel:0, price:0, area:'Centro Storico', lat:41.9009,lng:12.4833, desc:"Toss a coin over your shoulder to guarantee your return.", tags:['photography','romantic'], duration:30},
+    {name:'Pantheon', category:'History', priceLevel:0, price:0, area:'Centro Storico', lat:41.8986,lng:12.4769, desc:"A 2,000-year-old dome still standing exactly as built.", tags:['history','culture'], duration:45},
+    {name:'Trastevere Evening Walk', category:'Neighborhood', priceLevel:0, price:0, area:'Trastevere', lat:41.8896,lng:12.4696, desc:"Ivy-covered lanes, trattorias and Rome's liveliest evenings.", tags:['nightlife','food','hidden'], duration:120},
+    {name:'Borghese Gallery & Gardens', category:'Museum', priceLevel:2, price:22, area:'Villa Borghese', lat:41.9142,lng:12.4922, desc:"Bernini sculptures inside a garden villa above the city.", tags:['art','culture','relax'], duration:120},
   ],
   restaurants:[
-    {name:'Roscioli', cuisine:'Roman', rating:4.6, reviews:9800, priceLevel:3, price:42, area:'Centro Storico', lat:41.8945,lng:12.4736, desc:"Deli-restaurant famous for cacio e pepe and a legendary wine list.", tags:['food'], dietary:[], hours:'12:30 PM – 4:00 PM, 6:30 PM – 12:00 AM'},
-    {name:'Da Enzo al 29', cuisine:'Roman Trattoria', rating:4.6, reviews:7200, priceLevel:2, price:28, area:'Trastevere', lat:41.8873,lng:12.4712, desc:"Tiny trattoria locals queue for — go early or wait happily.", tags:['food'], dietary:['vegetarian'], hours:'1:00 PM – 3:00 PM, 7:30 PM – 11:00 PM'},
-    {name:'Pizzarium Bonci', cuisine:'Pizza al Taglio', rating:4.6, reviews:8900, priceLevel:1, price:9, area:'Prati', lat:41.9083,lng:12.4535, desc:"Rome's best sliced pizza, sold by weight from a tiny counter.", tags:['food'], dietary:['vegetarian'], hours:'11:00 AM – 10:00 PM'},
-    {name:'Gelateria dei Gracchi', cuisine:'Gelato', rating:4.7, reviews:5100, priceLevel:1, price:5, area:'Prati', lat:41.9070,lng:12.4590, desc:"Small-batch, all-natural gelato without the tourist markup.", tags:['food'], dietary:['vegetarian'], hours:'11:00 AM – 11:00 PM'},
-    {name:'Aroma at Palazzo Manfredi', cuisine:'Fine Dining Italian', rating:4.7, reviews:2400, priceLevel:4, price:110, area:'Celio', lat:41.8901,lng:12.4960, desc:"Michelin-starred plates with the Colosseum floodlit outside.", tags:['food','romantic'], dietary:[], hours:'12:30 PM – 3:00 PM, 7:00 PM – 11:00 PM'},
+    {name:'Roscioli', cuisine:'Roman', priceLevel:3, price:42, area:'Centro Storico', lat:41.8945,lng:12.4736, desc:"Deli-restaurant famous for cacio e pepe and a legendary wine list.", tags:['food'], dietary:[], hours:'12:30 PM – 4:00 PM, 6:30 PM – 12:00 AM'},
+    {name:'Da Enzo al 29', cuisine:'Roman Trattoria', priceLevel:2, price:28, area:'Trastevere', lat:41.8873,lng:12.4712, desc:"Tiny trattoria locals queue for — go early or wait happily.", tags:['food'], dietary:['vegetarian'], hours:'1:00 PM – 3:00 PM, 7:30 PM – 11:00 PM'},
+    {name:'Pizzarium Bonci', cuisine:'Pizza al Taglio', priceLevel:1, price:9, area:'Prati', lat:41.9083,lng:12.4535, desc:"Rome's best sliced pizza, sold by weight from a tiny counter.", tags:['food'], dietary:['vegetarian'], hours:'11:00 AM – 10:00 PM'},
+    {name:'Gelateria dei Gracchi', cuisine:'Gelato', priceLevel:1, price:5, area:'Prati', lat:41.9070,lng:12.4590, desc:"Small-batch, all-natural gelato without the tourist markup.", tags:['food'], dietary:['vegetarian'], hours:'11:00 AM – 11:00 PM'},
+    {name:'Aroma at Palazzo Manfredi', cuisine:'Fine Dining Italian', priceLevel:4, price:110, area:'Celio', lat:41.8901,lng:12.4960, desc:"Michelin-starred plates with the Colosseum floodlit outside.", tags:['food','romantic'], dietary:[], hours:'12:30 PM – 3:00 PM, 7:00 PM – 11:00 PM'},
   ],
   hotels:[
-    {name:'Hotel de Russie', stars:5, guestRating:9.3, price:620, area:'Piazza del Popolo', lat:41.9106,lng:12.4780, desc:"Secret garden courtyard steps from the Spanish Steps.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
-    {name:'The Fifteen Keys Hotel', stars:4, guestRating:9.0, price:230, area:'Centro Storico', lat:41.8940,lng:12.4720, desc:"Boutique rooms a short walk from the Pantheon.", amenities:['Free WiFi','Breakfast']},
-    {name:'Hotel Trastevere', stars:3, guestRating:8.5, price:130, area:'Trastevere', lat:41.8880,lng:12.4700, desc:"Simple, comfortable rooms in Rome's liveliest quarter.", amenities:['Free WiFi']},
-    {name:'The Yellow Hostel', stars:2, guestRating:8.2, price:38, area:'Termini', lat:41.9010,lng:12.5030, desc:"Social hostel with a lively bar, near Termini station.", amenities:['Bar','Free WiFi']},
+    {name:'Hotel de Russie', stars:5, price:620, area:'Piazza del Popolo', lat:41.9106,lng:12.4780, desc:"Secret garden courtyard steps from the Spanish Steps.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
+    {name:'The Fifteen Keys Hotel', stars:4, price:230, area:'Centro Storico', lat:41.8940,lng:12.4720, desc:"Boutique rooms a short walk from the Pantheon.", amenities:['Free WiFi','Breakfast']},
+    {name:'Hotel Trastevere', stars:3, price:130, area:'Trastevere', lat:41.8880,lng:12.4700, desc:"Simple, comfortable rooms in Rome's liveliest quarter.", amenities:['Free WiFi']},
+    {name:'The Yellow Hostel', stars:2, price:38, area:'Termini', lat:41.9010,lng:12.5030, desc:"Social hostel with a lively bar, near Termini station.", amenities:['Bar','Free WiFi']},
   ]
 },
 
@@ -1308,25 +1355,25 @@ const DESTINATIONS_RAW = [
     localTransport:'BTS Skytrain and MRT subway avoid traffic; tuk-tuks and taxis for shorter hops.',
     etiquette:"Dress modestly at temples (covered shoulders/knees), never touch someone's head, remove shoes when entering homes and temples, the King is revered — avoid disrespectful comments." },
   attractions:[
-    {name:'Grand Palace & Wat Phra Kaew', category:'Culture', rating:4.6, reviews:98000, priceLevel:2, price:15, area:'Rattanakosin', lat:13.7500,lng:100.4913, desc:"Glittering former royal residence and the Emerald Buddha temple.", tags:['culture','history','photography'], duration:150},
-    {name:'Wat Arun', category:'Culture', rating:4.6, reviews:52000, priceLevel:1, price:3, area:'Bangkok Yai', lat:13.7437,lng:100.4888, desc:"The Temple of Dawn, best photographed from across the river.", tags:['culture','photography'], duration:75},
-    {name:'Chatuchak Weekend Market', category:'Market', rating:4.5, reviews:61000, priceLevel:1, price:0, area:'Chatuchak', lat:13.7999,lng:100.5500, desc:"15,000 stalls of everything from antiques to street snacks.", tags:['shopping','food'], duration:150},
-    {name:'Damnoen Saduak Floating Market', category:'Market', rating:4.4, reviews:33200, priceLevel:2, price:20, area:'Ratchaburi', lat:13.5170,lng:99.9550, desc:"Boat-vendors selling fruit and noodles along narrow canals.", tags:['culture','food','hidden'], duration:180},
-    {name:'Lumphini Park', category:'Nature', rating:4.5, reviews:24100, priceLevel:0, price:0, area:'Pathum Wan', lat:13.7307,lng:100.5418, desc:"A green escape with monitor lizards and skyline backdrops.", tags:['nature','relax'], duration:60},
-    {name:'Mahanakhon SkyWalk', category:'Viewpoint', rating:4.5, reviews:20900, priceLevel:2, price:28, area:'Silom', lat:13.7229,lng:100.5288, desc:"Glass-floor observation deck atop Bangkok's tallest building.", tags:['photography'], duration:60},
+    {name:'Grand Palace & Wat Phra Kaew', category:'Culture', priceLevel:2, price:15, area:'Rattanakosin', lat:13.7500,lng:100.4913, desc:"Glittering former royal residence and the Emerald Buddha temple.", tags:['culture','history','photography'], duration:150},
+    {name:'Wat Arun', category:'Culture', priceLevel:1, price:3, area:'Bangkok Yai', lat:13.7437,lng:100.4888, desc:"The Temple of Dawn, best photographed from across the river.", tags:['culture','photography'], duration:75},
+    {name:'Chatuchak Weekend Market', category:'Market', priceLevel:1, price:0, area:'Chatuchak', lat:13.7999,lng:100.5500, desc:"15,000 stalls of everything from antiques to street snacks.", tags:['shopping','food'], duration:150},
+    {name:'Damnoen Saduak Floating Market', category:'Market', priceLevel:2, price:20, area:'Ratchaburi', lat:13.5170,lng:99.9550, desc:"Boat-vendors selling fruit and noodles along narrow canals.", tags:['culture','food','hidden'], duration:180},
+    {name:'Lumphini Park', category:'Nature', priceLevel:0, price:0, area:'Pathum Wan', lat:13.7307,lng:100.5418, desc:"A green escape with monitor lizards and skyline backdrops.", tags:['nature','relax'], duration:60},
+    {name:'Mahanakhon SkyWalk', category:'Viewpoint', priceLevel:2, price:28, area:'Silom', lat:13.7229,lng:100.5288, desc:"Glass-floor observation deck atop Bangkok's tallest building.", tags:['photography'], duration:60},
   ],
   restaurants:[
-    {name:'Jay Fai', cuisine:'Street Food', rating:4.6, reviews:8100, priceLevel:3, price:25, area:'Old Town', lat:13.7530,lng:100.5040, desc:"Michelin-starred crab omelet cooked over roaring charcoal woks.", tags:['food'], dietary:[], hours:'2:00 PM – 12:00 AM'},
-    {name:'Thipsamai Pad Thai', cuisine:'Thai', rating:4.5, reviews:12300, priceLevel:1, price:5, area:'Old Town', lat:13.7548,lng:100.5027, desc:"Bangkok's most famous pad thai since 1966.", tags:['food'], dietary:['vegetarian-options'], hours:'5:00 PM – 2:00 AM'},
-    {name:'Chinatown Street Food Crawl', cuisine:'Street Food', rating:4.6, reviews:9700, priceLevel:1, price:12, area:'Yaowarat', lat:13.7404,lng:100.5090, desc:"Neon-lit Yaowarat Road, wall-to-wall with grills and noodle carts.", tags:['food','nightlife'], dietary:[], hours:'6:00 PM – 1:00 AM'},
-    {name:'Sky Bar at Lebua', cuisine:'Rooftop Bar', rating:4.4, reviews:15200, priceLevel:4, price:35, area:'Silom', lat:13.7220,lng:100.5150, desc:"The Hangover Part II rooftop, 63 floors above the city.", tags:['nightlife','romantic'], dietary:[], hours:'6:00 PM – 1:00 AM'},
-    {name:'Err Urban Rustic Thai', cuisine:'Thai', rating:4.5, reviews:4200, priceLevel:2, price:18, area:'Rattanakosin', lat:13.7460,lng:100.4930, desc:"Punchy regional Thai plates and cold beer near the Grand Palace.", tags:['food'], dietary:['vegetarian'], hours:'11:00 AM – 11:00 PM'},
+    {name:'Jay Fai', cuisine:'Street Food', priceLevel:3, price:25, area:'Old Town', lat:13.7530,lng:100.5040, desc:"Michelin-starred crab omelet cooked over roaring charcoal woks.", tags:['food'], dietary:[], hours:'2:00 PM – 12:00 AM'},
+    {name:'Thipsamai Pad Thai', cuisine:'Thai', priceLevel:1, price:5, area:'Old Town', lat:13.7548,lng:100.5027, desc:"Bangkok's most famous pad thai since 1966.", tags:['food'], dietary:['vegetarian-options'], hours:'5:00 PM – 2:00 AM'},
+    {name:'Chinatown Street Food Crawl', cuisine:'Street Food', priceLevel:1, price:12, area:'Yaowarat', lat:13.7404,lng:100.5090, desc:"Neon-lit Yaowarat Road, wall-to-wall with grills and noodle carts.", tags:['food','nightlife'], dietary:[], hours:'6:00 PM – 1:00 AM'},
+    {name:'Sky Bar at Lebua', cuisine:'Rooftop Bar', priceLevel:4, price:35, area:'Silom', lat:13.7220,lng:100.5150, desc:"The Hangover Part II rooftop, 63 floors above the city.", tags:['nightlife','romantic'], dietary:[], hours:'6:00 PM – 1:00 AM'},
+    {name:'Err Urban Rustic Thai', cuisine:'Thai', priceLevel:2, price:18, area:'Rattanakosin', lat:13.7460,lng:100.4930, desc:"Punchy regional Thai plates and cold beer near the Grand Palace.", tags:['food'], dietary:['vegetarian'], hours:'11:00 AM – 11:00 PM'},
   ],
   hotels:[
-    {name:'Mandarin Oriental Bangkok', stars:5, guestRating:9.4, price:480, area:'Riverside', lat:13.7239,lng:100.5140, desc:"Historic riverside icon hosting royalty since 1876.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
-    {name:'137 Pillars Suites', stars:5, guestRating:9.2, price:260, area:'Sukhumvit', lat:13.7390,lng:100.5560, desc:"All-suite colonial-style hotel with a rooftop pool.", amenities:['Pool','Spa','Free WiFi']},
-    {name:'Chatrium Riverside', stars:4, guestRating:8.7, price:110, area:'Riverside', lat:13.7080,lng:100.5060, desc:"River-view rooms with an infinity pool over the Chao Phraya.", amenities:['Pool','Gym','Free WiFi']},
-    {name:'NapPark Hostel', stars:2, guestRating:8.4, price:15, area:'Khao San Road', lat:13.7590,lng:100.4970, desc:"Pod-style hostel steps from Khao San's nightlife.", amenities:['Free WiFi','Lounge']},
+    {name:'Mandarin Oriental Bangkok', stars:5, price:480, area:'Riverside', lat:13.7239,lng:100.5140, desc:"Historic riverside icon hosting royalty since 1876.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
+    {name:'137 Pillars Suites', stars:5, price:260, area:'Sukhumvit', lat:13.7390,lng:100.5560, desc:"All-suite colonial-style hotel with a rooftop pool.", amenities:['Pool','Spa','Free WiFi']},
+    {name:'Chatrium Riverside', stars:4, price:110, area:'Riverside', lat:13.7080,lng:100.5060, desc:"River-view rooms with an infinity pool over the Chao Phraya.", amenities:['Pool','Gym','Free WiFi']},
+    {name:'NapPark Hostel', stars:2, price:15, area:'Khao San Road', lat:13.7590,lng:100.4970, desc:"Pod-style hostel steps from Khao San's nightlife.", amenities:['Free WiFi','Lounge']},
   ]
 },
 
@@ -1345,25 +1392,25 @@ const DESTINATIONS_RAW = [
     localTransport:'The metro and bus network is extensive; a T-Casual multi-ride card saves money.',
     etiquette:'Lunch is typically 2–4pm and dinner rarely starts before 9pm; some shops close mid-afternoon for siesta.' },
   attractions:[
-    {name:'Sagrada Família', category:'Landmark', rating:4.8, reviews:245000, priceLevel:3, price:33, area:'Eixample', lat:41.4036,lng:2.1744, desc:"Gaudí's unfinished basilica — still under construction since 1882.", tags:['culture','art','photography'], duration:120},
-    {name:'Park Güell', category:'Park', rating:4.6, reviews:151000, priceLevel:2, price:10, area:'Gràcia', lat:41.4145,lng:2.1527, desc:"Mosaic-covered terraces and gingerbread pavilions above the city.", tags:['art','photography','nature'], duration:90},
-    {name:'Gothic Quarter Walk', category:'Neighborhood', rating:4.7, reviews:63000, priceLevel:0, price:0, area:'Barri Gòtic', lat:41.3833,lng:2.1765, desc:"Medieval alleys, hidden plazas and the old Roman city walls.", tags:['culture','history','hidden'], duration:120},
-    {name:'La Boqueria Market', category:'Market', rating:4.5, reviews:58000, priceLevel:1, price:12, area:'La Rambla', lat:41.3818,lng:2.1716, desc:"A dazzling covered market of jamón, seafood and fresh juice.", tags:['food','shopping'], duration:60},
-    {name:'Barceloneta Beach', category:'Beach', rating:4.4, reviews:71000, priceLevel:0, price:0, area:'Barceloneta', lat:41.3785,lng:2.1925, desc:"The city's main beach, backed by seafood chiringuitos.", tags:['relax','nightlife'], duration:150},
-    {name:'Bunkers del Carmel', category:'Viewpoint', rating:4.7, reviews:22400, priceLevel:0, price:0, area:'El Carmel', lat:41.4198,lng:2.1590, desc:"Old anti-aircraft bunkers turned the city's best free sunset spot.", tags:['hidden','photography','romantic'], duration:75},
+    {name:'Sagrada Família', category:'Landmark', priceLevel:3, price:33, area:'Eixample', lat:41.4036,lng:2.1744, desc:"Gaudí's unfinished basilica — still under construction since 1882.", tags:['culture','art','photography'], duration:120},
+    {name:'Park Güell', category:'Park', priceLevel:2, price:10, area:'Gràcia', lat:41.4145,lng:2.1527, desc:"Mosaic-covered terraces and gingerbread pavilions above the city.", tags:['art','photography','nature'], duration:90},
+    {name:'Gothic Quarter Walk', category:'Neighborhood', priceLevel:0, price:0, area:'Barri Gòtic', lat:41.3833,lng:2.1765, desc:"Medieval alleys, hidden plazas and the old Roman city walls.", tags:['culture','history','hidden'], duration:120},
+    {name:'La Boqueria Market', category:'Market', priceLevel:1, price:12, area:'La Rambla', lat:41.3818,lng:2.1716, desc:"A dazzling covered market of jamón, seafood and fresh juice.", tags:['food','shopping'], duration:60},
+    {name:'Barceloneta Beach', category:'Beach', priceLevel:0, price:0, area:'Barceloneta', lat:41.3785,lng:2.1925, desc:"The city's main beach, backed by seafood chiringuitos.", tags:['relax','nightlife'], duration:150},
+    {name:'Bunkers del Carmel', category:'Viewpoint', priceLevel:0, price:0, area:'El Carmel', lat:41.4198,lng:2.1590, desc:"Old anti-aircraft bunkers turned the city's best free sunset spot.", tags:['hidden','photography','romantic'], duration:75},
   ],
   restaurants:[
-    {name:'Cal Pep', cuisine:'Tapas', rating:4.6, reviews:6700, priceLevel:3, price:32, area:'El Born', lat:41.3838,lng:2.1830, desc:"Standing-room tapas bar with the freshest seafood in town.", tags:['food'], dietary:[], hours:'1:15 PM – 3:45 PM, 7:30 PM – 11:15 PM'},
-    {name:'Bar Cañete', cuisine:'Tapas', rating:4.6, reviews:4300, priceLevel:3, price:35, area:'Raval', lat:41.3800,lng:2.1730, desc:"Chef-counter tapas bar loved by locals and critics alike.", tags:['food'], dietary:[], hours:'1:00 PM – 4:00 PM, 8:00 PM – 12:00 AM'},
-    {name:'Quimet & Quimet', cuisine:'Tapas', rating:4.6, reviews:5100, priceLevel:2, price:20, area:'Poble Sec', lat:41.3735,lng:2.1650, desc:"Tiny, bottle-lined family bar famous for gourmet montaditos.", tags:['food','hidden'], dietary:[], hours:'12:00 PM – 4:00 PM, 7:00 PM – 10:30 PM'},
-    {name:'Can Solé', cuisine:'Seafood Paella', rating:4.5, reviews:3200, priceLevel:3, price:38, area:'Barceloneta', lat:41.3800,lng:2.1900, desc:"Century-old fisherman's restaurant famous for rice dishes.", tags:['food','romantic'], dietary:[], hours:'1:00 PM – 4:00 PM, 8:00 PM – 11:00 PM'},
-    {name:'Pacha Barcelona', cuisine:'Nightclub', rating:4.3, reviews:9800, priceLevel:3, price:25, area:'Port Olímpic', lat:41.3880,lng:2.1960, desc:"Beachfront club with international DJs into the early hours.", tags:['nightlife'], dietary:[], hours:'12:00 AM – 6:00 AM'},
+    {name:'Cal Pep', cuisine:'Tapas', priceLevel:3, price:32, area:'El Born', lat:41.3838,lng:2.1830, desc:"Standing-room tapas bar with the freshest seafood in town.", tags:['food'], dietary:[], hours:'1:15 PM – 3:45 PM, 7:30 PM – 11:15 PM'},
+    {name:'Bar Cañete', cuisine:'Tapas', priceLevel:3, price:35, area:'Raval', lat:41.3800,lng:2.1730, desc:"Chef-counter tapas bar loved by locals and critics alike.", tags:['food'], dietary:[], hours:'1:00 PM – 4:00 PM, 8:00 PM – 12:00 AM'},
+    {name:'Quimet & Quimet', cuisine:'Tapas', priceLevel:2, price:20, area:'Poble Sec', lat:41.3735,lng:2.1650, desc:"Tiny, bottle-lined family bar famous for gourmet montaditos.", tags:['food','hidden'], dietary:[], hours:'12:00 PM – 4:00 PM, 7:00 PM – 10:30 PM'},
+    {name:'Can Solé', cuisine:'Seafood Paella', priceLevel:3, price:38, area:'Barceloneta', lat:41.3800,lng:2.1900, desc:"Century-old fisherman's restaurant famous for rice dishes.", tags:['food','romantic'], dietary:[], hours:'1:00 PM – 4:00 PM, 8:00 PM – 11:00 PM'},
+    {name:'Pacha Barcelona', cuisine:'Nightclub', priceLevel:3, price:25, area:'Port Olímpic', lat:41.3880,lng:2.1960, desc:"Beachfront club with international DJs into the early hours.", tags:['nightlife'], dietary:[], hours:'12:00 AM – 6:00 AM'},
   ],
   hotels:[
-    {name:'Hotel Arts Barcelona', stars:5, guestRating:9.3, price:520, area:'Port Olímpic', lat:41.3870,lng:2.1960, desc:"Beachfront tower with sweeping Mediterranean views.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
-    {name:'Casa Bonay', stars:4, guestRating:9.0, price:220, area:'Eixample', lat:41.3930,lng:2.1690, desc:"Design hotel with a buzzy courtyard café and rooftop.", amenities:['Free WiFi','Bar','Breakfast']},
-    {name:'H10 Casa Mimosa', stars:4, guestRating:8.8, price:175, area:'Eixample', lat:41.3960,lng:2.1620, desc:"Modernist-district boutique hotel near Casa Batlló.", amenities:['Free WiFi','Breakfast']},
-    {name:'Kabul Party Hostel', stars:2, guestRating:8.1, price:28, area:'Gothic Quarter', lat:41.3800,lng:2.1770, desc:"Social hostel right on Plaça Reial, famous for its rooftop.", amenities:['Bar','Free WiFi']},
+    {name:'Hotel Arts Barcelona', stars:5, price:520, area:'Port Olímpic', lat:41.3870,lng:2.1960, desc:"Beachfront tower with sweeping Mediterranean views.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
+    {name:'Casa Bonay', stars:4, price:220, area:'Eixample', lat:41.3930,lng:2.1690, desc:"Design hotel with a buzzy courtyard café and rooftop.", amenities:['Free WiFi','Bar','Breakfast']},
+    {name:'H10 Casa Mimosa', stars:4, price:175, area:'Eixample', lat:41.3960,lng:2.1620, desc:"Modernist-district boutique hotel near Casa Batlló.", amenities:['Free WiFi','Breakfast']},
+    {name:'Kabul Party Hostel', stars:2, price:28, area:'Gothic Quarter', lat:41.3800,lng:2.1770, desc:"Social hostel right on Plaça Reial, famous for its rooftop.", amenities:['Bar','Free WiFi']},
   ]
 },
 
@@ -1382,25 +1429,25 @@ const DESTINATIONS_RAW = [
     localTransport:'A rental car is the most flexible option; local buses connect the town center to activities.',
     etiquette:"Casual dress is the norm everywhere, tipping isn't customary, a friendly \"Kia ora\" goes a long way." },
   attractions:[
-    {name:'Kawarau Gorge Bungy', category:'Adventure', rating:4.8, reviews:14200, priceLevel:4, price:150, area:'Kawarau Gorge', lat:-45.0605,lng:168.7530, desc:"The world's first commercial bungy jump, 43 meters over the river.", tags:['adventure'], duration:90},
-    {name:'Skyline Gondola & Luge', category:'Adventure', rating:4.6, reviews:21800, priceLevel:2, price:45, area:'Ben Lomond', lat:-45.0300,lng:168.6650, desc:"Cable car to panoramic lake views, then a hillside luge track down.", tags:['adventure','photography'], duration:120},
-    {name:'Milford Sound Day Cruise', category:'Nature', rating:4.8, reviews:33200, priceLevel:4, price:120, area:'Fiordland', lat:-44.6720,lng:167.9250, desc:"Waterfalls, seals and fiord walls on a full-day scenic cruise.", tags:['nature','photography'], duration:660},
-    {name:'Lake Wakatipu Waterfront', category:'Nature', rating:4.6, reviews:18900, priceLevel:0, price:0, area:'Queenstown Bay', lat:-45.0320,lng:168.6600, desc:"Alpine lake promenade framed by the jagged Remarkables range.", tags:['nature','relax'], duration:60},
-    {name:'Gibbston Valley Wine Tasting', category:'Wine', rating:4.6, reviews:5100, priceLevel:2, price:25, area:'Gibbston', lat:-45.0430,lng:168.9040, desc:"Cellar-door tastings of the region's famous Pinot Noir.", tags:['relax','hidden'], duration:120},
-    {name:'Ben Lomond Track', category:'Hiking', rating:4.7, reviews:6300, priceLevel:0, price:0, area:'Ben Lomond', lat:-45.0180,lng:168.6480, desc:"A challenging summit hike with 360° views over the Southern Alps.", tags:['adventure','nature'], duration:360},
+    {name:'Kawarau Gorge Bungy', category:'Adventure', priceLevel:4, price:150, area:'Kawarau Gorge', lat:-45.0605,lng:168.7530, desc:"The world's first commercial bungy jump, 43 meters over the river.", tags:['adventure'], duration:90},
+    {name:'Skyline Gondola & Luge', category:'Adventure', priceLevel:2, price:45, area:'Ben Lomond', lat:-45.0300,lng:168.6650, desc:"Cable car to panoramic lake views, then a hillside luge track down.", tags:['adventure','photography'], duration:120},
+    {name:'Milford Sound Day Cruise', category:'Nature', priceLevel:4, price:120, area:'Fiordland', lat:-44.6720,lng:167.9250, desc:"Waterfalls, seals and fiord walls on a full-day scenic cruise.", tags:['nature','photography'], duration:660},
+    {name:'Lake Wakatipu Waterfront', category:'Nature', priceLevel:0, price:0, area:'Queenstown Bay', lat:-45.0320,lng:168.6600, desc:"Alpine lake promenade framed by the jagged Remarkables range.", tags:['nature','relax'], duration:60},
+    {name:'Gibbston Valley Wine Tasting', category:'Wine', priceLevel:2, price:25, area:'Gibbston', lat:-45.0430,lng:168.9040, desc:"Cellar-door tastings of the region's famous Pinot Noir.", tags:['relax','hidden'], duration:120},
+    {name:'Ben Lomond Track', category:'Hiking', priceLevel:0, price:0, area:'Ben Lomond', lat:-45.0180,lng:168.6480, desc:"A challenging summit hike with 360° views over the Southern Alps.", tags:['adventure','nature'], duration:360},
   ],
   restaurants:[
-    {name:'Fergburger', cuisine:'Burgers', rating:4.5, reviews:31200, priceLevel:2, price:16, area:'Queenstown Central', lat:-45.0315,lng:168.6600, desc:"Legendary late-night burger joint with a line down the block.", tags:['food'], dietary:['vegetarian'], hours:'8:00 AM – 5:00 AM'},
-    {name:'Rata', cuisine:'Modern NZ', rating:4.7, reviews:3200, priceLevel:3, price:48, area:'Queenstown Central', lat:-45.0313,lng:168.6612, desc:"Chef Josh Emett's seasonal, locally-sourced fine dining.", tags:['food','romantic'], dietary:[], hours:'5:00 PM – 10:00 PM'},
-    {name:'Botswana Butchery', cuisine:'Steakhouse', rating:4.5, reviews:4100, priceLevel:4, price:55, area:'Lakefront', lat:-45.0320,lng:168.6595, desc:"Lakefront steaks with Remarkables views from every table.", tags:['food','romantic'], dietary:[], hours:'12:00 PM – 10:00 PM'},
-    {name:'Vudu Cafe & Larder', cuisine:'Café', rating:4.5, reviews:2900, priceLevel:2, price:14, area:'Queenstown Central', lat:-45.0308,lng:168.6605, desc:"Local favorite for brunch before a big day outdoors.", tags:['food','relax'], dietary:['vegetarian'], hours:'7:00 AM – 4:00 PM'},
-    {name:'Pub on Wharf', cuisine:'Pub', rating:4.3, reviews:5600, priceLevel:2, price:20, area:'Steamer Wharf', lat:-45.0330,lng:168.6580, desc:"Waterfront pub with craft beer and Southern Alps sunsets.", tags:['nightlife'], dietary:[], hours:'11:00 AM – 1:00 AM'},
+    {name:'Fergburger', cuisine:'Burgers', priceLevel:2, price:16, area:'Queenstown Central', lat:-45.0315,lng:168.6600, desc:"Legendary late-night burger joint with a line down the block.", tags:['food'], dietary:['vegetarian'], hours:'8:00 AM – 5:00 AM'},
+    {name:'Rata', cuisine:'Modern NZ', priceLevel:3, price:48, area:'Queenstown Central', lat:-45.0313,lng:168.6612, desc:"Chef Josh Emett's seasonal, locally-sourced fine dining.", tags:['food','romantic'], dietary:[], hours:'5:00 PM – 10:00 PM'},
+    {name:'Botswana Butchery', cuisine:'Steakhouse', priceLevel:4, price:55, area:'Lakefront', lat:-45.0320,lng:168.6595, desc:"Lakefront steaks with Remarkables views from every table.", tags:['food','romantic'], dietary:[], hours:'12:00 PM – 10:00 PM'},
+    {name:'Vudu Cafe & Larder', cuisine:'Café', priceLevel:2, price:14, area:'Queenstown Central', lat:-45.0308,lng:168.6605, desc:"Local favorite for brunch before a big day outdoors.", tags:['food','relax'], dietary:['vegetarian'], hours:'7:00 AM – 4:00 PM'},
+    {name:'Pub on Wharf', cuisine:'Pub', priceLevel:2, price:20, area:'Steamer Wharf', lat:-45.0330,lng:168.6580, desc:"Waterfront pub with craft beer and Southern Alps sunsets.", tags:['nightlife'], dietary:[], hours:'11:00 AM – 1:00 AM'},
   ],
   hotels:[
-    {name:"Eichardt's Private Hotel", stars:5, guestRating:9.4, price:590, area:'Lakefront', lat:-45.0322,lng:168.6598, desc:"Historic five-suite hotel right on the Queenstown waterfront.", amenities:['Spa','Restaurant','Bar','Free WiFi']},
-    {name:'The Rees Hotel', stars:5, guestRating:9.2, price:340, area:'Queenstown Bay', lat:-45.0270,lng:168.6540, desc:"Lakeside apartments with full mountain and water views.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
-    {name:'Novotel Queenstown Lakeside', stars:4, guestRating:8.7, price:190, area:'Queenstown Central', lat:-45.0300,lng:168.6620, desc:"Central lakeside base for gondola, bars and adventure tours.", amenities:['Gym','Free WiFi','Restaurant']},
-    {name:'YHA Queenstown Lakefront', stars:2, guestRating:8.5, price:35, area:'Queenstown Central', lat:-45.0290,lng:168.6610, desc:"Budget lakefront hostel with a communal fireplace lounge.", amenities:['Free WiFi','Shared kitchen']},
+    {name:"Eichardt's Private Hotel", stars:5, price:590, area:'Lakefront', lat:-45.0322,lng:168.6598, desc:"Historic five-suite hotel right on the Queenstown waterfront.", amenities:['Spa','Restaurant','Bar','Free WiFi']},
+    {name:'The Rees Hotel', stars:5, price:340, area:'Queenstown Bay', lat:-45.0270,lng:168.6540, desc:"Lakeside apartments with full mountain and water views.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
+    {name:'Novotel Queenstown Lakeside', stars:4, price:190, area:'Queenstown Central', lat:-45.0300,lng:168.6620, desc:"Central lakeside base for gondola, bars and adventure tours.", amenities:['Gym','Free WiFi','Restaurant']},
+    {name:'YHA Queenstown Lakefront', stars:2, price:35, area:'Queenstown Central', lat:-45.0290,lng:168.6610, desc:"Budget lakefront hostel with a communal fireplace lounge.", amenities:['Free WiFi','Shared kitchen']},
   ]
 },
 
@@ -1419,25 +1466,25 @@ const DESTINATIONS_RAW = [
     localTransport:'Renting a car is by far the best way to see beyond the city; local buses cover central Reykjavik.',
     etiquette:"Tipping isn't expected (service is included), tap water is excellent and safe to drink everywhere." },
   attractions:[
-    {name:'Blue Lagoon', category:'Hot Spring', rating:4.5, reviews:61200, priceLevel:3, price:75, area:'Grindavík', lat:63.8804,lng:-22.4495, desc:"Milky-blue geothermal spa set in a black lava field.", tags:['relax','photography'], duration:150},
-    {name:'Golden Circle Tour', category:'Nature', rating:4.7, reviews:38400, priceLevel:3, price:95, area:'South Iceland', lat:64.3100,lng:-20.1200, desc:"Geysers, waterfalls and the rift between two continents in a day.", tags:['nature','adventure','photography'], duration:480},
-    {name:'Hallgrímskirkja Church', category:'Landmark', rating:4.6, reviews:41200, priceLevel:1, price:8, area:'Skólavörðuholt', lat:64.1417,lng:-21.9268, desc:"Basalt-column-inspired church tower with the city's best skyline view.", tags:['photography','culture'], duration:45},
-    {name:'Sky Lagoon', category:'Hot Spring', rating:4.7, reviews:9800, priceLevel:3, price:65, area:'Kópavogur', lat:64.1150,lng:-21.9400, desc:"An infinity-edge geothermal pool facing the open Atlantic.", tags:['relax','hidden'], duration:150},
-    {name:'Jökulsárlón Glacier Lagoon', category:'Nature', rating:4.8, reviews:22100, priceLevel:0, price:0, area:'South Coast', lat:64.0784,lng:-16.2306, desc:"Icebergs calve from a glacier and drift out to a black-sand beach.", tags:['nature','adventure','photography'], duration:120},
-    {name:'Northern Lights Hunt', category:'Adventure', rating:4.6, reviews:15300, priceLevel:2, price:60, area:'Reykjavik outskirts', lat:64.2000,lng:-21.9000, desc:"A guided night drive chasing the aurora away from city lights.", tags:['adventure','photography','hidden'], duration:240},
+    {name:'Blue Lagoon', category:'Hot Spring', priceLevel:3, price:75, area:'Grindavík', lat:63.8804,lng:-22.4495, desc:"Milky-blue geothermal spa set in a black lava field.", tags:['relax','photography'], duration:150},
+    {name:'Golden Circle Tour', category:'Nature', priceLevel:3, price:95, area:'South Iceland', lat:64.3100,lng:-20.1200, desc:"Geysers, waterfalls and the rift between two continents in a day.", tags:['nature','adventure','photography'], duration:480},
+    {name:'Hallgrímskirkja Church', category:'Landmark', priceLevel:1, price:8, area:'Skólavörðuholt', lat:64.1417,lng:-21.9268, desc:"Basalt-column-inspired church tower with the city's best skyline view.", tags:['photography','culture'], duration:45},
+    {name:'Sky Lagoon', category:'Hot Spring', priceLevel:3, price:65, area:'Kópavogur', lat:64.1150,lng:-21.9400, desc:"An infinity-edge geothermal pool facing the open Atlantic.", tags:['relax','hidden'], duration:150},
+    {name:'Jökulsárlón Glacier Lagoon', category:'Nature', priceLevel:0, price:0, area:'South Coast', lat:64.0784,lng:-16.2306, desc:"Icebergs calve from a glacier and drift out to a black-sand beach.", tags:['nature','adventure','photography'], duration:120},
+    {name:'Northern Lights Hunt', category:'Adventure', priceLevel:2, price:60, area:'Reykjavik outskirts', lat:64.2000,lng:-21.9000, desc:"A guided night drive chasing the aurora away from city lights.", tags:['adventure','photography','hidden'], duration:240},
   ],
   restaurants:[
-    {name:'Bæjarins Beztu Pylsur', cuisine:'Hot Dog Stand', rating:4.5, reviews:9800, priceLevel:1, price:4, area:'Downtown', lat:64.1477,lng:-21.9400, desc:"A legendary hot dog cart even presidents have stopped at.", tags:['food'], dietary:[], hours:'10:00 AM – 1:00 AM'},
-    {name:'Matur og Drykkur', cuisine:'New Icelandic', rating:4.7, reviews:2100, priceLevel:3, price:52, area:'Grandi', lat:64.1520,lng:-21.9450, desc:"Old Icelandic recipes reinvented in a former fish factory.", tags:['food'], dietary:[], hours:'6:00 PM – 10:00 PM'},
-    {name:'Icelandic Fish & Chips', cuisine:'Seafood', rating:4.5, reviews:3600, priceLevel:2, price:22, area:'Downtown', lat:64.1490,lng:-21.9390, desc:"Sustainably-caught fish with organic-flour batter and skyr dips.", tags:['food'], dietary:['gluten-free-options'], hours:'11:30 AM – 9:00 PM'},
-    {name:'Café Loki', cuisine:'Icelandic', rating:4.4, reviews:4100, priceLevel:2, price:18, area:'Skólavörðuholt', lat:64.1420,lng:-21.9270, desc:"Traditional rye bread and lamb soup beside Hallgrímskirkja.", tags:['food','hidden'], dietary:['vegetarian'], hours:'9:00 AM – 9:00 PM'},
-    {name:'Kaffibarinn', cuisine:'Bar', rating:4.3, reviews:5200, priceLevel:2, price:14, area:'Downtown', lat:64.1465,lng:-21.9410, desc:"Reykjavik's iconic hole-in-the-wall bar, buzzing until dawn.", tags:['nightlife'], dietary:[], hours:'3:00 PM – 4:30 AM'},
+    {name:'Bæjarins Beztu Pylsur', cuisine:'Hot Dog Stand', priceLevel:1, price:4, area:'Downtown', lat:64.1477,lng:-21.9400, desc:"A legendary hot dog cart even presidents have stopped at.", tags:['food'], dietary:[], hours:'10:00 AM – 1:00 AM'},
+    {name:'Matur og Drykkur', cuisine:'New Icelandic', priceLevel:3, price:52, area:'Grandi', lat:64.1520,lng:-21.9450, desc:"Old Icelandic recipes reinvented in a former fish factory.", tags:['food'], dietary:[], hours:'6:00 PM – 10:00 PM'},
+    {name:'Icelandic Fish & Chips', cuisine:'Seafood', priceLevel:2, price:22, area:'Downtown', lat:64.1490,lng:-21.9390, desc:"Sustainably-caught fish with organic-flour batter and skyr dips.", tags:['food'], dietary:['gluten-free-options'], hours:'11:30 AM – 9:00 PM'},
+    {name:'Café Loki', cuisine:'Icelandic', priceLevel:2, price:18, area:'Skólavörðuholt', lat:64.1420,lng:-21.9270, desc:"Traditional rye bread and lamb soup beside Hallgrímskirkja.", tags:['food','hidden'], dietary:['vegetarian'], hours:'9:00 AM – 9:00 PM'},
+    {name:'Kaffibarinn', cuisine:'Bar', priceLevel:2, price:14, area:'Downtown', lat:64.1465,lng:-21.9410, desc:"Reykjavik's iconic hole-in-the-wall bar, buzzing until dawn.", tags:['nightlife'], dietary:[], hours:'3:00 PM – 4:30 AM'},
   ],
   hotels:[
-    {name:'Hotel Borg', stars:5, guestRating:9.1, price:340, area:'Downtown', lat:64.1468,lng:-21.9400, desc:"Art Deco landmark on Reykjavik's main square since 1930.", amenities:['Spa','Restaurant','Bar','Free WiFi']},
-    {name:'Canopy by Hilton Reykjavik', stars:4, guestRating:8.9, price:210, area:'Downtown', lat:64.1500,lng:-21.9350, desc:"Modern rooms and a rooftop bar in the city center.", amenities:['Bar','Free WiFi','Restaurant']},
-    {name:'Kex Hostel', stars:2, guestRating:8.6, price:60, area:'Laugavegur', lat:64.1480,lng:-21.9200, desc:"Former biscuit factory turned design-forward social hostel.", amenities:['Bar','Free WiFi','Restaurant']},
-    {name:'Reykjavik Domestic Airport Hotel', stars:3, guestRating:8.2, price:130, area:'Skerjafjörður', lat:64.1300,lng:-21.9350, desc:"Simple, convenient rooms near the domestic airport.", amenities:['Free WiFi','Breakfast']},
+    {name:'Hotel Borg', stars:5, price:340, area:'Downtown', lat:64.1468,lng:-21.9400, desc:"Art Deco landmark on Reykjavik's main square since 1930.", amenities:['Spa','Restaurant','Bar','Free WiFi']},
+    {name:'Canopy by Hilton Reykjavik', stars:4, price:210, area:'Downtown', lat:64.1500,lng:-21.9350, desc:"Modern rooms and a rooftop bar in the city center.", amenities:['Bar','Free WiFi','Restaurant']},
+    {name:'Kex Hostel', stars:2, price:60, area:'Laugavegur', lat:64.1480,lng:-21.9200, desc:"Former biscuit factory turned design-forward social hostel.", amenities:['Bar','Free WiFi','Restaurant']},
+    {name:'Reykjavik Domestic Airport Hotel', stars:3, price:130, area:'Skerjafjörður', lat:64.1300,lng:-21.9350, desc:"Simple, convenient rooms near the domestic airport.", amenities:['Free WiFi','Breakfast']},
   ]
 },
 
@@ -1456,25 +1503,25 @@ const DESTINATIONS_RAW = [
     localTransport:'The compact old town is entirely walkable; buses cover the rest of the city.',
     etiquette:'Tipping around 10% is appreciated but not required; the city center is largely car-free.' },
   attractions:[
-    {name:'Ljubljana Castle', category:'History', rating:4.6, reviews:19800, priceLevel:1, price:12, area:'Castle Hill', lat:46.0489,lng:14.5086, desc:"A funicular ride up to a medieval castle with rooftop city views.", tags:['history','photography'], duration:90},
-    {name:'Triple Bridge & Dragon Bridge', category:'Landmark', rating:4.7, reviews:12300, priceLevel:0, price:0, area:'Old Town', lat:46.0511,lng:14.5060, desc:"The photogenic bridges that frame the old town's river walk.", tags:['photography','culture'], duration:45},
-    {name:'Tivoli Park', category:'Nature', rating:4.6, reviews:8900, priceLevel:0, price:0, area:'Tivoli', lat:46.0580,lng:14.4930, desc:"The city's green lung — paths, ponds and a hilltop mansion.", tags:['nature','relax'], duration:75},
-    {name:'Ljubljanica Riverside Cafés', category:'Neighborhood', rating:4.7, reviews:9100, priceLevel:0, price:0, area:'Old Town', lat:46.0500,lng:14.5070, desc:"Riverside terraces perfect for a slow afternoon coffee.", tags:['relax','hidden'], duration:60},
-    {name:'Central Market', category:'Market', rating:4.5, reviews:4600, priceLevel:1, price:8, area:'Old Town', lat:46.0524,lng:14.5075, desc:"Plečnik-designed colonnade market for produce and local bites.", tags:['food','shopping'], duration:50},
-    {name:'Metelkova Mesto', category:'Nightlife', rating:4.4, reviews:3900, priceLevel:1, price:10, area:'Metelkova', lat:46.0577,lng:14.5155, desc:"A graffiti-covered squat-turned-cultural district with clubs and bars.", tags:['nightlife','hidden'], duration:120},
+    {name:'Ljubljana Castle', category:'History', priceLevel:1, price:12, area:'Castle Hill', lat:46.0489,lng:14.5086, desc:"A funicular ride up to a medieval castle with rooftop city views.", tags:['history','photography'], duration:90},
+    {name:'Triple Bridge & Dragon Bridge', category:'Landmark', priceLevel:0, price:0, area:'Old Town', lat:46.0511,lng:14.5060, desc:"The photogenic bridges that frame the old town's river walk.", tags:['photography','culture'], duration:45},
+    {name:'Tivoli Park', category:'Nature', priceLevel:0, price:0, area:'Tivoli', lat:46.0580,lng:14.4930, desc:"The city's green lung — paths, ponds and a hilltop mansion.", tags:['nature','relax'], duration:75},
+    {name:'Ljubljanica Riverside Cafés', category:'Neighborhood', priceLevel:0, price:0, area:'Old Town', lat:46.0500,lng:14.5070, desc:"Riverside terraces perfect for a slow afternoon coffee.", tags:['relax','hidden'], duration:60},
+    {name:'Central Market', category:'Market', priceLevel:1, price:8, area:'Old Town', lat:46.0524,lng:14.5075, desc:"Plečnik-designed colonnade market for produce and local bites.", tags:['food','shopping'], duration:50},
+    {name:'Metelkova Mesto', category:'Nightlife', priceLevel:1, price:10, area:'Metelkova', lat:46.0577,lng:14.5155, desc:"A graffiti-covered squat-turned-cultural district with clubs and bars.", tags:['nightlife','hidden'], duration:120},
   ],
   restaurants:[
-    {name:'Odprta Kuhna (Open Kitchen)', cuisine:'Street Food Market', rating:4.6, reviews:5100, priceLevel:1, price:12, area:'Pogačarjev Trg', lat:46.0515,lng:14.5065, desc:"Friday street-food market from the city's best chefs.", tags:['food'], dietary:['vegetarian','vegan'], hours:'Fri 10:00 AM – 9:00 PM'},
-    {name:'Gostilna As', cuisine:'Slovenian', rating:4.6, reviews:2900, priceLevel:3, price:38, area:'Old Town', lat:46.0512,lng:14.5052, desc:"Elegant courtyard restaurant reinventing classic Slovenian dishes.", tags:['food','romantic'], dietary:[], hours:'12:00 PM – 11:00 PM'},
-    {name:'Ljubljanski Dvor Pizzeria', cuisine:'Pizza', rating:4.4, reviews:3300, priceLevel:1, price:9, area:'Riverside', lat:46.0505,lng:14.5075, desc:"Riverside pizza-by-the-slice window, always packed at lunch.", tags:['food'], dietary:['vegetarian'], hours:'10:00 AM – 10:00 PM'},
-    {name:'Cacao', cuisine:'Café & Dessert', rating:4.5, reviews:2100, priceLevel:1, price:7, area:'Old Town', lat:46.0498,lng:14.5069, desc:"Riverside café famous for its Slovenian-chocolate desserts.", tags:['food','relax'], dietary:['vegetarian'], hours:'8:00 AM – 10:00 PM'},
-    {name:'Julija', cuisine:'Slovenian-Italian', rating:4.5, reviews:1800, priceLevel:2, price:22, area:'Old Town', lat:46.0508,lng:14.5058, desc:"Cozy old-town spot for handmade pasta and local wine.", tags:['food'], dietary:['vegetarian'], hours:'11:00 AM – 11:00 PM'},
+    {name:'Odprta Kuhna (Open Kitchen)', cuisine:'Street Food Market', priceLevel:1, price:12, area:'Pogačarjev Trg', lat:46.0515,lng:14.5065, desc:"Friday street-food market from the city's best chefs.", tags:['food'], dietary:['vegetarian','vegan'], hours:'Fri 10:00 AM – 9:00 PM'},
+    {name:'Gostilna As', cuisine:'Slovenian', priceLevel:3, price:38, area:'Old Town', lat:46.0512,lng:14.5052, desc:"Elegant courtyard restaurant reinventing classic Slovenian dishes.", tags:['food','romantic'], dietary:[], hours:'12:00 PM – 11:00 PM'},
+    {name:'Ljubljanski Dvor Pizzeria', cuisine:'Pizza', priceLevel:1, price:9, area:'Riverside', lat:46.0505,lng:14.5075, desc:"Riverside pizza-by-the-slice window, always packed at lunch.", tags:['food'], dietary:['vegetarian'], hours:'10:00 AM – 10:00 PM'},
+    {name:'Cacao', cuisine:'Café & Dessert', priceLevel:1, price:7, area:'Old Town', lat:46.0498,lng:14.5069, desc:"Riverside café famous for its Slovenian-chocolate desserts.", tags:['food','relax'], dietary:['vegetarian'], hours:'8:00 AM – 10:00 PM'},
+    {name:'Julija', cuisine:'Slovenian-Italian', priceLevel:2, price:22, area:'Old Town', lat:46.0508,lng:14.5058, desc:"Cozy old-town spot for handmade pasta and local wine.", tags:['food'], dietary:['vegetarian'], hours:'11:00 AM – 11:00 PM'},
   ],
   hotels:[
-    {name:'Grand Hotel Union', stars:5, guestRating:9.0, price:220, area:'City Center', lat:46.0530,lng:14.5045, desc:"Art Nouveau grand dame on the main square since 1905.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
-    {name:'Vander Urbani Resort', stars:4, guestRating:9.1, price:190, area:'Riverside', lat:46.0500,lng:14.5040, desc:"Boutique riverside hotel with a rooftop pool deck.", amenities:['Pool','Free WiFi','Bar']},
-    {name:'Hotel Park', stars:3, guestRating:8.3, price:95, area:'City Center', lat:46.0560,lng:14.5130, desc:"Simple, central rooms walkable to Tivoli Park and Old Town.", amenities:['Free WiFi','Breakfast']},
-    {name:'Hostel Celica', stars:2, guestRating:8.5, price:30, area:'Metelkova', lat:46.0575,lng:14.5150, desc:"Former prison cells turned artist-designed hostel rooms.", amenities:['Free WiFi','Bar']},
+    {name:'Grand Hotel Union', stars:5, price:220, area:'City Center', lat:46.0530,lng:14.5045, desc:"Art Nouveau grand dame on the main square since 1905.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
+    {name:'Vander Urbani Resort', stars:4, price:190, area:'Riverside', lat:46.0500,lng:14.5040, desc:"Boutique riverside hotel with a rooftop pool deck.", amenities:['Pool','Free WiFi','Bar']},
+    {name:'Hotel Park', stars:3, price:95, area:'City Center', lat:46.0560,lng:14.5130, desc:"Simple, central rooms walkable to Tivoli Park and Old Town.", amenities:['Free WiFi','Breakfast']},
+    {name:'Hostel Celica', stars:2, price:30, area:'Metelkova', lat:46.0575,lng:14.5150, desc:"Former prison cells turned artist-designed hostel rooms.", amenities:['Free WiFi','Bar']},
   ]
 },
 
@@ -1493,25 +1540,25 @@ const DESTINATIONS_RAW = [
     localTransport:'The medina is walkable (no cars); petit taxis are cheap for longer trips — agree on a price before riding.',
     etiquette:'Dress modestly, especially outside tourist zones; haggling in souks is expected and part of the culture; Friday is the holy day with different business hours.' },
   attractions:[
-    {name:'Jemaa el-Fna', category:'Landmark', rating:4.6, reviews:71200, priceLevel:0, price:0, area:'Medina', lat:31.6258,lng:-7.9891, desc:"A chaotic square of storytellers, musicians and food carts by night.", tags:['culture','food','photography'], duration:120},
-    {name:'Majorelle Garden', category:'Garden', rating:4.6, reviews:48900, priceLevel:2, price:12, area:'Gueliz', lat:31.6412,lng:-8.0033, desc:"Cobalt-blue villa gardens once owned by Yves Saint Laurent.", tags:['nature','photography','relax'], duration:75},
-    {name:'Bahia Palace', category:'History', rating:4.6, reviews:34500, priceLevel:1, price:8, area:'Medina', lat:31.6217,lng:-7.9836, desc:"A 19th-century palace of carved cedar and zellige-tiled courtyards.", tags:['history','culture','photography'], duration:75},
-    {name:'Souks of Marrakech', category:'Market', rating:4.5, reviews:39800, priceLevel:1, price:0, area:'Medina', lat:31.6300,lng:-7.9870, desc:"A labyrinth of leather, lanterns, spices and rugs — haggling expected.", tags:['shopping','culture'], duration:120},
-    {name:'Atlas Mountains Day Trip', category:'Adventure', rating:4.7, reviews:22100, priceLevel:3, price:55, area:'Imlil', lat:31.1360,lng:-7.9160, desc:"Berber villages and valley hikes an hour outside the city.", tags:['adventure','nature','hidden'], duration:480},
-    {name:'Agafay Desert Sunset', category:'Adventure', rating:4.6, reviews:9800, priceLevel:3, price:60, area:'Agafay', lat:31.4900,lng:-8.2200, desc:"Rocky desert camp with camel rides and dinner under the stars.", tags:['adventure','romantic','photography'], duration:300},
+    {name:'Jemaa el-Fna', category:'Landmark', priceLevel:0, price:0, area:'Medina', lat:31.6258,lng:-7.9891, desc:"A chaotic square of storytellers, musicians and food carts by night.", tags:['culture','food','photography'], duration:120},
+    {name:'Majorelle Garden', category:'Garden', priceLevel:2, price:12, area:'Gueliz', lat:31.6412,lng:-8.0033, desc:"Cobalt-blue villa gardens once owned by Yves Saint Laurent.", tags:['nature','photography','relax'], duration:75},
+    {name:'Bahia Palace', category:'History', priceLevel:1, price:8, area:'Medina', lat:31.6217,lng:-7.9836, desc:"A 19th-century palace of carved cedar and zellige-tiled courtyards.", tags:['history','culture','photography'], duration:75},
+    {name:'Souks of Marrakech', category:'Market', priceLevel:1, price:0, area:'Medina', lat:31.6300,lng:-7.9870, desc:"A labyrinth of leather, lanterns, spices and rugs — haggling expected.", tags:['shopping','culture'], duration:120},
+    {name:'Atlas Mountains Day Trip', category:'Adventure', priceLevel:3, price:55, area:'Imlil', lat:31.1360,lng:-7.9160, desc:"Berber villages and valley hikes an hour outside the city.", tags:['adventure','nature','hidden'], duration:480},
+    {name:'Agafay Desert Sunset', category:'Adventure', priceLevel:3, price:60, area:'Agafay', lat:31.4900,lng:-8.2200, desc:"Rocky desert camp with camel rides and dinner under the stars.", tags:['adventure','romantic','photography'], duration:300},
   ],
   restaurants:[
-    {name:'Nomad', cuisine:'Modern Moroccan', rating:4.6, reviews:6100, priceLevel:2, price:22, area:'Medina', lat:31.6295,lng:-7.9865, desc:"Rooftop terrace reinventing Moroccan classics with a view of the souks.", tags:['food','romantic'], dietary:['vegetarian'], hours:'12:00 PM – 11:00 PM'},
-    {name:'Le Jardin', cuisine:'Moroccan', rating:4.5, reviews:4200, priceLevel:2, price:20, area:'Medina', lat:31.6280,lng:-7.9880, desc:"Leafy courtyard restaurant tucked behind an unmarked riad door.", tags:['food','hidden','relax'], dietary:['vegetarian'], hours:'9:00 AM – 11:00 PM'},
-    {name:'Cafe Clock', cuisine:'Moroccan Fusion', rating:4.5, reviews:3600, priceLevel:2, price:16, area:'Medina', lat:31.6270,lng:-7.9845, desc:"Camel burgers and storytelling nights near the Kasbah.", tags:['food','culture'], dietary:['vegetarian'], hours:'9:00 AM – 10:00 PM'},
-    {name:'Street Food Stalls of Jemaa el-Fna', cuisine:'Street Food', rating:4.4, reviews:15200, priceLevel:1, price:6, area:'Medina', lat:31.6258,lng:-7.9891, desc:"Grilled skewers, snail soup and fresh orange juice by lantern light.", tags:['food','nightlife'], dietary:[], hours:'6:00 PM – 12:00 AM'},
-    {name:'La Mamounia Restaurant', cuisine:'Fine Dining Moroccan', rating:4.7, reviews:1800, priceLevel:4, price:90, area:'Hivernage', lat:31.6220,lng:-7.9940, desc:"Palatial garden dining inside Marrakech's most legendary hotel.", tags:['food','romantic'], dietary:[], hours:'7:00 PM – 11:00 PM'},
+    {name:'Nomad', cuisine:'Modern Moroccan', priceLevel:2, price:22, area:'Medina', lat:31.6295,lng:-7.9865, desc:"Rooftop terrace reinventing Moroccan classics with a view of the souks.", tags:['food','romantic'], dietary:['vegetarian'], hours:'12:00 PM – 11:00 PM'},
+    {name:'Le Jardin', cuisine:'Moroccan', priceLevel:2, price:20, area:'Medina', lat:31.6280,lng:-7.9880, desc:"Leafy courtyard restaurant tucked behind an unmarked riad door.", tags:['food','hidden','relax'], dietary:['vegetarian'], hours:'9:00 AM – 11:00 PM'},
+    {name:'Cafe Clock', cuisine:'Moroccan Fusion', priceLevel:2, price:16, area:'Medina', lat:31.6270,lng:-7.9845, desc:"Camel burgers and storytelling nights near the Kasbah.", tags:['food','culture'], dietary:['vegetarian'], hours:'9:00 AM – 10:00 PM'},
+    {name:'Street Food Stalls of Jemaa el-Fna', cuisine:'Street Food', priceLevel:1, price:6, area:'Medina', lat:31.6258,lng:-7.9891, desc:"Grilled skewers, snail soup and fresh orange juice by lantern light.", tags:['food','nightlife'], dietary:[], hours:'6:00 PM – 12:00 AM'},
+    {name:'La Mamounia Restaurant', cuisine:'Fine Dining Moroccan', priceLevel:4, price:90, area:'Hivernage', lat:31.6220,lng:-7.9940, desc:"Palatial garden dining inside Marrakech's most legendary hotel.", tags:['food','romantic'], dietary:[], hours:'7:00 PM – 11:00 PM'},
   ],
   hotels:[
-    {name:'La Mamounia', stars:5, guestRating:9.5, price:650, area:'Hivernage', lat:31.6220,lng:-7.9940, desc:"A century-old palace hotel set in 20 acres of gardens.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
-    {name:'Riad Yasmine', stars:4, guestRating:9.3, price:140, area:'Medina', lat:31.6290,lng:-7.9875, desc:"Rooftop-pool riad hidden behind an unmarked medina door.", amenities:['Pool','Free WiFi','Breakfast']},
-    {name:'Riad El Zohar', stars:3, guestRating:8.9, price:75, area:'Medina', lat:31.6265,lng:-7.9900, desc:"Family-run riad with home-cooked breakfast on the terrace.", amenities:['Free WiFi','Breakfast']},
-    {name:'Hostel Ronda', stars:2, guestRating:8.3, price:16, area:'Gueliz', lat:31.6380,lng:-8.0090, desc:"Budget-friendly courtyard hostel in the modern district.", amenities:['Free WiFi','Shared kitchen']},
+    {name:'La Mamounia', stars:5, price:650, area:'Hivernage', lat:31.6220,lng:-7.9940, desc:"A century-old palace hotel set in 20 acres of gardens.", amenities:['Pool','Spa','Restaurant','Free WiFi']},
+    {name:'Riad Yasmine', stars:4, price:140, area:'Medina', lat:31.6290,lng:-7.9875, desc:"Rooftop-pool riad hidden behind an unmarked medina door.", amenities:['Pool','Free WiFi','Breakfast']},
+    {name:'Riad El Zohar', stars:3, price:75, area:'Medina', lat:31.6265,lng:-7.9900, desc:"Family-run riad with home-cooked breakfast on the terrace.", amenities:['Free WiFi','Breakfast']},
+    {name:'Hostel Ronda', stars:2, price:16, area:'Gueliz', lat:31.6380,lng:-8.0090, desc:"Budget-friendly courtyard hostel in the modern district.", amenities:['Free WiFi','Shared kitchen']},
   ]
 },
 
@@ -1572,33 +1619,38 @@ DESTINATIONS_RAW.forEach(d=>{
      sits inside the La Mamounia hotel and both legitimately match the same building, but the
      photo of the building belongs to the hotel, and the restaurant is better served by a plate
      of what it cooks anyway. */
+  /* A photo of the place, or nothing.
+   *
+   * This used to be a four-deep fallback: the place's own photograph, then a plate of the
+   * cuisine it serves, then a street scene from the same city, then a stock photo of its
+   * category, and finally a coloured card with the name printed on it. Every rung below the
+   * first is a picture of something else, and on a card headed "Trattoria da Enzo" a plate of
+   * cacio e pepe reads as a photograph of that restaurant. The discovered-places path had
+   * those stand-ins removed already; the twelve curated destinations kept them, which is why
+   * a curated page could look fully illustrated while a discovered one honestly did not.
+   *
+   * Now only images/place/<id> is used, which is a licence-cleared photograph of that exact
+   * place. Anything without one falls through to the live resolver, which must prove identity
+   * and recency, and then to the card's empty state.
+   *
+   * Known exception, stated rather than hidden: these bundled photographs carry no capture
+   * date. Optimisation stripped their EXIF, so they cannot be checked against the 2019-2026
+   * window the way a Commons file can. They are kept because they are verified photographs of
+   * the exact place, which is the primary rule — but they are the one imagery path whose age
+   * is unknown. */
   const attrs = d.attractions || [], rests = d.restaurants || [], hotels = d.hotels || [];
   const used = new Set();
   const claim = src => (src && !used.has(src)) ? (used.add(src), src) : null;
-  const claimedCuisines = new Set();
-  const dealScene = makeSceneDealer(d.id);
-  const nextScene = () => { let src; while((src = dealScene())) { const c = claim(src); if(c) return c; } return null; };
 
-  const attrImg = new Array(attrs.length).fill(null);
-  const restImg = new Array(rests.length).fill(null);
-  const hotelImg = new Array(hotels.length).fill(null);
+  /* A pinned photograph outranks the bundled one where both exist. Both are real pictures of
+   * the place; the pinned one is dated, credited and current, while optimisation stripped the
+   * EXIF from the bundled files so they cannot be checked against the recency window at all. */
+  const pinned = key => (typeof unsplashUrl === 'function') ? unsplashUrl('place/' + key) : null;
+  const pick = key => claim(pinned(key)) || claim(bundledPhotoExact('place/' + key));
 
-  // Pass 1 — a photo of the actual place, for the places that own it.
-  attrs.forEach((p,i)=>{ attrImg[i] = claim(bundledPhotoExact(`place/${d.id}-a${i+1}`)); });
-  hotels.forEach((p,i)=>{ hotelImg[i] = claim(bundledPhotoExact(`place/${d.id}-h${i+1}`)); });
-  // Pass 2 — restaurants: their own photo if still free, otherwise the food they serve.
-  rests.forEach((p,i)=>{
-    restImg[i] = claim(bundledPhotoExact(`place/${d.id}-r${i+1}`))
-              || claim(bundledCuisinePhoto(p.cuisine, claimedCuisines));
-  });
-  // Pass 3 — everything still unresolved gets a distinct real photo of somewhere in this
-  // destination, then its own neighbourhood, then a category photo, then the name card.
-  attrs.forEach((p,i)=>{ attrImg[i] = attrImg[i] || nextScene() || claim(bundledPhoto(`place/${d.id}-a${i+1}`))
-                                   || claim(categoryPhoto('attraction', p.category)) || img(d.id+'-attr-'+i,640,480,p.name); });
-  rests.forEach((p,i)=>{ restImg[i] = restImg[i] || nextScene() || claim(bundledPhoto(`place/${d.id}-r${i+1}`))
-                                   || claim(bundledPhoto('category/restaurant')) || img(d.id+'-food-'+i,640,480,p.name); });
-  hotels.forEach((p,i)=>{ hotelImg[i] = hotelImg[i] || nextScene() || claim(bundledPhoto(`place/${d.id}-h${i+1}`))
-                                     || claim(hotelCategoryPhoto(p.stars)) || img(d.id+'-hotel-'+i,640,480,p.name); });
+  const attrImg = attrs.map((p, i) => pick(`${d.id}-a${i+1}`));
+  const restImg = rests.map((p, i) => pick(`${d.id}-r${i+1}`));
+  const hotelImg = hotels.map((p, i) => pick(`${d.id}-h${i+1}`));
 
   attrs.forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-a${i+1}`, destId:d.id, type:'attraction', source:'curated', image:attrImg[i]}, p)));
   rests.forEach((p,i)=>PLACES.push(Object.assign({id:`${d.id}-r${i+1}`, destId:d.id, type:'restaurant', source:'curated', image:restImg[i]}, p)));
@@ -1676,12 +1728,20 @@ const GENERIC_DEST_NAME_CACHE_KEY = 'tripflow_generic_dest_names_v1';
  * curated list. Without this, resolving a URL like #/destination/gen-beijing after a reload (very
  * common on mobile Safari, which reloads backgrounded tabs) would have nothing to recover the
  * original typed name from, and would wrongly treat the raw id/slug itself as the destination name. */
-function rememberGenericDestName(id, name, geo){
+function rememberGenericDestName(id, name, geo, query){
   const cache = readJSONCache(GENERIC_DEST_NAME_CACHE_KEY);
   // Stored as an object so a reload recovers the real coordinates and country too; the old
   // format was a bare string, which is still read below for anything cached before this.
-  cache[id] = geo ? { name, geo } : { name };
+  const rec = geo ? { name, geo } : { name };
+  // The typed query survives a reload as well, or a reloaded tab would go back to geocoding the
+  // bare city name and land in the wrong country the second time round.
+  if(query && query !== name) rec.query = query;
+  cache[id] = rec;
   writeJSONCache(GENERIC_DEST_NAME_CACHE_KEY, cache);
+}
+function recallGenericDestQuery(id){
+  const hit = readJSONCache(GENERIC_DEST_NAME_CACHE_KEY)[id];
+  return (hit && typeof hit === 'object' && hit.query) ? hit.query : null;
 }
 function recallGenericDestName(id){
   const hit = readJSONCache(GENERIC_DEST_NAME_CACHE_KEY)[id];
@@ -1693,6 +1753,94 @@ function recallGenericDestGeo(id){
   return (hit && typeof hit === 'object' && hit.geo) ? hit.geo : null;
 }
 /** Upgrades a destination that was created before its real geography was known. */
+/* ---------------- Calendar arithmetic: one source of truth ----------------
+ *
+ * Two bugs lived here, and both were invisible in a UTC test environment.
+ *
+ * 1. Trip length came from whichever code path happened to build the days. A trip created from
+ *    a trip idea took its length from the IDEA rather than the dates the traveller picked, so
+ *    choosing 24-29 September and tapping a two-day idea produced a two-day itinerary. The end
+ *    date was captured correctly all along; nothing read it.
+ *
+ * 2. `addDays` built LOCAL midnight and then formatted through toISOString(), which is UTC. At
+ *    or east of UTC that lands on the previous day: addDays('2026-09-24', 0) returned
+ *    2026-09-23 in Seoul, Kuala Lumpur, Auckland — and in London on summer time. Every day tab
+ *    was labelled a day early for a large share of the world.
+ *
+ * All calendar arithmetic below is done in UTC, where a day is always exactly 86400000 ms and
+ * no daylight-saving transition can add or remove one. A date-only string is a calendar date,
+ * not an instant, so it should never have been passed through a local-time constructor. */
+
+/** 'YYYY-MM-DD' (or a Date) -> UTC midnight in ms. NaN when it cannot be read as a date. */
+function parseDateOnly(value){
+  if(value instanceof Date){
+    return isNaN(value.getTime()) ? NaN
+      : Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate());
+  }
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value == null ? '' : value).trim());
+  if(m) return Date.UTC(+m[1], +m[2] - 1, +m[3]);
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? NaN
+    : Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
+/** A calendar date as 'YYYY-MM-DD'. */
+function toDateInput(value){
+  const ms = parseDateOnly(value);
+  if(isNaN(ms)) return '';
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/** n days after a calendar date. n may be negative. */
+function addDays(dateStr, n){
+  const ms = parseDateOnly(dateStr);
+  if(isNaN(ms)) return '';
+  return new Date(ms + (Number(n) || 0) * 86400000).toISOString().slice(0, 10);
+}
+
+/* A trip longer than this is a data-entry slip, not a holiday. Without a cap, one mistyped year
+ * asks the browser to build 365,000 day tabs and the tab stops responding. */
+const TRIP_MAX_DAYS = 365;
+
+/** THE trip length, in days, counted the way a traveller counts: leaving on the 24th and
+ *  returning on the 29th is six days. Every day tab, itinerary, route, schedule and budget in
+ *  the app derives from this one function, so they can never disagree with each other. */
+function tripDurationDays(start, end){
+  const a = parseDateOnly(start), b = parseDateOnly(end);
+  if(isNaN(a) && isNaN(b)) return 1;
+  if(isNaN(a) || isNaN(b)) return 1;
+  const days = Math.round((b - a) / 86400000) + 1;
+  if(!isFinite(days) || days < 1) return 1;      // an end before the start is not a negative trip
+  return Math.min(days, TRIP_MAX_DAYS);
+}
+
+/** The calendar date of every day in the trip, in order. */
+function tripDayDates(start, count){
+  const n = Math.max(1, Math.min(Number(count) || 1, TRIP_MAX_DAYS));
+  const out = [];
+  for(let i = 0; i < n; i++) out.push(addDays(start, i));
+  return out;
+}
+
+/** Forces a trip's `days` array to match its own dates: adds missing days, drops extra ones and
+ *  re-dates them all in order. Existing stops are preserved. Anything that changes a trip's
+ *  dates calls this, so a trip cannot drift out of agreement with itself. */
+function normalizeTripDays(trip){
+  if(!trip) return trip;
+  const wanted = tripDurationDays(trip.start, trip.end);
+  if(!Array.isArray(trip.days)) trip.days = [];
+  while(trip.days.length < wanted) trip.days.push({ date: '', stops: [] });
+  if(trip.days.length > wanted) trip.days.length = wanted;
+  const dates = tripDayDates(trip.start, wanted);
+  trip.days.forEach((d, i) => {
+    d.date = dates[i];
+    if(!Array.isArray(d.stops)) d.stops = [];
+  });
+  // Keep the end date consistent with the number of days actually held.
+  trip.end = dates[dates.length - 1];
+  return trip;
+}
+
 /* ---------------- Geographic integrity ----------------
  * Rule 1 of the spec: never use a destination name alone; always use canonical ID +
  * coordinates. These are the guards every map, route and place list has to pass through. */
@@ -1713,6 +1861,16 @@ function hasVerifiedGeo(dest){
             isFinite(dest.lat) && isFinite(dest.lng) &&
             Math.abs(dest.lat) <= 90 && Math.abs(dest.lng) <= 180 &&
             (dest.geoVerified !== false));
+}
+
+/** The string to hand a geocoder for a destination: what the traveller typed if we have it,
+ *  otherwise the name and country we know. Always this, never dest.name alone — a bare city name
+ *  is the one form that cannot be disambiguated. */
+function destGeoQuery(dest){
+  if(!dest) return '';
+  const typed = String(dest.searchQuery || '').trim();
+  if(typed && typed.toLowerCase() !== String(dest.name || '').trim().toLowerCase()) return typed;
+  return dest.name + (dest.country ? ', ' + dest.country : '');
 }
 
 /** How far from the centre a place can plausibly still be "in" this destination. A village and
@@ -1771,6 +1929,16 @@ function applyGeoToDestination(dest, geo){
     dest.currency = `Local currency (${dest.currencyCode})`;
   }
   if(geo.countryCode) dest.countryCode = geo.countryCode;
+  /* The cost estimate has to be recomputed here, not left as it was at creation.
+   *
+   * A typed destination is built before anything knows what country it is in, so it starts with
+   * no country code and therefore no estimate. Enrichment is the moment that becomes known —
+   * and without this line the estimate stayed empty forever, which is how Oslo, Hanoi, Zurich and
+   * Cairo all reported "no cost estimate" while their countries sat in the table. */
+  if(typeof estimatedDailyBudget === 'function'){
+    const scaled = estimatedDailyBudget(dest.countryCode || '');
+    if(scaled && (!dest.avgDailyBudget || dest.avgDailyBudget.estimated)) dest.avgDailyBudget = scaled;
+  }
   if(geo.bbox) dest.bbox = geo.bbox;
   if(geo.flag) dest.flag = geo.flag;
   if(geo.region) dest.region = geo.region;
@@ -1793,13 +1961,23 @@ function applyGeoToDestination(dest, geo){
  * destination chosen from search no longer goes through it. */
 function makeGenericDestination(name, geo){
   const clean = titleCaseDestName((geo && geo.name) || name.split(',')[0].trim() || name.trim());
-  const id = 'gen-'+slugify(clean); // derive the id from the cleaned name (not the raw ", Country" text) so recovering a
-  const existing = DESTINATIONS.find(d=>d.id===id);            // remembered name after a reload always reproduces the same id
+  /* The qualifier belongs in the identity, not just in the lookup.
+   *
+   * The id used to come from the cleaned city name alone, so "Salvador, Brazil" and
+   * "Salvador, El Salvador" were the same destination: whichever was opened first won, and the
+   * second silently showed the first one's country, coordinates and every place in it. Two
+   * different cities with one name are not one city. resolveDestFromId reproduces this id
+   * because it recalls the typed query, and an id from before this change still reproduces —
+   * a remembered name with no query slugs to exactly what it always did. */
+  const qualifier = String(name || '').includes(',')
+    ? String(name).split(',').slice(1).join(' ').trim() : '';
+  const id = 'gen-' + slugify(qualifier ? clean + '-' + qualifier : clean);
+  const existing = DESTINATIONS.find(d=>d.id===id);
   if(existing){
     if(geo && !existing.__geo) applyGeoToDestination(existing, geo);
     return existing;
   }
-  rememberGenericDestName(id, clean, geo);
+  rememberGenericDestName(id, clean, geo, String(name || '').trim());
   const rnd = seededRandom(id);
   // GEOGRAPHIC INTEGRITY (non-negotiable): a destination's position comes from a verified
   // geocode, or it does not exist. The old fallback seeded lat/lng from a hash of the name,
@@ -1812,6 +1990,14 @@ function makeGenericDestination(name, geo){
     : null;
   const dest = {
     id, name:clean,
+    /* What the traveller actually typed, qualifier and all.
+     *
+     * The display name is the city on its own — "Salvador" — and until now that was the only
+     * thing kept, so the ", Brazil" the traveller had gone to the trouble of typing was thrown
+     * away before anything geocoded. The lookup then asked for bare "Salvador", whose best match
+     * worldwide is El Salvador the country, and the whole trip was built there. The ranker was
+     * never wrong; it was answering a question with the answer removed from it. */
+    searchQuery: String(name || '').trim(),
     placeId: (geo && geo.placeId) || null,   // canonical identity; everything else derives from it
     country: (geo && geo.country) || '',
     countryCode: (geo && geo.countryCode) || '',
@@ -1832,7 +2018,13 @@ function makeGenericDestination(name, geo){
     currency: (geo && geo.country) ? `Local currency (${currencyCodeForCountry(geo.country, geo.countryCode)})` : "Local currency",
     currencyCode: (geo && geo.country) ? currencyCodeForCountry(geo.country, geo.countryCode) : 'USD',
     language:"Local language",
-    avgDailyBudget:{budget:50,moderate:120,luxury:280},
+    /* A day's spend scaled from this country's real, published price level rather than the flat
+     * $50/$120/$280 every typed destination used to get — the same figure for Oslo and for Hanoi,
+     * which is a fabricated number presented as this destination's own. Null when the World Bank
+     * has no usable price level for the country, so the screens can say they have no estimate
+     * instead of showing one nobody can stand behind. */
+    avgDailyBudget: (typeof estimatedDailyBudget === 'function'
+                     && estimatedDailyBudget((geo && geo.countryCode) || '')) || null,
     travelInfo:{ recommendedDays:'3–5 days', timezone:"Check your device's clock once you arrive",
       visa:"Entry requirements vary by nationality — check your country's foreign ministry site before you go.",
       safety:'Follow standard travel precautions: keep valuables secure, stay aware in crowds, and check current advisories.',
@@ -1863,6 +2055,25 @@ function findDestination(query, geo){
   if(!q) return null;
   let d = DESTINATIONS.find(x=> x.name.toLowerCase()===q || `${x.name}, ${x.country}`.toLowerCase()===q);
   if(d) return d;
+
+  /* A qualified query is a narrower question and must not be answered by a broader match.
+   *
+   * The loose match below accepts a destination whose name is merely CONTAINED IN the query, so
+   * once "Salvador, Brazil" existed, "Salvador, El Salvador" matched it — same object, same
+   * country, same coordinates, same several hundred Brazilian places, and no sign anything had
+   * gone wrong. The same swallowing turned "Springfield, Illinois" and "Springfield, Missouri"
+   * into one town. When the traveller has named a country or region, only a destination that
+   * agrees with it may answer; otherwise the qualifier goes on to identify a distinct one. */
+  const parts = q.split(',').map(p => p.trim()).filter(Boolean);
+  if(parts.length > 1){
+    const city = parts[0], qualifier = parts.slice(1).join(' ');
+    const agrees = v => { v = String(v || '').toLowerCase();
+                          return !!v && (v.includes(qualifier) || qualifier.includes(v)); };
+    d = DESTINATIONS.find(x => x.name.toLowerCase() === city &&
+                               (agrees(x.country) || agrees(x.countryCode) || agrees(x.region)));
+    return d || makeGenericDestination(query, geo);
+  }
+
   d = DESTINATIONS.find(x=> x.name.toLowerCase().includes(q) || q.includes(x.name.toLowerCase()) || x.country.toLowerCase().includes(q));
   if(d) return d;
   return makeGenericDestination(query, geo);
@@ -1882,7 +2093,7 @@ function resolveDestFromId(id){
     const remembered = recallGenericDestName(id);
     // Restore the remembered geography too, so a reloaded destination keeps its real
     // coordinates and flag instead of falling back to the hash-seeded placeholder position.
-    if(remembered) return makeGenericDestination(remembered, recallGenericDestGeo(id));
+    if(remembered) return makeGenericDestination(recallGenericDestQuery(id) || remembered, recallGenericDestGeo(id));
     // last resort: de-slugify so we at least show a readable name instead of the raw id
     return makeGenericDestination(id.slice(4).replace(/-/g,' '));
   }

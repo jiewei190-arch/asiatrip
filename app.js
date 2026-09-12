@@ -38,13 +38,23 @@ function toast(msg, action){
 function snapshot(value){ return JSON.parse(JSON.stringify(value)); }
 /** Announces a destructive action and offers to put it back. The restore runs against live
  * state, then re-renders whatever view the user is on. */
-function toastUndo(message, restoreFn){
+/** `onCommit` runs once the undo window has passed without being used — the moment a deletion
+ *  stops being reversible. Anything irreversible belongs there rather than beside the local
+ *  delete: writing a cloud tombstone immediately would make Undo restore a trip on this device
+ *  that every other device had already been told to forget. */
+const TOAST_UNDO_MS = 7000;
+function toastUndo(message, restoreFn, onCommit){
+  let undone = false;
   toast(message, { label:'Undo', onClick: ()=>{
+    undone = true;
     restoreFn();
     saveState();
     refreshCurrentView();
     toast('Restored.');
   }});
+  if(typeof onCommit === 'function'){
+    setTimeout(() => { if(!undone) onCommit(); }, TOAST_UNDO_MS);
+  }
 }
 let __uidN = 1;
 function uid(prefix){ return `${prefix}_${Date.now().toString(36)}_${(__uidN++).toString(36)}`; }
@@ -64,7 +74,19 @@ function fmt$(n){
  *  Synchronous on purpose: cards render inside template strings, and the rate table is already
  *  in memory by then. Returning '' rather than a guess is what keeps a missing rate honest. */
 function fmtIn(amountUSD, code){
-  const n = Number(amountUSD) || 0;
+  /* A price we do not have is not a price of zero.
+   *
+   * This read `Number(amountUSD) || 0`, so null — which is what every discovered place carries,
+   * deliberately, because OpenStreetMap publishes no rates — formatted as $0.00. The hotel detail
+   * panel said "$0.00 / night" for 124 of Tokyo's 128 hotels and the restaurant panel said
+   * "~$0.00/person". That is not a missing value on screen, it is a wrong one, and it is the
+   * more damaging direction: somebody plans a trip believing the room is free.
+   *
+   * A real zero still formats as zero. Only absence returns nothing, and callers show a dash or
+   * omit the line entirely. */
+  if(amountUSD == null || amountUSD === '') return '';
+  const n = Number(amountUSD);
+  if(!isFinite(n)) return '';
   if(!code) return '';
   const rate = (code === 'USD') ? 1 : (typeof EXCHANGE_RATES !== 'undefined' ? EXCHANGE_RATES[code] : null);
   if(typeof rate !== 'number' || !isFinite(rate)) return '';
@@ -101,13 +123,74 @@ function stars(rating){
   const full = Math.round(rating);
   return '★'.repeat(clamp(full,0,5)) + '☆'.repeat(5-clamp(full,0,5));
 }
-function priceLevelStr(lvl){ return lvl>0 ? '$'.repeat(clamp(lvl,1,4)) : 'Free'; }
+/** A day's spend for a destination in a given style, or null when we genuinely do not know.
+ *
+ *  Curated destinations carry hand-checked figures. Everywhere else the figure is scaled from the
+ *  country's published World Bank price level (costlevels.js) — and where the World Bank has no
+ *  usable level, there is no figure and this returns null rather than a plausible-looking guess.
+ *  Every caller has to decide what to show for "unknown", which is the point: the app used to
+ *  hand out the same $120 a day for every city on earth and present it as that city's own. */
+function destDailyBudget(dest, style){
+  const b = dest && dest.avgDailyBudget;
+  if(!b) return null;
+  const v = b[style] != null ? b[style] : b.moderate;
+  return (typeof v === 'number' && isFinite(v)) ? v : null;
+}
+/** True when the figure is our scaled estimate rather than a hand-checked one, so the screen can
+ *  say so and name where it came from. */
+function destBudgetIsEstimate(dest){
+  return !!(dest && dest.avgDailyBudget && dest.avgDailyBudget.estimated);
+}
+
+/* ---------------- what a place actually costs ----------------
+ *
+ * Three sources, in order of how much they are worth: a price this app holds in USD (the curated
+ * entries only), OpenStreetMap's own `charge` string (a real published amount like "2700 JPY",
+ * shown verbatim so no conversion of ours can restate it), and its `fee` yes/no. When none of
+ * them exists the answer is that it is not published — never a zero, never "Free". */
+function entryCostText(p){
+  if(!p) return 'Not published';
+  if(p.price != null) return fmt$(p.price);
+  if(p.charge) return p.charge;                     // OSM's words, not ours
+  if(p.fee === 'Free') return 'Free';               // fee=no: a real statement, not a default
+  if(p.fee === 'Entry fee') return 'Entry fee charged — amount not published';
+  const band = priceLevelStr(p.priceLevel);
+  return band || 'Not published';
+}
+function mealCostText(p){
+  const band = priceLevelStr(p && p.priceLevel);
+  if(p && p.price != null) return band ? `${band} · ~${fmt$(p.price)}/person` : `~${fmt$(p.price)}/person`;
+  return band || 'Not published';
+}
+/** Where to find the rate this app cannot know.
+ *
+ *  OpenStreetMap publishes no nightly rates at all — 300 hotels in Lisbon, and the only fee tags
+ *  on any of them are for wifi and the toilets. There is no keyless source of live room prices,
+ *  so rather than print a number nobody can stand behind, the app sends the traveller to a real
+ *  search for this specific hotel, and prefers the hotel's own site when OSM knows it. */
+function hotelRateSearchUrl(p, dest){
+  if(p && p.website && /^https?:\/\//i.test(p.website)) return p.website;
+  const where = [p && p.name, dest && dest.name, dest && dest.country].filter(Boolean).join(' ');
+  return 'https://www.expedia.com/Hotel-Search?destination=' + encodeURIComponent(where);
+}
+
+/** The $/$$/$$$ band, or nothing when there is no band.
+ *  It used to return 'Free' for anything that was not a positive number — which meant null, the
+ *  value every discovered place has, printed as "Free" on ticketed museums and paid attractions
+ *  the world over. Free is a claim about a place; make it only from a real 0. */
+function priceLevelStr(lvl){
+  if(typeof lvl !== 'number' || !isFinite(lvl)) return '';
+  return lvl > 0 ? '$'.repeat(clamp(lvl, 1, 4)) : 'Free';
+}
 function debounce(fn,ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; }
-function toDateInput(d){ if(!(d instanceof Date)) d=new Date(d); return d.toISOString().slice(0,10); }
-function addDays(dateStr, n){ const d=new Date(dateStr+'T00:00:00'); d.setDate(d.getDate()+n); return toDateInput(d); }
+/* toDateInput and addDays live in data.js, which loads first. They used to be redeclared here
+ * with local-time arithmetic, and because app.js loads later that buggy pair won: addDays(x, 0)
+ * returned the day BEFORE x anywhere at or east of UTC. Do not reintroduce them. */
 function fmtDateShort(dateStr){ if(!dateStr) return ''; const d=new Date(dateStr+'T00:00:00'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
 function fmtDateFull(dateStr){ if(!dateStr) return ''; const d=new Date(dateStr+'T00:00:00'); return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); }
-function daysBetween(a,b){ return Math.max(1, Math.round((new Date(b)-new Date(a))/86400000)+1); }
+/** Kept as the name the rest of app.js already uses; the calculation itself is the single
+ *  centralized one in data.js. */
+function daysBetween(a, b){ return tripDurationDays(a, b); }
 function initialsOf(name){ return (name||'?').split(' ').filter(Boolean).slice(0,2).map(w=>w[0].toUpperCase()).join(''); }
 function isOpenNow(hours){
   if(!hours) return true;
@@ -141,16 +224,6 @@ function catEmoji(type){ return {attraction:'📍',restaurant:'🍜',hotel:'🏨
  *  country (there are many "Tuscany"s), a country by itself. The old version only ever tried
  *  the bare name then the country, which for a park or a region often found the wrong thing
  *  or nothing at all. */
-/** True when an image is a category or cuisine stand-in rather than a photograph of the
- * place named on the card. Only about 4% of restaurants carry any image reference in the
- * free data, so most food cards necessarily show a dish rather than the premises. Showing
- * one is fine; letting it be MISTAKEN for the restaurant is not, so cards that use one say
- * so. That satisfies both instructions: the card stays appetising, and nobody is misled
- * into thinking they are looking at the actual place. */
-function isIllustrativeImage(src){
-  const v = String(src || '');
-  return v.indexOf('images/category/') >= 0 || v.indexOf('images/cuisine/') >= 0;
-}
 
 function destPhotoQuery(dest){
   const type = dest.placeType || '';
@@ -169,17 +242,54 @@ function destPhotoQuery(dest){
  * subsequent render should start from the real photo instead of painting the grey frame
  * again and re-resolving it; a card scrolled into view a second time was still flashing the
  * placeholder purely because it re-read the stale field. */
-function destHeroSrc(dest){
-  if(dest.hero && dest.hero.indexOf('data:image/svg') !== 0) return dest.hero;
-  return cachedWikiThumbnail([dest.name, dest.country].filter(Boolean)) || dest.hero;
+/** Credits the photographer, which the Unsplash API guidelines ask for in return for letting
+ *  anyone use the picture. Rendered only when the photograph on screen actually came from
+ *  there — crediting a photographer for a Wikimedia file would be worse than not crediting one
+ *  at all. Silent when the entry was refused by the recency window, because then it is not the
+ *  picture being shown. */
+function photoCreditHTML(key){
+  if(typeof unsplashPhoto !== 'function') return '';
+  const p = unsplashPhoto(key);
+  if(!p || !p.by) return '';
+  return `<div class="photoCredit">Photo: <a href="${esc(p.byUrl || '#')}?utm_source=TripFlow&utm_medium=referral"
+    target="_blank" rel="noopener noreferrer">${esc(p.by)}</a> ·
+    <a href="https://unsplash.com/?utm_source=TripFlow&utm_medium=referral"
+    target="_blank" rel="noopener noreferrer">Unsplash</a></div>`;
+}
+
+/** `width` is the size the picture will actually be drawn at, so the CDN can send that rather
+ *  than a full-width hero to a 284px card. Omitted means full size. */
+function destHeroSrc(dest, width){
+  /* A pinned, checked landmark photograph first. This sits here rather than only inside
+   * resolveEntityImage because the hero is painted from this function directly, and the credit
+   * line beneath it is rendered from the same table: without this the page showed a Wikimedia
+   * photograph while crediting an Unsplash photographer for it, which is a worse failure than
+   * having no credit at all. */
+  if(typeof unsplashUrl === 'function'){
+    const pinned = unsplashUrl('dest/' + (dest.id || ''), width);
+    if(pinned) return safeImageUrl(pinned);
+  }
+  // Through the same chokepoint as every other image URL. Nothing here is attacker-controlled
+  // today, but a helper whose output lands in a src="..." should not be the one exception —
+  // that is precisely how this class of bug survives a cleanup.
+  if(dest.hero && dest.hero.indexOf('data:image/svg') !== 0) return safeImageUrl(dest.hero);
+  return safeImageUrl(cachedWikiThumbnail([dest.name, dest.country].filter(Boolean)) || dest.hero);
 }
 /** Place image priority chain: the specific place first (most relevant — a named landmark,
  * restaurant, hotel), falling back to the destination's own photo if that specific place has no
  * usable Wikipedia photo (common for real supplemented places pulled from GeoSearch, like an
  * obscure train station) rather than dropping straight to the generic placeholder. */
+/** The image-search chain for ONE place.
+ *
+ *  It used to end with the bare destination name as a fallback: "Senso-ji Temple Tokyo" first,
+ *  then plain "Tokyo". Most small OSM entries have no photograph of their own, so the chain fell
+ *  through to the city almost every time and handed the same Tokyo skyline to 308 different
+ *  cards. A picture of the city on a restaurant's card is not a picture of the restaurant.
+ *
+ *  A place now searches only for ITSELF. When nothing is found the card keeps its category
+ *  stand-in, which the image registry guarantees is different from its neighbours'. */
 function photoQuery(name, destName){
-  const specific = destName ? `${name} ${destName}` : name;
-  return destName ? `${specific}||${destName}` : specific;
+  return destName ? `${name} ${destName}` : name;
 }
 /** Runs `fn` when the image is at or near the viewport. Falls back to running immediately where
  *  IntersectionObserver is unavailable, so nothing is lost on an older browser — it just goes
@@ -214,7 +324,13 @@ function hydratePhotos(container){
     // like a real photograph so the card never shows a grey frame, but it must still be
     // replaced the moment a real photo of THIS place resolves.
     const isGenericStandIn = src.indexOf('images/category/') >= 0;
-    const upgradeable = isPlaceholder || isGenericStandIn;
+    // An EMPTY src is the honest empty state: a card with no verified photograph yet. It is the
+    // single most upgradeable thing on the page, and treating it as "already a real photo of
+    // this place" — which is what happened while the only empty case was a data-URI placeholder
+    // — marked it resolved and returned without ever calling the resolver. Every discovered
+    // place on a page stayed blank for exactly that reason.
+    const isEmpty = !src;
+    const upgradeable = isPlaceholder || isGenericStandIn || isEmpty;
     // Every image gets an onerror safety net, not just ones we're about to upgrade below.
     // Places supplemented/enriched from live Wikipedia data (ensureRealAttractionSupply,
     // enrichGenericDestination) already start with a resolved real photo URL baked in — never
@@ -280,10 +396,18 @@ function hydratePhotos(container){
         const p = placeById(placeId);
         const pd = p && DESTINATIONS.find(d => d.id === p.destId);
         if(p && p.lat != null){
+          // Hand over the WHOLE identity. Discovery already read this place's OSM tags —
+          // wikidata, wikipedia, image, wikimedia_commons — and its address; dropping them here
+          // meant the resolver had to ask Overpass for tags it had been given minutes earlier,
+          // over a slow and heavily throttled service, to learn what it already knew.
           applyResolvedImage(imgEl, {
-            placeId: 'place:' + p.id, name: p.name, kind: p.type,
+            placeId: 'place:' + p.id, name: p.name, localName: p.localName, kind: p.type,
+            subtype: p.subtype, category: p.category, cuisine: p.cuisine,
+            address: p.address, city: pd && pd.name, destName: pd && pd.name,
             country: pd && pd.country, countryCode: pd && pd.countryCode,
             lat: p.lat, lng: p.lng,
+            wikidata: p.wikidata, wikipedia: p.wikipedia,
+            osmImage: p.osmImage, osmCommons: p.osmCommons,
           });
         }
       });
@@ -293,7 +417,20 @@ function hydratePhotos(container){
       ? resolveDestinationPhoto(DESTINATIONS.find(d => d.id === destId))
       : fetchWikiThumbnailChain(queries);
     Promise.resolve(resolver).then(url=>{
-      if(url){ imgEl.src = url; return; }
+      // A resolved photograph is claimed like any other. Without this two places whose names
+      // both match one Commons file would quietly show the same picture.
+      const claimant = imgEl.dataset.photoPlace || imgEl.dataset.photoDest || (queries[0] || '');
+      if(url && (typeof claimImage !== 'function' || claimImage(url, claimant))){
+        imgEl.src = url;
+        imgEl.hidden = false;
+        try{
+          const wrap = imgEl.closest && imgEl.closest('.placeImgWrap');
+          const empty = wrap && wrap.querySelector('.noPhoto');
+          if(empty) empty.remove();
+        }catch(e){}
+        return;
+      }
+      if(url) return;                       // taken by someone else: keep the distinct stand-in
       if(destId) return fetchWikiThumbnailChain(queries).then(u => { if(u) imgEl.src = u; });
     }).catch(()=>{});
   });
@@ -332,20 +469,208 @@ function defaultState(){
   };
 }
 
+/* Declared before STATE, because loadState() runs while STATE is being initialised and
+   records its result here — a `let` further down the file is in the temporal dead zone at
+   that moment and throws on the very first page load. */
+let __storage = { ok: true, at: 0, error: null, loadProblem: null };
+let __savedFlashTimer = null;   // hoisted for the same reason as __storage: saveState() runs during init
 let STATE = loadState();
 saveState(); // ensure a freshly-seeded state (first-ever visit) is persisted immediately
 
+/* ---------------- Storage, and telling the truth about it ----------------
+   Everything a traveller plans lives in localStorage. That is a deliberate choice — no account
+   to create, no server to trust — but it makes the storage layer the single point where this
+   app can lose somebody's work, so it is the one place that must never fail quietly.
+
+   Both halves used to swallow every error:
+
+     saveState()  ...catch(e){}   If the quota is full, or storage is blocked (a private
+       window, cookies disabled, a locked-down browser), every edit after that point was lost
+       while the screen kept showing it. You would plan an entire trip, refresh, and find
+       nothing — with no warning at any point that saving had stopped working.
+
+     loadState()  ...catch(e){}   A corrupted record fell through to seedState(), which
+       REPLACED the traveller's trips with demo data. The next save then overwrote the damaged
+       original, so the one copy that might have been recoverable was destroyed by the recovery.
+
+   Now: a failed save is reported and stays reported, and an unreadable record is preserved
+   under its own key and never overwritten by fabricated data. */
+
 function loadState(){
-  try{
-    const raw = localStorage.getItem(LS_KEY);
-    if(raw){
-      const parsed = JSON.parse(raw);
-      return Object.assign(defaultState(), parsed);
+  let raw = null;
+  try { raw = localStorage.getItem(LS_KEY); }
+  catch(e){
+    // Storage is not merely empty, it is unavailable. Say so rather than starting a session
+    // whose every edit will be lost.
+    __storage.ok = false;
+    __storage.error = 'unavailable';
+    __storage.loadProblem = 'unavailable';
+    return defaultState();
+  }
+  if(raw){
+    try { return Object.assign(defaultState(), JSON.parse(raw)); }
+    catch(e){
+      /* Keep the unreadable copy. It is the traveller's only record, damaged or not, and the
+       * old behaviour destroyed it: seed demo trips, save, original gone. A human can still
+       * recover names and dates from broken JSON; nobody can recover it once overwritten. */
+      try { localStorage.setItem(LS_KEY + ':unreadable:' + Date.now(), raw); } catch(_){}
+      __storage.loadProblem = 'unreadable';
+      return defaultState();       // never seedState() here: demo trips over real ones is worse
     }
-  }catch(e){}
+  }
   return seedState(defaultState());
 }
-function saveState(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(STATE)); }catch(e){} }
+
+function saveState(){
+  let stored = false;
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(STATE));
+    __storage.ok = true; __storage.at = Date.now(); __storage.error = null;
+    stored = true;
+  } catch(e){
+    __storage.ok = false;
+    // QuotaExceededError is the common one and has its own remedy, so it is named separately.
+    __storage.error = (e && (e.name === 'QuotaExceededError' || e.code === 22)) ? 'full' : 'blocked';
+  }
+  /* Outside the try, and this matters. Anything with a side effect that runs INSIDE the block
+   * guarding localStorage gets its exceptions caught and reported as a storage failure: a DOM
+   * error in the "Saved" indicator was being shown to the traveller as "this browser is not
+   * allowing TripFlow to save", which is both wrong and alarming. The guard covers storage and
+   * nothing else. */
+  if(stored) flashSaved();
+  renderStorageBanner();
+}
+
+/** A quiet confirmation that the work is on disk.
+ *
+ *  The banner above covers the broken case; this covers the ordinary one, which matters more
+ *  than it sounds in an app with no account: there is nothing else on screen to tell somebody
+ *  their afternoon of planning actually persisted. It appears on save and fades, so it informs
+ *  without becoming furniture. Saves fire in bursts while editing, so the timer is reset rather
+ *  than stacked — otherwise it flickers on every keystroke. */
+function flashSaved(){
+  const el = $('savedChip');
+  if(!el) return;
+  el.textContent = 'Saved';
+  el.classList.add('show');
+  clearTimeout(__savedFlashTimer);
+  __savedFlashTimer = setTimeout(() => el.classList.remove('show'), 1400);
+}
+
+/** Says, permanently and in place, when saving has stopped working. A toast is wrong for this:
+ *  it disappears, and the condition does not. */
+function renderStorageBanner(){
+  const el = $('storageBanner');
+  if(!el) return;
+  const problem = !__storage.ok ? __storage.error : __storage.loadProblem;
+  if(!problem){ el.classList.add('hidden'); el.innerHTML = ''; return; }
+  const message = {
+    full: 'This browser’s storage is full, so your changes are no longer being saved. Download a backup now, then remove a trip you have finished to make room.',
+    blocked: 'This browser is not allowing TripFlow to save. Changes will be lost when you close the tab — a private window or blocked cookies is the usual cause. Download a backup to keep your work.',
+    unavailable: 'This browser is not allowing TripFlow to save. Nothing from a previous session could be loaded, and nothing from this one will be kept.',
+    unreadable: 'Your previously saved trips could not be read. The damaged copy has been kept and nothing was overwritten — download a backup before making changes.',
+  }[problem];
+  el.classList.remove('hidden');
+  el.innerHTML = `<div><strong>${problem === 'unreadable' ? 'Saved data could not be read' : 'Not saving'}</strong>
+    <div class="small">${esc(message)}</div></div>
+    <button class="btn sm" id="storageBackupBtn">Download backup</button>`;
+  const b = $('storageBackupBtn');
+  if(b) b.onclick = downloadStateBackup;
+}
+
+/** Everything, as one file. The only way to get work out of a browser-only app before there is
+ *  a server to hold it, and the answer to every banner above. */
+function downloadStateBackup(){
+  const payload = { format: 'tripflow-backup', version: 1, exportedAt: new Date().toISOString(), state: STATE };
+  const name = `tripflow-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  try {
+    downloadTextFile(name, JSON.stringify(payload, null, 2));
+    toast('Backup downloaded.');
+  } catch(e){ toast('Could not build the backup file.'); }
+}
+
+/** Reads a backup back in. Validated before anything is replaced: importing a file that is not
+ *  a backup must not empty somebody's trips, which is the obvious way to turn a safety net into
+ *  the accident it was meant to prevent. */
+/** Rebuilds a trip from known fields instead of trusting the object it was handed.
+ *
+ *  A backup file is the one place a stranger's data enters this app, and the app renders trip
+ *  fields into HTML all over. Escaping every sink is the primary defence and is done; this is
+ *  the second half of it — an imported file cannot introduce keys nobody planned for, and the
+ *  fields that end up in an `src` or an id are coerced to the shape they are supposed to be. */
+function sanitiseImportedTrip(t){
+  if(!t || typeof t !== 'object') return null;
+  const str = (v, max) => String(v == null ? '' : v).slice(0, max || 300);
+  const num = (v, d) => { const n = Number(v); return isFinite(n) ? n : d; };
+  const trip = {
+    id: str(t.id, 120) || uid('trip'),
+    title: str(t.title, 200) || 'Imported trip',
+    destId: str(t.destId, 120), destName: str(t.destName, 200),
+    start: str(t.start, 20), end: str(t.end, 20),
+    travelers: num(t.travelers, 2),
+    cover: safeImageUrl(t.cover) ? str(t.cover, 2000) : '',
+    notes: str(t.notes, 20000),
+    createdAt: num(t.createdAt, Date.now()), updatedAt: num(t.updatedAt, 0) || undefined,
+    days: Array.isArray(t.days) ? t.days.slice(0, 400).map(d => ({
+      date: str(d && d.date, 20),
+      note: str(d && d.note, 20000),
+      stops: Array.isArray(d && d.stops) ? d.stops.slice(0, 200).map(sp => Object.assign({}, sp, {
+        id: str(sp && sp.id, 120) || uid('stop'),
+        name: str(sp && sp.name, 300),
+        image: safeImageUrl(sp && sp.image) ? str(sp.image, 2000) : '',
+      })) : [],
+    })) : [],
+    budget: (t.budget && typeof t.budget === 'object')
+      ? { total: num(t.budget.total, 0), style: str(t.budget.style, 40),
+          expenses: Array.isArray(t.budget.expenses) ? t.budget.expenses.slice(0, 2000) : [] }
+      : { total: 0, style: 'moderate', expenses: [] },
+    collaborators: Array.isArray(t.collaborators) ? t.collaborators.slice(0, 50) : [],
+    activity: Array.isArray(t.activity) ? t.activity.slice(0, 500) : [],
+    bookings: Array.isArray(t.bookings) ? t.bookings.slice(0, 200) : [],
+    packing: Array.isArray(t.packing) ? t.packing.slice(0, 500) : [],
+  };
+  return trip;
+}
+
+/** Reads a backup back in. Validated before anything is replaced: importing a file that is not
+ *  a backup must not empty somebody's trips, which is the obvious way to turn a safety net into
+ *  the accident it was meant to prevent. */
+function restoreStateBackup(text){
+  let parsed;
+  try { parsed = JSON.parse(text); }
+  catch(e){ return { ok: false, reason: 'That file is not readable JSON.' }; }
+  const state = parsed && (parsed.state || (Array.isArray(parsed.trips) ? parsed : null));
+  if(!state || !Array.isArray(state.trips)){
+    return { ok: false, reason: 'That file is not a TripFlow backup — no trips found in it.' };
+  }
+  /* Only the keys this app owns, rebuilt field by field. The previous version did
+   * Object.assign(defaultState(), state), which copied every key in the file verbatim —
+   * including `notifications`, whose `icon` was rendered into HTML unescaped and re-rendered on
+   * every subsequent load. A file somebody was talked into importing could run script on this
+   * origin, and since the Supabase session token now lives in localStorage that meant the
+   * traveller's cloud account as well as their browser. */
+  const fresh = defaultState();
+  fresh.trips = state.trips.slice(0, 500).map(sanitiseImportedTrip).filter(Boolean);
+  if(Array.isArray(state.notifications)){
+    fresh.notifications = state.notifications.slice(0, 200).map(n => ({
+      id: String((n && n.id) || uid('notif')).slice(0, 120),
+      text: String((n && n.text) || '').slice(0, 500),
+      icon: String((n && n.icon) || '🔔').slice(0, 16),
+      read: !!(n && n.read),
+      tripId: (n && n.tripId) ? String(n.tripId).slice(0, 120) : null,
+      ts: Number((n && n.ts)) || Date.now(),
+    }));
+  }
+  if(state.settings && typeof state.settings === 'object'){
+    fresh.settings = Object.assign({}, fresh.settings, {
+      currencyCode: String(state.settings.currencyCode || fresh.settings.currencyCode || 'USD').slice(0, 3),
+      email: String(state.settings.email || fresh.settings.email || '').slice(0, 200),
+    });
+  }
+  STATE = fresh;
+  saveState();
+  return { ok: true, trips: STATE.trips.length };
+}
 
 function seedState(state){
   const tokyo = findDestination('Tokyo, Japan');
@@ -369,7 +694,7 @@ function mkCollaborator(name,email,role){ return {id:uid('collab'), name, email,
 
 function buildAutoTrip(destId, title, start, end, travelers, style){
   const dest = DESTINATIONS.find(d=>d.id===destId);
-  const nDays = daysBetween(start,end);
+  const nDays = tripDurationDays(start, end);
   const attractions = placesFor(destId,'attraction').slice().sort((a,b)=>(b.rating||0)-(a.rating||0));
   const restaurants = placesFor(destId,'restaurant').slice().sort((a,b)=>(b.rating||0)-(a.rating||0));
   const days = [];
@@ -381,7 +706,8 @@ function buildAutoTrip(destId, title, start, end, travelers, style){
     if(ri<restaurants.length){ stops.push(mkStopFromPlace(restaurants[ri++], times[stops.length]||'19:00')); }
     days.push({ date: addDays(start,d), stops });
   }
-  const totalBudget = Math.round((dest.avgDailyBudget[style]||dest.avgDailyBudget.moderate) * nDays * travelers);
+  const perDay = destDailyBudget(dest, style);
+  const totalBudget = perDay == null ? 0 : Math.round(perDay * nDays * travelers);
   return {
     id: uid('trip'), destId, destName: dest.name+(dest.country?', '+dest.country:''), title, start, end, travelers, cover: dest.hero,
     days,
@@ -392,15 +718,34 @@ function buildAutoTrip(destId, title, start, end, travelers, style){
   };
 }
 
-function mkStopFromPlace(place, time){
+/** `planned` is the planner's own record for this stop, when the trip came from planner.js:
+ *  the real visit length, the real travel leg from the previous stop, whether the place is open
+ *  at that hour, and whether it is a meal. Without it the stop still works — it just falls back
+ *  to generic values, which is what every stop used to get: a flat "Walk, 15 mins" between every
+ *  pair of places regardless of whether they were next door or across the city. */
+function mkStopFromPlace(place, time, planned){
+  const pl = planned || null;
   return {
     id: uid('stop'), placeId: place.id, name: place.name, type: place.type,
     area: place.area, lat: place.lat, lng: place.lng, image: place.image,
-    rating: place.rating, cost: place.type==='hotel' ? place.price : (place.price||0),
+    /* null, not 0, when nothing published a price. `place.price || 0` made every discovered
+     * place cost nothing, so a forty-five-stop itinerary totalled $0 and the budget bar sat
+     * empty at "0% of $1,500 spent" — which reads as a free holiday rather than as a total
+     * nobody could compute. */
+    rating: place.rating, cost: place.price != null ? place.price : null,
     category: place.category || place.cuisine || (place.type==='hotel'?`${place.stars}★ Hotel`:''),
-    duration: place.duration || 90,
-    time: time || '10:00', note:'',
-    transitToNext: {mode:'Walk', mins: 15},
+    duration: (pl && pl.durationMin) || place.duration || 90,
+    time: time || (pl && pl.time) || '10:00', note:'',
+    // Filled in with the real measured leg by buildPlannedTrip once the following stop is known;
+    // this is only the shape, so the editor and stats keep working for hand-built trips.
+    transitToNext: {mode:'Walk', mins:15, estimated:true},
+    transitFromPrev: (pl && pl.travelFromPrev)
+      ? {mode: pl.travelFromPrev.modeLabel, mins: pl.travelFromPrev.minutes,
+         km: pl.travelFromPrev.km, icon: pl.travelFromPrev.icon}
+      : null,
+    openStatus: (pl && pl.openStatus) || 'unknown',
+    mealSlot: (pl && pl.mealSlot) || null,
+    mealLabel: (pl && pl.mealLabel) || null,
     votes: { interested:1, mustvisit:0, skip:0, userVoted:null },
     comments: [],
   };
@@ -439,11 +784,12 @@ function getOrCreateDraftTrip(destId){
   if(trip) return trip;
   const dest = DESTINATIONS.find(d=>d.id===destId);
   const start = toDateInput(new Date(Date.now()+30*86400000));
-  const end = addDays(start,3);
+  const end = addDays(start, 3);
+  const draftDays = tripDayDates(start, tripDurationDays(start, end));
   trip = {
     id: uid('trip'), destId, destName: dest.name+(dest.country?', '+dest.country:''), title:`${dest.name} Trip`, start, end, travelers:2, cover: dest.hero,
-    days:[{date:start,stops:[]},{date:addDays(start,1),stops:[]},{date:addDays(start,2),stops:[]},{date:addDays(start,3),stops:[]}],
-    budget:{ total: Math.round((dest.avgDailyBudget.moderate)*4*2), style:'moderate', expenses:[] },
+    days: draftDays.map(date => ({date, stops: []})),
+    budget:{ total: Math.round((destDailyBudget(dest, 'moderate') || 0) * draftDays.length * 2), style:'moderate', expenses:[] },
     collaborators:[ mkCollaborator('Jie Wei (you)', STATE.settings.email, 'Owner') ],
     activity:[ {id:uid('act'), author:'You', text:`created a draft trip to ${dest.name}.`, ts:Date.now()} ],
     createdAt: Date.now(),
@@ -457,6 +803,31 @@ function tripPlannedTotal(trip){
   trip.days.forEach(day=>day.stops.forEach(s=>sum += (s.cost||0)));
   trip.budget.expenses.forEach(e=>sum += (e.amount||0));
   return sum;
+}
+/** What the itinerary costs, and how much of it we actually know.
+ *
+ *  A single total is a lie by omission here: almost nothing in an itinerary has a published
+ *  price, so summing what we have and printing it as THE cost says a five-day trip costs the
+ *  £12 of the one museum that recorded its entry fee. This returns the known part, the count of
+ *  stops with no published price, and the destination's estimate for everything else — and the
+ *  screen shows all three rather than adding them into one confident number. */
+function tripCostBreakdown(trip, dest){
+  let known = 0, priced = 0, unpriced = 0;
+  trip.days.forEach(day => day.stops.forEach(s => {
+    if(s.cost != null && isFinite(s.cost)){ known += s.cost; priced++; }
+    else unpriced++;
+  }));
+  let logged = 0;
+  (trip.budget.expenses || []).forEach(e => { logged += Number(e.amount) || 0; });
+  const perDay = destDailyBudget(dest, (trip.budget && trip.budget.style) || 'moderate');
+  const days = trip.days.length, travelers = trip.travelers || 1;
+  return {
+    known, priced, unpriced, logged,
+    perDay,
+    estimate: perDay == null ? null : Math.round(perDay * days * travelers),
+    estimated: destBudgetIsEstimate(dest),
+    days, travelers,
+  };
 }
 function tripCategoryTotals(trip){
   const cats = {Flights:0, Hotels:0, Food:0, Activities:0, Transportation:0, Miscellaneous:0};
@@ -548,6 +919,13 @@ function route(){
   const hash = location.hash || '#/';
   const parts = hash.replace(/^#\/?/,'').split('/').filter(Boolean);
   closeDropdowns();
+  // Image claims are per page. Without this, navigating away and back would find every stand-in
+  // already taken by the previous render and leave the cards blank.
+  if(typeof resetImageClaims === 'function') resetImageClaims();
+  /* Re-asserted on every navigation. A storage problem is a property of the session, not of one
+   * view, and the single call at start-up was landing before the banner element was reachable
+   * in some load orders — leaving a corrupted-data warning that never appeared. */
+  renderStorageBanner();
   if(parts[0]==='discover'){ showView('discover'); renderDiscoverView(); }
   else if(parts[0]==='trips'){ showView('trips'); renderTripsView(); }
   else if(parts[0]==='saved'){ showView('saved'); renderSavedView(parts[1]); }
@@ -567,9 +945,59 @@ function closeDropdowns(){
 function initTopbar(){
   $$('[data-route]').forEach(b=>b.onclick=()=>navigate(b.dataset.route));
   $('brandBtn').onclick = ()=>navigate('#/');
+  const acctBtn = $('accountBtn');
+  if(acctBtn) acctBtn.onclick = ()=>{ closeDropdowns(); openAccountModal(); };
+  renderAccountMenu();
+  const backupBtn = $('backupBtn');
+  if(backupBtn) backupBtn.onclick = ()=>{ closeDropdowns(); downloadStateBackup(); };
+  const restoreBtn = $('restoreBtn'), restoreInput = $('restoreFileInput');
+  if(restoreBtn && restoreInput){
+    restoreBtn.onclick = ()=>{ closeDropdowns(); restoreInput.click(); };
+    restoreInput.onchange = ()=>{
+      const file = restoreInput.files && restoreInput.files[0];
+      if(!file) return;
+      const reader = new FileReader();
+      reader.onload = ()=>{
+        const res = restoreStateBackup(String(reader.result || ''));
+        restoreInput.value = '';
+        if(!res.ok){ toast(res.reason); return; }
+        toast(`Restored ${res.trips} trip${res.trips===1?'':'s'} from backup.`);
+        renderStorageBanner();
+        route();
+      };
+      reader.onerror = ()=>{ restoreInput.value=''; toast('That file could not be read.'); };
+      reader.readAsText(file);
+    };
+  }
 
   $('searchToggle').onclick = (e)=>{ e.stopPropagation(); const p=$('gsearchPanel'); p.classList.toggle('show'); $('notifDropdown').classList.remove('show'); $('profileDropdown').classList.remove('show'); if(p.classList.contains('show')){ $('globalSearchInput').focus(); runGlobalSearch($('globalSearchInput').value); } };
-  $('gsearchClose').onclick = ()=>$('gsearchPanel').classList.remove('show');
+  // The x next to a search box means "clear what I typed", not "close the search". It was wired
+  // to hide the panel — hence the name — so clearing a query threw the traveller out of search
+  // and made them reopen it to look up anywhere else. It now empties the field, keeps the panel
+  // open, puts the cursor back, and shows suggestions. Escape and clicking outside still close.
+  $('gsearchClose').onclick = (e) => {
+    e.stopPropagation();
+    const input = $('globalSearchInput');
+    // With something typed, x means CLEAR: empty the field, keep the panel open, put the cursor
+    // back, and show recent and trending suggestions. With the field already empty there is
+    // nothing left to clear, so the same control closes — which keeps an explicit way out.
+    if(input && input.value){
+      input.value = '';
+      input.focus();
+      runGlobalSearch('');
+      return;
+    }
+    $('gsearchPanel').classList.remove('show');
+  };
+  // Escape closes the search from anywhere inside it, including mid-typing.
+  $('gsearchPanel').addEventListener('keydown', (e) => {
+    if(e.key === 'Escape'){
+      e.stopPropagation();
+      $('gsearchPanel').classList.remove('show');
+      const t = $('searchToggle');
+      if(t) t.focus();
+    }
+  });
   $('globalSearchInput').addEventListener('input', debounce(e=>runGlobalSearch(e.target.value), 150));
   $('globalSearchInput').addEventListener('focus', ()=>runGlobalSearch($('globalSearchInput').value));
   $('globalSearchInput').onkeydown = (e)=>{
@@ -623,7 +1051,7 @@ function runGlobalSearch(q){
     if(trending.length){
       html += `<div class="gsearch-group">Trending Destinations</div>`;
       trending.forEach(d=>{
-        html += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${destHeroSrc(d)}" alt="" data-photo-dest="${esc(d.id)}" data-photo-q="${esc(destPhotoQuery(d))}"><div><div>${d.flag} ${esc(d.name)}</div><div class="small">${esc(d.tagline)}</div></div></button>`;
+        html += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${destHeroSrc(d, 640)}" alt="" data-photo-dest="${esc(d.id)}" data-photo-q="${esc(destPhotoQuery(d))}"><div><div>${d.flag} ${esc(d.name)}</div><div class="small">${esc(d.tagline)}</div></div></button>`;
       });
     }
     if(!html) html = '<div class="empty" style="padding:26px">Search for a city, attraction, restaurant or hotel.</div>';
@@ -642,7 +1070,7 @@ function runGlobalSearch(q){
     if(!matches.length) return '';
     let h = `<div class="gsearch-group">${esc(label)}</div>`;
     matches.forEach(d=>{
-      h += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${destHeroSrc(d)}" alt="" data-photo-dest="${esc(d.id)}" data-photo-q="${esc(destPhotoQuery(d))}"><div><div>${d.flag} ${esc(d.name)}, ${esc(d.country)}</div><div class="small">Explore destination</div></div></button>`;
+      h += `<button class="gsearch-row" data-go="#/destination/${encodeURIComponent(d.id)}"><img src="${destHeroSrc(d, 640)}" alt="" data-photo-dest="${esc(d.id)}" data-photo-q="${esc(destPhotoQuery(d))}"><div><div>${d.flag} ${esc(d.name)}, ${esc(d.country)}</div><div class="small">Explore destination</div></div></button>`;
     });
     return h;
   };
@@ -651,7 +1079,7 @@ function runGlobalSearch(q){
     let h = `<div class="gsearch-group">${esc(label)}</div>`;
     matches.forEach(p=>{
       const pd = DESTINATIONS.find(d=>d.id===p.destId);
-      h += `<button class="gsearch-row" data-place="${p.id}"><img src="${p.image}" alt="" data-photo-q="${esc(photoQuery(p.name, pd.name))}"><div><div>${esc(p.name)}</div><div class="small">${esc(pd.name)} · ${placeTypeLabel(p.type)}</div></div></button>`;
+      h += `<button class="gsearch-row" data-place="${esc(p.id)}"><img src="${safeImageUrl(p.image)}" alt="" data-photo-q="${esc(photoQuery(p.name, pd.name))}"><div><div>${esc(p.name)}</div><div class="small">${esc(pd.name)} · ${placeTypeLabel(p.type)}</div></div></button>`;
     });
     return h;
   };
@@ -688,7 +1116,7 @@ function runGlobalPlaceSearch(q, localHTML, results){
       html += `<div class="gsearch-group">Destinations worldwide</div>`;
       fresh.forEach((r, i) => {
         __globalSearchResults[i] = r;
-        html += `<button class="gsearch-row" data-geo="${i}">
+        html += `<button class="gsearch-row" data-geo="${esc(i)}">
           <div class="ic globeIc">${r.flag || '🌍'}</div>
           <div><div>${esc(r.name)}</div><div class="small">${esc(r.context || r.country || '')}${r.typeLabel ? ` · ${esc(r.typeLabel)}` : ''}</div></div>
         </button>`;
@@ -732,8 +1160,8 @@ function renderNotifications(){
   const list = $('notifList');
   if(!STATE.notifications.length){ list.innerHTML = '<div class="empty" style="margin:14px">No notifications yet.</div>'; return; }
   list.innerHTML = STATE.notifications.map(n=>`
-    <button class="notifItem ${n.read?'':'unread'}" data-id="${n.id}">
-      <div class="notifIcon">${n.icon}</div>
+    <button class="notifItem ${n.read?'':'unread'}" data-id="${esc(n.id)}">
+      <div class="notifIcon">${esc(n.icon)}</div>
       <div><div>${esc(n.text)}</div><div class="small">${timeAgo(n.ts)}</div></div>
     </button>`).join('');
   list.querySelectorAll('.notifItem').forEach(b=>b.onclick=()=>{
@@ -788,7 +1216,7 @@ function renderCurrencyOptions(select, rows){
     const sym = (typeof currencySymbol === 'function') ? currencySymbol(r.code) : '';
     const where = r.countries && r.countries.length
       ? ' · ' + r.countries.slice(0,3).join(', ') + (r.countries.length > 3 ? '…' : '') : '';
-    return `<option value="${r.code}">${r.code} — ${esc(r.name)}${sym && sym !== r.code ? ' ('+esc(sym)+')' : ''}${esc(where)}</option>`;
+    return `<option value="${esc(r.code)}">${r.code} — ${esc(r.name)}${sym && sym !== r.code ? ' ('+esc(sym)+')' : ''}${esc(where)}</option>`;
   }).join('');
 }
 
@@ -837,24 +1265,156 @@ function initSettingsModal(){
 }
 
 /* ---------------- reusable place card ---------------- */
+/* ---------------- image uniqueness ----------------
+ *
+ * Root cause of the repeated imagery: categoryPhoto() maps a whole CATEGORY to one bundled
+ * photograph, so every museum got the same museum picture and every restaurant of a given
+ * cuisine the same plate of food. Ten attractions, one image, ten times over. And nothing
+ * anywhere in the codebase tracked which images were already on screen, so nothing could have
+ * noticed.
+ *
+ * The registry below is the missing piece: an image is CLAIMED by the first place that uses it,
+ * and any other place asking for the same file is refused and sent to find another. A place may
+ * reuse an image it already holds — re-rendering the same card must not fight itself — and two
+ * cards for genuinely the same entity share, because they are the same place. */
+
+const __imageClaims = new Map();   // normalized image key -> placeId holding it
+
+/** Two URLs for the same photograph differ by width and query string; compare the file itself. */
+function imageIdentity(src){
+  const v = String(src || '');
+  if(!v) return '';
+  // A placeholder is the ABSENCE of a photograph, not a photograph. It carries the place's own
+  // name and is meant to repeat across cards that have nothing yet, so claiming one would let a
+  // single "no image" frame lock every other card out of the pool.
+  if(v.indexOf('data:') === 0) return '';
+  const noQuery = v.split('?')[0];
+  const file = noQuery.split('/').pop() || noQuery;
+  // Strip Wikimedia's size prefix so 640px-X.jpg and 960px-X.jpg count as one photograph.
+  return file.replace(/^\d+px-/, '').toLowerCase();
+}
+
+/** True when `src` is free for `placeId`, or already belongs to it. */
+function imageAvailableFor(src, placeId){
+  const key = imageIdentity(src);
+  if(!key) return false;
+  const holder = __imageClaims.get(key);
+  return !holder || holder === placeId;
+}
+
+function claimImage(src, placeId){
+  const key = imageIdentity(src);
+  if(!key) return false;
+  const holder = __imageClaims.get(key);
+  if(holder && holder !== placeId) return false;
+  __imageClaims.set(key, placeId);
+  return true;
+}
+
+function releaseImagesFor(placeId){
+  for(const [k, v] of __imageClaims) if(v === placeId) __imageClaims.delete(k);
+}
+
+/** Cleared when the view changes, so leaving and returning to a page does not exhaust the pool. */
+function resetImageClaims(){ __imageClaims.clear(); __standinUse.clear(); }
+
+/* How many places currently lean on each stand-in, so overflow can be spread evenly. */
+const __standinUse = new Map();
+
+/** Picks a stand-in for this place.
+ *
+ *  First choice is one nothing else is using. When the pool is genuinely smaller than the page —
+ *  there are only five attraction photographs bundled and a dense city returns four hundred
+ *  attractions — repetition is unavoidable, so the goal becomes spreading it EVENLY: the
+ *  least-used photograph wins, with the place id breaking ties so the same card keeps the same
+ *  picture across re-renders. Five photographs shared evenly over forty cards is a wallpaper;
+ *  five photographs where one appears thirty times is the bug being fixed here.
+ *
+ *  Kept only for curated places, which ship with a real hand-checked photograph of themselves. */
+function claimFirstFreeImage(candidates, placeId){
+  const pool = candidates.filter(Boolean);
+  if(!pool.length) return '';
+  for(const c of pool){
+    if(claimImage(c, placeId)){ __standinUse.set(c, (__standinUse.get(c) || 0) + 1); return c; }
+  }
+  let best = pool[0], bestN = Infinity;
+  const tie = String(placeId || '').split('').reduce((a, ch) => a + ch.charCodeAt(0), 0);
+  pool.forEach((c, i) => {
+    const n = (__standinUse.get(c) || 0) * pool.length + ((i + tie) % pool.length);
+    if(n < bestN){ bestN = n; best = c; }
+  });
+  __standinUse.set(best, (__standinUse.get(best) || 0) + 1);
+  return best;
+}
+
 /** Discovered places arrive from OpenStreetMap without a photograph. Rather than a grey box,
- *  show a category or cuisine stand-in — clearly marked "Illustrative" — which imagery.js then
- *  replaces if it can find a photograph of this exact entity. */
+ *  show nothing until a photograph of this exact entity is verified. */
+/* No generic stand-in pool any more.
+ *
+ * There used to be one: 41 food photographs, 6 accommodation, 5 sights, handed out so every card
+ * had something on it. That is exactly the "random stock photography" and "generic food dish
+ * instead of the restaurant" the accuracy standard rules out. A plate of pasta on a card headed
+ * "Trattoria da Enzo" tells a traveller nothing true about Trattoria da Enzo, and they cannot
+ * tell it apart from a real photograph of the place.
+ *
+ * A card now shows a photograph of ITSELF or an honest empty state. Accuracy over decoration. */
+
+/** The image for a place card, before imagery.js has resolved anything.
+ *
+ *  A curated place ships with a real, hand-checked photograph of itself and uses it. Everything
+ *  else starts empty and stays empty until a photograph of THAT place is verified. */
+/* One chokepoint for every image URL that reaches the DOM.
+ *
+ * A place's `image` used to be interpolated straight into src="..." while the attributes beside
+ * it on the same line were escaped — so a value containing a double quote could close the
+ * attribute and add an onerror handler of its own. Nothing reachable put attacker text there
+ * until Restore-from-backup arrived: that reads an arbitrary JSON file and replaces the whole
+ * state, which hands somebody who can talk a traveller into importing a file complete control
+ * of every field, `image` included.
+ *
+ * So this both ESCAPES and restricts the scheme. Escaping alone would still admit
+ * javascript: — harmless on <img>, not harmless the day one of these is reused in an <a>. */
+function safeImageUrl(url){
+  const raw = String(url == null ? '' : url).trim();
+  if(!raw) return '';
+  // Relative paths (images/place/x.jpg) and protocol-relative are ours; absolute URLs must be
+  // http(s) or a data: image. Anything else — javascript:, vbscript:, file: — is dropped.
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(raw);
+  if(scheme){
+    const s = scheme[1].toLowerCase();
+    const ok = (s === 'http' || s === 'https') ||
+               (s === 'data' && /^data:image\//i.test(raw));
+    if(!ok) return '';
+  }
+  return esc(raw);
+}
+
 function placeImageSrc(p){
-  if(p.image) return p.image;
+  const id = p.placeId || p.id || p.name;
   try{
-    if(p.type === 'restaurant'){
-      return (typeof bundledCuisinePhoto === 'function' && bundledCuisinePhoto(p.cuisine))
-          || (typeof categoryPhoto === 'function' && categoryPhoto('restaurant', p.cuisine))
-          || (typeof bundledPhoto === 'function' && bundledPhoto('category/restaurant')) || '';
-    }
-    if(p.type === 'hotel'){
-      return (typeof hotelCategoryPhoto === 'function' && hotelCategoryPhoto(p.stars || 3))
-          || (typeof bundledPhoto === 'function' && bundledPhoto('category/hotel-room')) || '';
-    }
-    return (typeof categoryPhoto === 'function' && categoryPhoto('attraction', p.category))
-        || (typeof bundledPhoto === 'function' && bundledPhoto('category/attraction')) || '';
+    if(p.image){ claimImage(p.image, id); return safeImageUrl(p.image); }
+    return '';
   }catch(e){ return ''; }
+}
+
+/** What a card shows while it has no verified photograph, and what it keeps if none is found.
+ *  It names the place and says what kind of thing it is — which is honest, and more use than a
+ *  stock photograph of somewhere else. */
+function placeImagePlaceholderHTML(p){
+  const kind = p.category || p.cuisine || (p.type === 'hotel' ? 'Place to stay'
+             : p.type === 'restaurant' ? 'Place to eat' : 'Place');
+  const icon = p.type === 'restaurant' ? '🍽️' : p.type === 'hotel' ? '🛏️' : '📍';
+  /* Say which rule left this card empty. "No verified photo" was true when the only bar was
+   * identity; with a year cutoff in force it is usually not the reason — the photograph exists
+   * and depicts the place, it was simply taken before the cutoff. Telling someone the wrong
+   * reason for an empty space is worse than telling them nothing. */
+  const cutoff = (typeof IMAGE_MIN_CAPTURE_YEAR !== 'undefined') ? IMAGE_MIN_CAPTURE_YEAR : null;
+  const note = cutoff ? `No ${cutoff} photo` : 'No verified photo';
+  return `<div class="noPhoto" aria-hidden="true">
+    <span class="noPhotoIcon">${icon}</span>
+    <span class="noPhotoKind">${esc(kind)}</span>
+    <span class="noPhotoNote">${esc(note)}</span>
+  </div>`;
 }
 
 function placeCardHTML(p, opts){
@@ -864,14 +1424,24 @@ function placeCardHTML(p, opts){
   // Ratings, review counts and price levels are only known for curated places. A live place
   // carries none, so those chips are omitted rather than rendered as 0/"Free" — showing an
   // invented figure to someone planning a real trip is worse than showing nothing.
-  const ratingHTML = p.rating
-    ? `<span class="stars">${stars(p.rating)}</span><span>${p.rating}</span>${p.reviews?`<span>(${p.reviews.toLocaleString()})</span>`:''}`
+  /* No stars. OpenStreetMap carries no ratings, so a discovered place never had them and a
+   * curated one only ever showed invented numbers — every single one between 4.3 and 4.8, which
+   * is not what a real distribution looks like. A star row is worse than an empty one: it reads
+   * as review data and there is none. */
+  const ratingHTML = false
+    ? ''
     : '';
   const priceHTML = typeof p.priceLevel === 'number'
     ? `<span class="priceLevel">${priceLevelStr(p.priceLevel)}</span>` : '';
   let metaHTML = '';
   if(p.type==='attraction'){
-    metaHTML = `${ratingHTML}${priceHTML}`;
+    /* Show the entry cost when OpenStreetMap actually publishes one. Roughly one attraction in
+     * sixteen carries a fee tag and one in a hundred a charge, so most cards still say nothing —
+     * which is the correct amount to say about a price nobody has recorded. */
+    const feeBit = p.charge ? `<span class="priceLevel">${esc(p.charge)}</span>`
+      : p.fee === 'Free' ? '<span class="priceLevel">Free entry</span>'
+      : p.fee === 'Entry fee' ? '<span class="priceLevel">Entry fee</span>' : '';
+    metaHTML = `${ratingHTML}${priceHTML}${feeBit}`;
   } else if(p.type==='restaurant'){
     const open = isOpenNow(p.hours);
     metaHTML = `${ratingHTML}${priceHTML}<span class="openTag ${open?'open':'closed'}">${open?'Open now':'Closed'}</span>`;
@@ -879,8 +1449,12 @@ function placeCardHTML(p, opts){
     // Only what OSM actually publishes: an official star classification, and a price only if
     // one exists. A discovered stay has neither by default, and inventing them is the bug.
     const starBit  = p.stars ? `<span class="stars">${'★'.repeat(p.stars)}</span>` : '';
-    const guestBit = (p.guestRating != null) ? `<span>${p.guestRating}/10</span>` : '';
-    const priceBit = (p.price != null) ? `<span class="priceLevel">${fmtMoneyDual(p.price, dest)}/night</span>` : '';
+    const guestBit = '';   // no guest scores: nothing here has real ones
+    /* No nightly rate exists to show — OSM has none for any hotel anywhere — so the card says
+     * where to get the real one rather than leaving a blank where a price should be. */
+    const priceBit = (p.price != null)
+      ? `<span class="priceLevel">${fmtMoneyDual(p.price, dest)}/night</span>`
+      : `<a class="priceLevel rateLink" href="${esc(hotelRateSearchUrl(p, dest))}" target="_blank" rel="noopener">See rates ↗</a>`;
     metaHTML = `${starBit}${guestBit}${priceBit}` ||
       `<span class="small">${esc(p.category || 'Place to stay')}</span>`;
   }
@@ -888,12 +1462,12 @@ function placeCardHTML(p, opts){
     : p.type==='restaurant' ? (p.cuisine || p.category || 'Place to eat')
     : (p.stars ? `${p.stars}★ ${p.category || 'Hotel'}` : (p.category || 'Place to stay'));
   return `
-  <div class="placeCard" data-place="${p.id}">
+  <div class="placeCard" data-place="${esc(p.id)}">
     <div class="placeImgWrap">
-      <img src="${placeImageSrc(p)}" alt="${esc(p.name)}" loading="lazy" data-photo-place="${esc(p.id)}" data-photo-q="${esc(photoQuery(p.name, dest&&dest.name))}">
+      ${placeImageSrc(p) ? '' : placeImagePlaceholderHTML(p)}
+      <img src="${placeImageSrc(p)}" alt="${esc(p.name)}" loading="lazy" ${placeImageSrc(p) ? '' : 'hidden'} data-photo-place="${esc(p.id)}" data-photo-q="${esc(photoQuery(p.name, dest&&dest.name))}">
       <span class="placeCatBadge">${esc(catLabel)}</span>
-      ${isIllustrativeImage(placeImageSrc(p)) ? `<span class="illusBadge" title="No photograph of this place is available; this shows the kind of food or stay it is">Illustrative</span>` : ''}
-      <button class="placeSaveBtn" data-save="${p.id}" title="Save">${isSaved?'♥':'♡'}</button>
+      <button class="placeSaveBtn" data-save="${esc(p.id)}" title="Save">${isSaved?'♥':'♡'}</button>
     </div>
     <div class="placeBody">
       <h4>${esc(p.name)}</h4>
@@ -901,9 +1475,9 @@ function placeCardHTML(p, opts){
       ${!opts.noDesc ? `<p class="placeDesc">${esc(displayDesc(p, dest))}</p>` : ''}
       <div class="small">📍 ${esc(p.area)}${dest && opts.showDest ? ' · '+esc(dest.name) : ''}</div>
       <div class="placeFoot">
-        <button class="btn primary" data-add="${p.id}"><i class="fa-solid fa-plus"></i> Add to Trip</button>
-        <button class="btn" data-detail="${p.id}"><i class="fa-solid fa-circle-info"></i> Details</button>
-        <button class="btn" data-mapview="${p.id}"><i class="fa-solid fa-map-location-dot"></i></button>
+        <button class="btn primary" data-add="${esc(p.id)}"><i class="fa-solid fa-plus"></i> Add to Trip</button>
+        <button class="btn" data-detail="${esc(p.id)}"><i class="fa-solid fa-circle-info"></i> Details</button>
+        <button class="btn" data-mapview="${esc(p.id)}"><i class="fa-solid fa-map-location-dot"></i></button>
       </div>
     </div>
   </div>`;
@@ -916,9 +1490,9 @@ function renderActiveFilterChips(containerId, chips, onClearAll){
   if(!el) return;
   if(!chips.length){ el.innerHTML=''; el.classList.add('hidden'); return; }
   el.classList.remove('hidden');
-  el.innerHTML = chips.map((c,i)=>`<button class="filterChip" data-chip="${i}">${esc(c.label)} <i class="fa-solid fa-xmark"></i></button>`).join('')
+  el.innerHTML = chips.map((c,i)=>`<button class="filterChip" data-chip="${esc(i)}">${esc(c.label)} <i class="fa-solid fa-xmark"></i></button>`).join('')
     + `<button class="linklike" id="${containerId}ClearAll">Clear all filters</button>`;
-  chips.forEach((c,i)=>{ const b = el.querySelector(`[data-chip="${i}"]`); if(b) b.onclick = c.onRemove; });
+  chips.forEach((c,i)=>{ const b = el.querySelector(`[data-chip="${esc(i)}"]`); if(b) b.onclick = c.onRemove; });
   const clearBtn = $(containerId+'ClearAll');
   if(clearBtn) clearBtn.onclick = onClearAll;
 }
@@ -966,22 +1540,24 @@ function openPlaceDetail(placeId){
   const p = placeById(placeId);
   if(!p) return;
   const dest = DESTINATIONS.find(d=>d.id===p.destId);
-  const reviews = generateReviews(p, p.id);
   let infoRows = '';
   if(p.type==='attraction'){
     infoRows = `<div class="ovCard"><div class="k">Category</div><div class="v">${esc(p.category)}</div></div>
-      <div class="ovCard"><div class="k">Price</div><div class="v">${priceLevelStr(p.priceLevel)}${p.price?` · ${fmt$(p.price)}`:''}</div></div>
+      <div class="ovCard"><div class="k">Entry</div><div class="v">${esc(entryCostText(p))}</div></div>
       <div class="ovCard"><div class="k">Suggested time</div><div class="v">${p.duration||90} min</div></div>
       <div class="ovCard"><div class="k">Area</div><div class="v">${esc(p.area)}</div></div>`;
   } else if(p.type==='restaurant'){
     const open = isOpenNow(p.hours);
     infoRows = `<div class="ovCard"><div class="k">Cuisine</div><div class="v">${esc(p.cuisine)}</div></div>
-      <div class="ovCard"><div class="k">Price</div><div class="v">${priceLevelStr(p.priceLevel)} · ~${fmt$(p.price)}/person</div></div>
+      <div class="ovCard"><div class="k">Price</div><div class="v">${esc(mealCostText(p))}</div></div>
       <div class="ovCard"><div class="k">Hours</div><div class="v">${esc(p.hours)} <span class="openTag ${open?'open':'closed'}" style="margin-left:6px">${open?'Open now':'Closed'}</span></div></div>
       <div class="ovCard"><div class="k">Dietary</div><div class="v">${p.dietary&&p.dietary.length?esc(p.dietary.join(', ')):'Standard menu'}</div></div>`;
   } else if(p.type==='hotel'){
-    infoRows = `<div class="ovCard"><div class="k">Rating</div><div class="v">${'★'.repeat(p.stars)} · Guests ${p.guestRating}/10</div></div>
-      <div class="ovCard"><div class="k">Price</div><div class="v">${fmt$(p.price)} / night</div></div>
+    // Star CLASS is a real, published property of a hotel. A guest score was not.
+    infoRows = `<div class="ovCard"><div class="k">Class</div><div class="v">${'★'.repeat(p.stars||0)||'Not stated'}</div></div>
+      <div class="ovCard"><div class="k">Nightly rate</div><div class="v">${p.price != null
+        ? fmtMoneyDual(p.price, dest) + ' / night'
+        : `<span class="muted">Not published — <a href="${esc(hotelRateSearchUrl(p, dest))}" target="_blank" rel="noopener">check live prices</a></span>`}</div></div>
       <div class="ovCard"><div class="k">Area</div><div class="v">${esc(p.area)}</div></div>
       <div class="ovCard"><div class="k">Amenities</div><div class="v">${esc((p.amenities||[]).join(', '))}</div></div>`;
   }
@@ -989,7 +1565,7 @@ function openPlaceDetail(placeId){
   $('placeDetailContent').innerHTML = `
     <div class="modalHeader">
       <div><div class="eyebrow">${esc(dest.flag)} ${esc(dest.name)}</div><h2>${esc(p.name)}</h2>
-        <div class="placeMeta" style="margin-top:6px">${p.rating?`<span class="stars">${stars(p.rating)}</span><span>${p.rating}</span><span>(${(p.reviews||0).toLocaleString()} reviews)</span>`:''}</div>
+        <div class="placeMeta" style="margin-top:6px"></div>
       </div>
       <button class="xbtn" data-close="modal-placeDetail">×</button>
     </div>
@@ -997,8 +1573,6 @@ function openPlaceDetail(placeId){
     <div class="pdGrid">
       <div>
         <p>${esc(displayDesc(p, dest))}</p>
-        <h3 style="margin-top:18px">Reviews</h3>
-        ${reviews.map(r=>`<div class="pdReview"><div class="pdReviewHead"><span>${esc(r.name)}</span><span class="stars">${stars(r.rating)}</span></div><div class="small">${r.daysAgo} days ago</div><p style="margin:6px 0 0">${esc(r.text)}</p></div>`).join('')}
       </div>
       <div>
         <div class="destOverviewGrid" style="grid-template-columns:1fr;margin-top:0">${infoRows}</div>
@@ -1036,7 +1610,7 @@ function openAddToTrip(placeId){
         <button class="btn primary block" style="margin-top:12px" id="atCreateBtn">＋ Create a trip to ${esc(dest.name)}</button>`;
     } else {
       html = `<div class="field" style="margin-bottom:12px"><label>Trip</label>
-        <select id="atTripSelect">${existing.map(t=>`<option value="${t.id}">${esc(t.title)}</option>`).join('')}</select></div>
+        <select id="atTripSelect">${existing.map(t=>`<option value="${esc(t.id)}">${esc(t.title)}</option>`).join('')}</select></div>
         <div class="small" style="font-weight:700;margin-bottom:8px">Choose a day</div>
         <div class="pillRow" id="atDayRow"></div>`;
     }
@@ -1051,7 +1625,7 @@ function openAddToTrip(placeId){
     function renderDays(){
       const t = getTrip(select.value);
       chosenDay = clamp(chosenDay, 0, t.days.length-1);
-      $('atDayRow').innerHTML = t.days.map((d,i)=>`<button class="pill ${i===chosenDay?'active':''}" data-day="${i}">Day ${i+1} · ${fmtDateShort(d.date)}</button>`).join('') +
+      $('atDayRow').innerHTML = t.days.map((d,i)=>`<button class="pill ${i===chosenDay?'active':''}" data-day="${esc(i)}">Day ${i+1} · ${fmtDateShort(d.date)}</button>`).join('') +
         `<button class="pill" data-newday="1">＋ New day</button>`;
       $('atDayRow').querySelectorAll('[data-day]').forEach(btn=>btn.onclick=()=>{ chosenDay = Number(btn.dataset.day); renderDays(); });
       $('atDayRow').querySelector('[data-newday]').onclick = ()=>{
@@ -1143,7 +1717,7 @@ function renderSaveToBody(){
   const p = placeById(__saveToPlaceId);
   const html = STATE.collections.map(c=>{
     const has = c.placeIds.includes(p.id);
-    return `<label class="listRow" style="cursor:pointer"><div class="left"><input type="checkbox" class="check" data-coll="${c.id}" ${has?'checked':''}><span>${c.icon} ${esc(c.name)}</span></div><span class="small">${c.placeIds.length} saved</span></label>`;
+    return `<label class="listRow" style="cursor:pointer"><div class="left"><input type="checkbox" class="check" data-coll="${esc(c.id)}" ${has?'checked':''}><span>${c.icon} ${esc(c.name)}</span></div><span class="small">${c.placeIds.length} saved</span></label>`;
   }).join('') + `<button class="btn block" style="margin-top:10px" id="stoNewColl">＋ Create new collection</button>`;
   $('saveToBody').innerHTML = html;
   $('saveToBody').querySelectorAll('[data-coll]').forEach(cb=>cb.onchange=()=>{
@@ -1189,9 +1763,9 @@ function renderHomeView(){
   }
 }
 function destCardHTML(d, tagLabel){
-  return `<button class="destCard" data-dest="${d.id}">
+  return `<button class="destCard" data-dest="${esc(d.id)}">
     ${tagLabel?`<span class="destCardTag">${esc(tagLabel)}</span>`:''}
-    <img src="${destHeroSrc(d)}" alt="${esc(d.name)}" loading="lazy" data-photo-dest="${esc(d.id)}" data-photo-q="${esc(destPhotoQuery(d))}">
+    <img src="${destHeroSrc(d, 640)}" alt="${esc(d.name)}" loading="lazy" data-photo-dest="${esc(d.id)}" data-photo-q="${esc(destPhotoQuery(d))}">
     <div class="destCardBody"><h4>${d.flag} ${esc(d.name)}</h4><span>${esc(d.country)}</span></div>
   </button>`;
 }
@@ -1210,6 +1784,17 @@ function initHero(){
     const name = $('heroDestination').value.trim() || 'Tokyo, Japan';
     const d = findDestination(name);
     stashHeroParams();
+    const hp = window.__heroParams || {};
+    // With dates chosen, the traveller is planning a trip rather than browsing: ask what they
+    // enjoy and build the itinerary around it, instead of generating something at random.
+    if(hp.start && hp.end){
+      openTripPreferences(d, async prefs => {
+        const trip = await buildPlannedTrip(d, prefs, hp.start, hp.end, hp.travelers);
+        window.__heroParams = null;
+        navigate(`#/trip/${encodeURIComponent(trip.id)}`);
+      });
+      return;
+    }
     navigate(`#/destination/${encodeURIComponent(d.id)}`);
   };
   $('surpriseMeBtn').onclick = ()=>{
@@ -1220,6 +1805,251 @@ function initHero(){
     navigate(`#/ideas/${encodeURIComponent(d.id)}`);
   };
 }
+/* ---------------- the trip preferences step ----------------
+ * Asked BEFORE anything is generated, because these answers decide which places are chosen and
+ * how the days are shaped. Every control here maps to something planner.js actually reads. */
+
+let __prefsDraft = null;
+let __prefsOnDone = null;
+
+function renderPrefChoices(containerId, options, selectedKey, onPick){
+  const el = $(containerId);
+  if(!el) return;
+  el.innerHTML = options.map(o => `
+    <button class="prefChip ${o.key === selectedKey ? 'active' : ''}" data-key="${esc(o.key)}">
+      <b>${o.emoji ? o.emoji + ' ' : ''}${esc(o.label)}</b>
+      ${o.sub ? `<span>${esc(o.sub)}</span>` : ''}
+    </button>`).join('');
+  el.querySelectorAll('[data-key]').forEach(b => b.onclick = () => {
+    el.querySelectorAll('[data-key]').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    onPick(b.dataset.key);
+    updatePrefSummary();
+  });
+}
+
+function renderPrefMulti(containerId, options, selected, onToggle){
+  const el = $(containerId);
+  if(!el) return;
+  el.innerHTML = options.map(o => `
+    <button class="prefChip ${selected.includes(o.key) ? 'active' : ''}" data-key="${esc(o.key)}">
+      <b>${o.emoji ? o.emoji + ' ' : ''}${esc(o.label)}</b>
+    </button>`).join('');
+  el.querySelectorAll('[data-key]').forEach(b => b.onclick = () => {
+    b.classList.toggle('active');
+    onToggle(b.dataset.key, b.classList.contains('active'));
+    updatePrefSummary();
+  });
+}
+
+/** A running plain-English summary, so the effect of each choice is visible before generating. */
+function updatePrefSummary(){
+  const el = $('prefSummary');
+  if(!el || !__prefsDraft) return;
+  const p = __prefsDraft;
+  const pace = TRIP_PACE[p.pace], budget = TRIP_BUDGET[p.budget], start = DAY_START[p.dayStart];
+  const bits = [];
+  bits.push(`${pace.activities}\u2013${pace.max} things a day`);
+  bits.push(`${budget.label.toLowerCase()} budget`);
+  if(start.key !== 'any') bits.push(start.label.toLowerCase());
+  if(p.interests.length) bits.push(`${p.interests.length} interest${p.interests.length === 1 ? '' : 's'}`);
+  if(p.mustAvoid.length) bits.push(`avoiding ${p.mustAvoid.length}`);
+  el.textContent = bits.join(' \u00b7 ');
+}
+
+function readPrefTextarea(id){
+  const el = $(id);
+  if(!el) return [];
+  return el.value.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 12);
+}
+
+/** Opens the step. `onDone(prefs)` fires with a normalized record when the traveller confirms. */
+function openTripPreferences(dest, onDone){
+  __prefsDraft = loadTripPreferences();
+  __prefsOnDone = onDone;
+  /* Start finding real places NOW, while the traveller answers six questions.
+   *
+   * Discovery for a city takes around twenty seconds — genuinely, because it is querying
+   * OpenStreetMap for every restaurant and landmark in range rather than reading a bundled list.
+   * Twenty seconds after pressing Generate is a broken product; twenty seconds spent while
+   * somebody picks their interests is free. buildPlannedTrip joins this same run rather than
+   * starting its own, so by the time it asks, the answer is usually already there. */
+  if(dest){
+    (async () => {
+      try {
+        /* A typed destination has no confirmed coordinates yet and discovery will not run without
+         * them, so resolving them has to come first or this prefetch quietly does nothing for
+         * exactly the destinations that need it most. buildPlannedTrip then finds the work
+         * already done and joins it instead of starting again. */
+        if(dest.id && dest.id.startsWith('gen-') && !dest.__enriched && typeof enrichGenericDestination === 'function'){
+          await enrichGenericDestination(dest);
+        }
+        if(typeof discoverPlacesFor === 'function') discoverPlacesFor(dest, ['attraction', 'restaurant']);
+      } catch(e){ /* the trip is planned from whatever is known; the warnings say so */ }
+    })();
+  }
+  const sub = $('prefsSubtitle');
+  if(sub) sub.textContent = dest && dest.name
+    ? `Tell us what you enjoy and we will build ${dest.name} around it.`
+    : 'Tell us what you enjoy and we will build the days around it.';
+
+  renderPrefMulti('prefInterests', TRIP_INTERESTS, __prefsDraft.interests, (key, on) => {
+    if(on){ if(!__prefsDraft.interests.includes(key)) __prefsDraft.interests.push(key); }
+    else __prefsDraft.interests = __prefsDraft.interests.filter(k => k !== key);
+  });
+  renderPrefChoices('prefPace', Object.values(TRIP_PACE), __prefsDraft.pace, k => __prefsDraft.pace = k);
+  renderPrefChoices('prefBudget', Object.values(TRIP_BUDGET), __prefsDraft.budget, k => {
+    __prefsDraft.budget = k;
+    const wrap = $('prefCustomBudgetWrap');
+    if(wrap) wrap.classList.toggle('hidden', k !== 'custom');
+  });
+  renderPrefChoices('prefDayStart', Object.values(DAY_START), __prefsDraft.dayStart, k => __prefsDraft.dayStart = k);
+  renderPrefChoices('prefParty', Object.values(TRAVEL_PARTY), __prefsDraft.party, k => __prefsDraft.party = k);
+  renderPrefMulti('prefFood', FOOD_PREFERENCES, __prefsDraft.food, (key, on) => {
+    if(on){ if(!__prefsDraft.food.includes(key)) __prefsDraft.food.push(key); }
+    else __prefsDraft.food = __prefsDraft.food.filter(k => k !== key);
+  });
+  if($('prefMustSee')) $('prefMustSee').value = (__prefsDraft.mustSee || []).join('\n');
+  if($('prefMustAvoid')) $('prefMustAvoid').value = (__prefsDraft.mustAvoid || []).join('\n');
+  const wrap = $('prefCustomBudgetWrap');
+  if(wrap) wrap.classList.toggle('hidden', __prefsDraft.budget !== 'custom');
+
+  updatePrefSummary();
+  openModal('modal-tripPrefs');
+}
+
+function initTripPreferences(){
+  const btn = $('prefGenerateBtn');
+  if(!btn) return;
+  btn.onclick = async () => {
+    if(!__prefsDraft) return;
+    __prefsDraft.mustSee = readPrefTextarea('prefMustSee');
+    __prefsDraft.mustAvoid = readPrefTextarea('prefMustAvoid');
+    const custom = $('prefCustomBudget');
+    __prefsDraft.customDailyBudget = (__prefsDraft.budget === 'custom' && custom && custom.value)
+      ? Number(custom.value) : null;
+    const prefs = normalizeTripPreferences(__prefsDraft);
+    saveTripPreferences(prefs);
+    /* Stay open, with a live count, until the itinerary exists.
+     *
+     * Building can take most of half a minute the first time, because it is waiting on real
+     * queries to OpenStreetMap rather than reading a bundled list. Closing the step and leaving
+     * the traveller on a home page that does nothing for twenty seconds reads as a dead button,
+     * and the honest answer — it is finding real places, here is how many so far — is also the
+     * one that makes the wait feel like work rather than a hang. */
+    const label = btn.innerHTML;
+    const status = $('prefsBuildStatus');
+    let found = 0;
+    const onPlaces = e => {
+      if(!e.detail || !e.detail.added) return;
+      found += e.detail.added;
+      if(status) status.textContent = `${found} real places found so far…`;
+    };
+    window.addEventListener('tripflow:places', onPlaces);
+    btn.disabled = true;
+    btn.innerHTML = '<span class="prefsSpinner" aria-hidden="true"></span> Finding real places…';
+    if(status){ status.textContent = 'Looking up this destination…'; status.classList.remove('hidden'); }
+    try {
+      if(typeof __prefsOnDone === 'function') await __prefsOnDone(prefs);
+    } finally {
+      window.removeEventListener('tripflow:places', onPlaces);
+      btn.disabled = false;
+      btn.innerHTML = label;
+      if(status){ status.textContent = ''; status.classList.add('hidden'); }
+      closeModal('modal-tripPrefs');
+    }
+  };
+}
+
+/** How many attractions and restaurants a trip of this length actually needs.
+ *  Roughly a day's worth of stops per day plus a little slack, so the planner has something to
+ *  choose between rather than something to ration. */
+function tripPlaceTarget(nDays, prefs){
+  const perDay = (prefs && prefs.pace === 'packed') ? 6 : (prefs && prefs.pace === 'relaxed') ? 3 : 4;
+  return Math.max(12, Math.round(nDays * perDay * 1.4));
+}
+
+/** Generation waits for discovery when the store is too thin to fill the days.
+ *
+ *  Every destination ships with 6 attractions and 5 restaurants — a seed, not a catalogue. A
+ *  seven-day trip planned from eleven places gives days of one stop, and a ten-day trip gives
+ *  four days of nothing, which is what the generator was doing: not a planning bug, a starvation
+ *  one. Discovery already finds hundreds of real places anywhere on earth; it was simply never
+ *  waited for, because the destination page happens to run it first and generation quietly relied
+ *  on that. Any path that plans without passing through that page — the home-page date box, a
+ *  saved trip reopened on a new device — got the seed.
+ *
+ *  Bounded, and it degrades to exactly the old behaviour: if discovery is slow or unreachable the
+ *  trip is planned from what is there, and planTrip's own warnings say the days are light. Never
+ *  invents a place to fill a gap. Builds through planner.js, from real places, for exactly the
+ *  chosen dates. */
+async function buildPlannedTrip(dest, prefs, start, end, travelers){
+  const nDays = tripDurationDays(start, end);
+  const pool = () => placesFor(dest.id).filter(p => p.type === 'attraction' || p.type === 'restaurant');
+
+  /* A destination the traveller typed rather than picked from the bundled thirty arrives with a
+   * name and little else: no confirmed coordinates, and six places. Discovery declines to run
+   * without verified coordinates, so generation returned in half a second with SEVEN EMPTY DAYS
+   * and called it an itinerary. Both of these already existed and both already fetch real data —
+   * enrichGenericDestination resolves the coordinates and pulls real landmarks from Wikipedia,
+   * ensureRealAttractionSupply tops any destination up from the same source. Neither was ever on
+   * the path that builds the trip; they ran in the background AFTERWARDS and only re-rendered a
+   * plan that had already been made without them. */
+  if(dest.id && dest.id.startsWith('gen-') && !dest.__enriched && typeof enrichGenericDestination === 'function'){
+    try { await enrichGenericDestination(dest); } catch(e){ /* fall through to whatever is known */ }
+  }
+  if(pool().length < tripPlaceTarget(nDays, prefs) && typeof ensureRealAttractionSupply === 'function'){
+    try { await ensureRealAttractionSupply(dest); } catch(e){ /* same */ }
+  }
+
+  if(pool().length < tripPlaceTarget(nDays, prefs) && typeof awaitPlacesFor === 'function'){
+    /* 25s, not because anybody should wait that long, but because openTripPreferences has
+     * usually been running this same query for longer than that already and this is only the
+     * tail of it. A path that has not had that head start pays the full price once, and then
+     * the store is warm for every trip after it. */
+    try { await awaitPlacesFor(dest, ['attraction', 'restaurant'], 25000); }
+    catch(e){ /* plan with the seed; the warnings below tell the truth about it */ }
+  }
+  const places = pool();
+  const plan = planTrip({dest, places, days: nDays, start, preferences: prefs});
+
+  const budgetKey = TRIP_BUDGET[prefs.budget] ? prefs.budget : 'moderate';
+  const perDay = (prefs.budget === 'custom' && prefs.customDailyBudget)
+    ? prefs.customDailyBudget
+    : destDailyBudget(dest, budgetKey);
+
+  const trip = {
+    id: uid('trip'), destId: dest.id,
+    destName: dest.name + (dest.country ? ', ' + dest.country : ''),
+    title: `${dest.name} trip`, start, end,
+    travelers: travelers || 2,
+    cover: dest.hero,
+    days: plan.days.map(d => {
+      const stops = d.stops.map(s => mkStopFromPlace(s.place, s.time, s));
+      // The leg TO the next stop is the leg the planner measured FROM it, so each stop carries a
+      // real distance and mode instead of a flat "Walk, 15 mins" between every pair of places.
+      stops.forEach((stop, i) => {
+        const next = d.stops[i + 1];
+        if(next && next.travelFromPrev){
+          stop.transitToNext = {mode: next.travelFromPrev.modeLabel, mins: next.travelFromPrev.minutes,
+                                km: next.travelFromPrev.km, icon: next.travelFromPrev.icon};
+        }
+      });
+      return {date: d.date, stops};
+    }),
+    budget:{ total: Math.round(perDay * nDays * (travelers || 2)), style: budgetKey, expenses: [] },
+    preferences: prefs,
+    warnings: plan.warnings,
+    collaborators:[ mkCollaborator('Jie Wei (you)', STATE.settings.email, 'Owner') ],
+    activity:[ {id:uid('act'), author:'You', text:`generated this itinerary from your preferences.`, ts:Date.now()} ],
+    createdAt: Date.now(),
+  };
+  normalizeTripDays(trip);
+  STATE.trips.unshift(trip);
+  saveState();
+  return trip;
+}
+
 function stashHeroParams(){
   window.__heroParams = {
     start: $('heroStart').value, end: $('heroEnd').value,
@@ -1376,8 +2206,20 @@ function renderDestinationView(idOrName, tab){
   if(destState.id !== dest.id){ destState = { id:dest.id, tab:tab, thingsFilters:{cat:'all',price:'any',rating:'any',sort:'rec'}, restFilters:{cuisine:'all',price:'any',rating:'any',open:false,dietary:new Set(),sort:'rec'}, hotelFilters:{price:'any',stars:'any',guest:'any',amenity:'all',sort:'rec'}, mapCats:new Set(['attraction','restaurant','hotel']) }; }
   destState.tab = tab || destState.tab || 'overview';
 
+  // UNIVERSAL DISCOVERY. This is the only place that matters: the moment a traveller opens a
+  // destination, whichever it is. Before this, discovery was reached only from
+  // makeGenericDestination and applyGeoToDestination — both of which run for TYPED destinations
+  // only — so the twelve curated ones (Tokyo, Paris, Bali, Santorini, New York, Rome, Bangkok,
+  // Barcelona, Queenstown, Reykjavik, Ljubljana, Marrakech) never ran it at all and showed only
+  // their hand-written handful, while anywhere else got hundreds of real places. That is exactly
+  // why the experience differed by destination.
+  //
+  // Curated entries are kept: they are real places checked by a person. Discovery ADDS to them,
+  // it does not replace them, and mergeDiscoveredPlaces already skips anything already present.
+  if(typeof discoverPlacesFor === 'function' && hasVerifiedGeo(dest)) discoverPlacesFor(dest);
+
   $('destHero').innerHTML = `
-    <img src="${destHeroSrc(dest)}" alt="${esc(dest.name)}" data-photo-dest="${esc(dest.id)}" data-photo-q="${esc(destPhotoQuery(dest))}">
+    <img src="${destHeroSrc(dest, 1600)}" alt="${esc(dest.name)}" data-photo-dest="${esc(dest.id)}" data-photo-q="${esc(destPhotoQuery(dest))}">
     <div class="destHeroActions">
       <button class="btn" id="destSaveBtn"><i class="fa-solid fa-heart"></i> Save destination</button>
     </div>
@@ -1385,7 +2227,8 @@ function renderDestinationView(idOrName, tab){
       <div class="flag">${dest.flag} ${esc(dest.country||'')}</div>
       <h1>${esc(dest.name)}</h1>
       <p>${esc(dest.tagline)}</p>
-    </div>`;
+    </div>
+    ${photoCreditHTML('dest/' + dest.id)}`;
   hydratePhotos($('destHero'));
   if(dest.id.startsWith('gen-')){
     enrichDestinationInBackground(dest, ()=>{
@@ -1408,7 +2251,7 @@ function renderDestinationView(idOrName, tab){
     saveState();
   };
 
-  $('destTabs').innerHTML = DEST_TABS.map(([key,label])=>`<button class="dtab ${destState.tab===key?'active':''}" data-tab="${key}">${label}</button>`).join('');
+  $('destTabs').innerHTML = DEST_TABS.map(([key,label])=>`<button class="dtab ${destState.tab===key?'active':''}" data-tab="${esc(key)}">${label}</button>`).join('');
   $('destTabs').querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{
     navigate(`#/destination/${encodeURIComponent(dest.id)}/${b.dataset.tab}`);
   });
@@ -1440,14 +2283,25 @@ function renderDestOverview(dest, body){
         : (info.timezone ? `<div class="ovCard"><div class="k">🕐 Time zone</div><div class="v">${esc(info.timezone)}</div></div>` : ''); })()}
       ${info.recommendedDays ? `<div class="ovCard"><div class="k">🗓 Recommended duration</div><div class="v">${esc(info.recommendedDays)}</div></div>` : ''}
     </div>
+    ${destDailyBudget(dest, 'moderate') == null ? `
     <div class="card" style="margin-top:8px">
       <h3>Average daily budget</h3>
-      <div class="sectionGrid" style="grid-template-columns:repeat(3,1fr)">
-        <div class="ovCard"><div class="k">Budget</div><div class="v" style="font-size:20px">${fmtMoneyDual(dest.avgDailyBudget.budget, dest)}<span class="small">/day</span></div></div>
-        <div class="ovCard"><div class="k">Moderate</div><div class="v" style="font-size:20px">${fmtMoneyDual(dest.avgDailyBudget.moderate, dest)}<span class="small">/day</span></div></div>
-        <div class="ovCard"><div class="k">Luxury</div><div class="v" style="font-size:20px">${fmt$(dest.avgDailyBudget.luxury)}<span class="small">/day</span></div></div>
+      <div class="empty">We do not have a cost estimate for ${esc(dest.country || dest.name)}. The World Bank's
+        price-level figures, which every other destination's estimate is scaled from, are not usable
+        there — so rather than show a number, we are telling you we do not have one.</div>
+    </div>` : `
+    <div class="card" style="margin-top:8px">
+      <h3>Average daily budget <span class="small">· per person</span></h3>
+      <div class="sectionGrid cols3">
+        <div class="ovCard"><div class="k">Budget</div><div class="v" style="font-size:20px">${fmtMoneyDual(destDailyBudget(dest,'budget'), dest)}<span class="small">/day</span></div></div>
+        <div class="ovCard"><div class="k">Moderate</div><div class="v" style="font-size:20px">${fmtMoneyDual(destDailyBudget(dest,'moderate'), dest)}<span class="small">/day</span></div></div>
+        <div class="ovCard"><div class="k">Luxury</div><div class="v" style="font-size:20px">${fmtMoneyDual(destDailyBudget(dest,'luxury'), dest)}<span class="small">/day</span></div></div>
       </div>
-    </div>
+      ${destBudgetIsEstimate(dest) ? `<div class="small muted" style="margin-top:10px">
+        Estimated from World Bank price levels for ${esc(dest.country || 'this country')}
+        (${esc(typeof COUNTRY_PRICE_LEVEL_VINTAGE === 'string' ? COUNTRY_PRICE_LEVEL_VINTAGE : '')},
+        ${esc(String(dest.avgDailyBudget.level))}× US prices) — a guide, not a quote.</div>` : ''}
+    </div>`}
     ${(info.visa||info.safety||info.localTransport||info.etiquette) ? `
     <div class="card" style="margin-top:16px">
       <h3>🧭 Know before you go</h3>
@@ -1635,7 +2489,22 @@ function recommendedOrder(arr, dest){
 /** Re-render the open destination tab when discovery lands. */
 window.addEventListener('tripflow:places', function(ev){
   const d = ev && ev.detail;
-  if(!d || !destState || destState.id !== d.destId) return;
+  if(!d) return;
+  /* The trip page needs this as much as the destination page does. It reruns discovery on open,
+   * because a trip opened on a second device arrives with its stops but without the destination's
+   * place store — and until this listener knew about the planner, the answer landed twenty
+   * seconds later into a view that never asked again. More ideas stayed empty on a screen that
+   * had the ideas in memory. Only the dashboard, and only on a real merge, so nobody's editing
+   * is interrupted by a re-render that changes nothing. */
+  if(d.added && plannerState && plannerState.tripId && location.hash.includes('/trip/')){
+    const ptab = location.hash.split('/')[3] || 'dashboard';
+    const trip = getTrip(plannerState.tripId);
+    if(ptab === 'dashboard' && trip && destForTrip(trip).id === d.destId){
+      renderPlannerView(plannerState.tripId, ptab);
+    }
+    return;
+  }
+  if(!destState || destState.id !== d.destId) return;
   if(!location.hash.includes('/destination/')) return;
   const tabForKind = {restaurant:'restaurants', hotel:'hotels', attraction:'things'};
   if(destState.tab === tabForKind[d.kind] || destState.tab === 'overview' || destState.tab === 'map'){
@@ -1651,20 +2520,18 @@ function renderDestThings(dest, body){
     <div class="filterBar">
       <div class="filterGroup"><label>Category</label><select id="tCat"><option value="all">All categories</option>${cats.map(c=>`<option value="${esc(c)}" ${f.cat===c?'selected':''}>${esc(c)}</option>`).join('')}</select></div>
       <div class="filterGroup"><label>Price</label><select id="tPrice"><option value="any">Any price</option><option value="0">Free</option><option value="1">$</option><option value="2">$$</option><option value="3">$$$</option></select></div>
-      <div class="filterGroup"><label>Rating</label><select id="tRating"><option value="any">Any rating</option><option value="4.5">4.5+</option><option value="4">4.0+</option><option value="3">3.0+</option></select></div>
-      <div class="filterGroup"><label>Sort</label><select id="tSort"><option value="rec">Recommended</option><option value="rating">Highest rated</option><option value="price_low">Price: low to high</option><option value="price_high">Price: high to low</option></select></div>
+      <div class="filterGroup"><label>Sort</label><select id="tSort"><option value="rec">Recommended</option><option value="price_low">Price: low to high</option><option value="price_high">Price: high to low</option></select></div>
     </div>
     <div class="activeFilters hidden" id="thingsActiveFilters"></div>
     <div id="thingsGrid"></div>`;
-  $('tCat').value=f.cat; $('tPrice').value=f.price; $('tRating').value=f.rating; $('tSort').value=f.sort;
+  $('tCat').value=f.cat; $('tPrice').value=f.price; $('tSort').value=f.sort;
   const PRICE_LABELS = {0:'Free',1:'$',2:'$$',3:'$$$'};
-  function clearAllThings(){ f.cat='all'; f.price='any'; f.rating='any'; $('tCat').value='all'; $('tPrice').value='any'; $('tRating').value='any'; apply(); }
+  function clearAllThings(){ f.cat='all'; f.price='any'; $('tCat').value='all'; $('tPrice').value='any'; apply(); }
   function apply(){
-    f.cat=$('tCat').value; f.price=$('tPrice').value; f.rating=$('tRating').value; f.sort=$('tSort').value;
+    f.cat=$('tCat').value; f.price=$('tPrice').value; f.sort=$('tSort').value;
     let arr = all.filter(p=>{
       if(f.cat!=='all' && p.category!==f.cat) return false;
       if(f.price!=='any' && String(p.priceLevel)!==f.price) return false;
-      if(f.rating!=='any' && p.rating < parseFloat(f.rating)) return false;
       return true;
     });
     if(f.sort==='rating') arr.sort((a,b)=>(b.rating||0)-(a.rating||0));
@@ -1674,11 +2541,10 @@ function renderDestThings(dest, body){
     const chips = [];
     if(f.cat!=='all') chips.push({label:`Category: ${f.cat}`, onRemove:()=>{ f.cat='all'; $('tCat').value='all'; apply(); }});
     if(f.price!=='any') chips.push({label:`Price: ${PRICE_LABELS[f.price]||f.price}`, onRemove:()=>{ f.price='any'; $('tPrice').value='any'; apply(); }});
-    if(f.rating!=='any') chips.push({label:`Rating: ${f.rating}+`, onRemove:()=>{ f.rating='any'; $('tRating').value='any'; apply(); }});
     renderActiveFilterChips('thingsActiveFilters', chips, clearAllThings);
     renderPagedPlaceGrid('thingsGrid', arr, dest, 'attraction', p=>placeCardHTML(p));
   }
-  ['tCat','tPrice','tRating','tSort'].forEach(id=>$(id).onchange=apply);
+  ['tCat','tPrice','tSort'].forEach(id=>$(id).onchange=apply);
   apply();
 }
 
@@ -1692,29 +2558,27 @@ function renderDestRestaurants(dest, body){
     <div class="filterBar">
       <div class="filterGroup"><label>Cuisine</label><select id="rCuisine"><option value="all">All cuisines</option>${cuisines.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select></div>
       <div class="filterGroup"><label>Price</label><select id="rPrice"><option value="any">Any price</option><option value="1">$</option><option value="2">$$</option><option value="3">$$$</option><option value="4">$$$$</option></select></div>
-      <div class="filterGroup"><label>Rating</label><select id="rRating"><option value="any">Any rating</option><option value="4.5">4.5+</option><option value="4">4.0+</option></select></div>
-      <div class="filterGroup"><label>Sort</label><select id="rSort"><option value="rec">Recommended</option><option value="rating">Highest rated</option><option value="distance">Distance</option></select></div>
+      <div class="filterGroup"><label>Sort</label><select id="rSort"><option value="rec">Recommended</option><option value="distance">Distance</option></select></div>
       <button class="toggleChip" id="rOpen">🕒 Open Now</button>
-      <div class="pillRow" id="rDietary">${DIETARY_OPTIONS.map(d=>`<button class="pill" data-diet="${d}">${d.replace(/-/g,' ')}</button>`).join('')}</div>
+      <div class="pillRow" id="rDietary">${DIETARY_OPTIONS.map(d=>`<button class="pill" data-diet="${esc(d)}">${d.replace(/-/g,' ')}</button>`).join('')}</div>
     </div>
     <div class="activeFilters hidden" id="restActiveFilters"></div>
     <div id="restGrid"></div>`;
-  $('rCuisine').value=f.cuisine; $('rPrice').value=f.price; $('rRating').value=f.rating; $('rSort').value=f.sort;
+  $('rCuisine').value=f.cuisine; $('rPrice').value=f.price; $('rSort').value=f.sort;
   $('rOpen').classList.toggle('active', f.open);
   $('rDietary').querySelectorAll('[data-diet]').forEach(b=>b.classList.toggle('active', f.dietary.has(b.dataset.diet)));
   const REST_PRICE_LABELS = {1:'$',2:'$$',3:'$$$',4:'$$$$'};
   function clearAllRest(){
-    f.cuisine='all'; f.price='any'; f.rating='any'; f.open=false; f.dietary.clear();
-    $('rCuisine').value='all'; $('rPrice').value='any'; $('rRating').value='any';
+    f.cuisine='all'; f.price='any'; f.open=false; f.dietary.clear();
+    $('rCuisine').value='all'; $('rPrice').value='any';
     $('rOpen').classList.remove('active'); $('rDietary').querySelectorAll('[data-diet]').forEach(b=>b.classList.remove('active'));
     apply();
   }
   function apply(){
-    f.cuisine=$('rCuisine').value; f.price=$('rPrice').value; f.rating=$('rRating').value; f.sort=$('rSort').value;
+    f.cuisine=$('rCuisine').value; f.price=$('rPrice').value; f.sort=$('rSort').value;
     let arr = all.filter(p=>{
       if(f.cuisine!=='all' && p.cuisine!==f.cuisine) return false;
       if(f.price!=='any' && String(p.priceLevel)!==f.price) return false;
-      if(f.rating!=='any' && p.rating < parseFloat(f.rating)) return false;
       if(f.open && !isOpenNow(p.hours)) return false;
       if(f.dietary.size && ![...f.dietary].every(d=>(p.dietary||[]).includes(d))) return false;
       return true;
@@ -1725,7 +2589,6 @@ function renderDestRestaurants(dest, body){
     const chips = [];
     if(f.cuisine!=='all') chips.push({label:`Cuisine: ${f.cuisine}`, onRemove:()=>{ f.cuisine='all'; $('rCuisine').value='all'; apply(); }});
     if(f.price!=='any') chips.push({label:`Price: ${REST_PRICE_LABELS[f.price]||f.price}`, onRemove:()=>{ f.price='any'; $('rPrice').value='any'; apply(); }});
-    if(f.rating!=='any') chips.push({label:`Rating: ${f.rating}+`, onRemove:()=>{ f.rating='any'; $('rRating').value='any'; apply(); }});
     if(f.open) chips.push({label:'Open now', onRemove:()=>{ f.open=false; $('rOpen').classList.remove('active'); apply(); }});
     f.dietary.forEach(d=>chips.push({label:d.replace(/-/g,' '), onRemove:()=>{ f.dietary.delete(d); $('rDietary').querySelectorAll('[data-diet]').forEach(b=>b.classList.toggle('active', f.dietary.has(b.dataset.diet))); apply(); }}));
     renderActiveFilterChips('restActiveFilters', chips, clearAllRest);
@@ -1735,7 +2598,7 @@ function renderDestRestaurants(dest, body){
       return card.replace('</div>\n      <div class="placeFoot">', `</div><div class="small">🚶 ${distKm} km from center</div>\n      <div class="placeFoot">`);
     });
   }
-  ['rCuisine','rPrice','rRating','rSort'].forEach(id=>$(id).onchange=apply);
+  ['rCuisine','rPrice','rSort'].forEach(id=>$(id).onchange=apply);
   $('rOpen').onclick=()=>{ f.open=!f.open; $('rOpen').classList.toggle('active',f.open); apply(); };
   $('rDietary').querySelectorAll('[data-diet]').forEach(b=>b.onclick=()=>{
     f.dietary.has(b.dataset.diet)? f.dietary.delete(b.dataset.diet) : f.dietary.add(b.dataset.diet);
@@ -1801,21 +2664,20 @@ function renderDestHotels(dest, body){
     <div class="filterBar">
       <div class="filterGroup"><label>Price / night</label><select id="hPrice"><option value="any">Any price</option><option value="0-100">Under $100</option><option value="100-250">$100–250</option><option value="250-500">$250–500</option><option value="500-99999">$500+</option></select></div>
       <div class="filterGroup"><label>Star rating</label><select id="hStars"><option value="any">Any stars</option><option value="5">5 star</option><option value="4">4 star</option><option value="3">3 star</option><option value="2">2 star &amp; under</option></select></div>
-      <div class="filterGroup"><label>Guest rating</label><select id="hGuest"><option value="any">Any rating</option><option value="9">9.0+ Exceptional</option><option value="8">8.0+ Very good</option></select></div>
       <div class="filterGroup"><label>Amenity</label><select id="hAmenity"><option value="all">Any amenity</option>${amenitiesAll.map(a=>`<option value="${esc(a)}">${esc(a)}</option>`).join('')}</select></div>
-      <div class="filterGroup"><label>Sort</label><select id="hSort"><option value="rec">Recommended</option><option value="price_low">Lowest price</option><option value="rating">Highest rated</option><option value="distance">Distance from center</option></select></div>
+      <div class="filterGroup"><label>Sort</label><select id="hSort"><option value="rec">Recommended</option><option value="price_low">Lowest price</option><option value="distance">Distance from center</option></select></div>
     </div>
     <div class="activeFilters hidden" id="hotelActiveFilters"></div>
     <div id="hotelGrid"></div>`;
-  $('hPrice').value=f.price; $('hStars').value=f.stars; $('hGuest').value=f.guest; $('hAmenity').value=f.amenity; $('hSort').value=f.sort;
+  $('hPrice').value=f.price; $('hStars').value=f.stars; $('hAmenity').value=f.amenity; $('hSort').value=f.sort;
   const HOTEL_PRICE_LABELS = {'0-100':'Under $100','100-250':'$100–250','250-500':'$250–500','500-99999':'$500+'};
   function clearAllHotels(){
-    f.price='any'; f.stars='any'; f.guest='any'; f.amenity='all';
-    $('hPrice').value='any'; $('hStars').value='any'; $('hGuest').value='any'; $('hAmenity').value='all';
+    f.price='any'; f.stars='any'; f.amenity='all';
+    $('hPrice').value='any'; $('hStars').value='any'; $('hAmenity').value='all';
     apply();
   }
   function apply(){
-    f.price=$('hPrice').value; f.stars=$('hStars').value; f.guest=$('hGuest').value; f.amenity=$('hAmenity').value; f.sort=$('hSort').value;
+    f.price=$('hPrice').value; f.stars=$('hStars').value; f.amenity=$('hAmenity').value; f.sort=$('hSort').value;
     let arr = all.filter(p=>{
       // A place with no published price cannot satisfy a price filter. Without this guard a
       // null price slips through every bracket, because null<lo and null>hi are both false.
@@ -1827,18 +2689,16 @@ function renderDestHotels(dest, body){
         if(p.stars == null) return false;
         if(f.stars==='2'){ if(p.stars>2) return false; } else if(p.stars!==Number(f.stars)) return false;
       }
-      if(f.guest!=='any' && !(p.guestRating >= Number(f.guest))) return false;
       if(f.amenity!=='all' && !(p.amenities||[]).includes(f.amenity)) return false;
       return true;
     });
     if(f.sort==='price_low') arr.sort((a,b)=>(a.price==null?Infinity:a.price)-(b.price==null?Infinity:b.price));
-    else if(f.sort==='rating') arr.sort((a,b)=>(b.guestRating||0)-(a.guestRating||0));
     else if(f.sort==='distance') arr.sort((a,b)=>haversine(dest,a)-haversine(dest,b));
     else arr = recommendedOrder(arr, dest);
     const chips = [];
     if(f.price!=='any') chips.push({label:`Price: ${HOTEL_PRICE_LABELS[f.price]||f.price}`, onRemove:()=>{ f.price='any'; $('hPrice').value='any'; apply(); }});
     if(f.stars!=='any') chips.push({label:`Stars: ${f.stars==='2'?'2 & under':f.stars+' star'}`, onRemove:()=>{ f.stars='any'; $('hStars').value='any'; apply(); }});
-    if(f.guest!=='any') chips.push({label:`Guest rating: ${f.guest}.0+`, onRemove:()=>{ f.guest='any'; $('hGuest').value='any'; apply(); }});
+    if(f.guest!=='any') chips.push({label:`Guest rating: ${f.guest}.0+`, onRemove:()=>{ apply(); }});
     if(f.amenity!=='all') chips.push({label:`Amenity: ${f.amenity}`, onRemove:()=>{ f.amenity='all'; $('hAmenity').value='all'; apply(); }});
     renderActiveFilterChips('hotelActiveFilters', chips, clearAllHotels);
     renderPagedPlaceGrid('hotelGrid', arr, dest, 'hotel', p=>{
@@ -1847,7 +2707,7 @@ function renderDestHotels(dest, body){
       return card.replace('</div>\n      <div class="placeFoot">', `</div><div class="small">🚶 ${distKm} km from center</div>\n      <div class="placeFoot">`);
     });
   }
-  ['hPrice','hStars','hGuest','hAmenity','hSort'].forEach(id=>$(id).onchange=apply);
+  ['hPrice','hStars','hAmenity','hSort'].forEach(id=>$(id).onchange=apply);
   apply();
 }
 
@@ -1876,7 +2736,7 @@ function renderDestItinerary(dest, body){
     return `<div class="card" style="margin-bottom:14px">
       <div class="panelHead" style="padding:0 0 12px;border:0">
         <div><h3 style="margin:0">${esc(t.title)}</h3><div class="small">${fmtDateFull(t.start)} – ${fmtDateFull(t.end)} · ${t.days.length} days · ${tripStopCount(t)} stops</div></div>
-        <button class="btn primary" data-open="${t.id}">Open Trip Planner →</button>
+        <button class="btn primary" data-open="${esc(t.id)}">Open Trip Planner →</button>
       </div>
       <div class="dayTabs" style="border:0;padding:0">${t.days.map((d,i)=>`<span class="dayTab" style="cursor:default">Day ${i+1} · ${d.stops.length} stops</span>`).join('')}</div>
       <div class="small" style="margin-top:8px">Planned spend: <strong>${fmt$(planned)}</strong> of ${fmt$(t.budget.total)} budget</div>
@@ -1915,19 +2775,19 @@ function renderDestMap(dest, body){
       </div>
     </div>`;
   const legends = [['attraction','Attractions','var(--cat-attraction)'],['restaurant','Restaurants','var(--cat-restaurant)'],['hotel','Hotels','var(--cat-hotel)']];
-  $('destMapLegend').innerHTML = legends.map(([k,l,c])=>`<button class="legend ${destState.mapCats.has(k)?'active':''}" data-cat="${k}"><span class="legendDot" style="background:${c}"></span>${l}</button>`).join('');
+  $('destMapLegend').innerHTML = legends.map(([k,l,c])=>`<button class="legend ${destState.mapCats.has(k)?'active':''}" data-cat="${esc(k)}"><span class="legendDot" style="background:${c}"></span>${l}</button>`).join('');
   window.__destMapDest = dest;
   window.__destMapPlaceId = null;
   function draw(){
     const list = PLACES.filter(p=>p.destId===dest.id && destState.mapCats.has(p.type));
     $('destMapList').innerHTML = list.map(p=>`
-      <div class="mapPlaceRow ${p.id===window.__destMapPlaceId?'active':''}" data-mapplace="${p.id}">
-        <div class="stopThumb"><span class="num" style="background:${catColor(p.type)}">${catEmoji(p.type)}</span><img src="${p.image}" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
+      <div class="mapPlaceRow ${p.id===window.__destMapPlaceId?'active':''}" data-mapplace="${esc(p.id)}">
+        <div class="stopThumb"><span class="num" style="background:${catColor(p.type)}">${catEmoji(p.type)}</span><img src="${safeImageUrl(p.image)}" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
         <div class="mapPlaceInfo">
           <h4>${esc(p.name)}</h4>
-          <p>${p.rating?('★ '+p.rating+' · '):''}${esc(p.area||'')}</p>
+          <p>${esc(p.area||'')}</p>
         </div>
-        <button class="btn sm primary" data-popadd="${p.id}">＋</button>
+        <button class="btn sm primary" data-popadd="${esc(p.id)}">＋</button>
       </div>`).join('') || `<div class="empty small">No places in this category.</div>`;
     $('destMapList').querySelectorAll('[data-mapplace]').forEach(row=>row.addEventListener('click',(e)=>{
       if(e.target.closest('[data-popadd]')) return;
@@ -2034,13 +2894,11 @@ function placeQualityScore(p, opts){
   const curated = p.source === 'curated';
   score += curated ? 34 : 10;
 
-  // Popularity only counts where the figures are REAL. A live place has no rating or review
-  // count the app actually knows, so crediting it would be scoring on invented data.
-  if(curated){
-    const reviews = Math.max(0, p.reviews || 0);
-    score += Math.min(22, Math.log10(reviews + 1) * 4.4);
-    score += clamp(((p.rating || 0) - 3.6) * 9, 0, 11);
-  }
+  /* There is no popularity term any more, and there should not be. It used to read a rating and
+   * a review count off curated places, and those numbers were invented — 132 ratings, every one
+   * between 4.3 and 4.8. Ranking on them was ranking on fiction, and it quietly outweighed the
+   * signals that are real. What remains below is all verifiable: what kind of place it is,
+   * whether its description identifies it, whether a human vouched for it. */
 
   const catWeight = categoryWeight(p);
   score += catWeight;
@@ -2256,17 +3114,17 @@ function ideaCardHTML(idea){
   }
   add(destHeroSrc(dest), destPhotoQuery(dest));
   const budgetLabel = idea.budgetStyle.charAt(0).toUpperCase()+idea.budgetStyle.slice(1);
-  return `<div class="ideaCard" data-idea="${idea.id}">
-    <div class="ideaCoverRow">${imgs.map(i=>`<img src="${i.src}" alt="" loading="lazy" data-photo-q="${esc(i.q)}">`).join('')}</div>
+  return `<div class="ideaCard" data-idea="${esc(idea.id)}">
+    <div class="ideaCoverRow">${imgs.map(i=>`<img src="${safeImageUrl(i.src)}" alt="" loading="lazy" data-photo-q="${esc(i.q)}">`).join('')}</div>
     <div class="ideaBody">
       <h3>${idea.emoji} ${esc(idea.title)}</h3>
       <p>${esc(idea.desc)}</p>
       <div class="ideaMeta"><span>📅 ${idea.days} days</span><span>💰 ${budgetLabel}</span><span>🚶 ${esc(idea.pace)} pace</span></div>
       <div class="ideaActivities">${coverOrder.slice(0,5).map(p=>`<span class="actChip">${esc(p.name)}</span>`).join('')}</div>
       <div class="ideaFoot">
-        <button class="btn primary" data-viewit="${idea.id}">View Itinerary</button>
-        <button class="btn" data-customize="${idea.id}">Customize</button>
-        <button class="btn" data-savetrip="${idea.id}">Save Trip</button>
+        <button class="btn primary" data-viewit="${esc(idea.id)}">View Itinerary</button>
+        <button class="btn" data-customize="${esc(idea.id)}">Customize</button>
+        <button class="btn" data-savetrip="${esc(idea.id)}">Save Trip</button>
       </div>
     </div>
   </div>`;
@@ -2480,7 +3338,7 @@ function itineraryCardHTML(place, time, dest){
     typeof place.price === 'number' ? (place.price > 0 ? `💰 ${fmt$(place.price)}` : 'Free') : '',
   ].filter(Boolean);
   return `<div class="itCard">
-    <div class="itThumb"><img src="${place.image}" alt="" loading="lazy" data-photo-q="${esc(photoQuery(place.name, dest.name))}"></div>
+    <div class="itThumb"><img src="${safeImageUrl(place.image)}" alt="" loading="lazy" data-photo-q="${esc(photoQuery(place.name, dest.name))}"></div>
     <div class="itBody">
       <div class="itTop"><h4>${esc(place.name)}</h4><span class="itKind">${emoji} ${esc(kindLabel)}</span></div>
       <p class="itDesc">${esc(displayDesc(place, dest))}</p>
@@ -2506,7 +3364,7 @@ function openItineraryPreview(ideaId){
           </div>
           <button class="xbtn" data-x="1">×</button>
         </div>
-        <div class="ipDayTabs">${days.map((d,i)=>`<button class="pill ${i===current?'active':''}" data-day="${i}">Day ${i+1}</button>`).join('')}</div>
+        <div class="ipDayTabs">${days.map((d,i)=>`<button class="pill ${i===current?'active':''}" data-day="${esc(i)}">Day ${i+1}</button>`).join('')}</div>
         ${day.length ? `<div class="daySummary">
           ${s.area?`<span class="dsArea">📍 ${esc(s.area)}</span>`:''}
           <span>${s.count} ${s.count===1?'stop':'stops'}</span>
@@ -2539,20 +3397,40 @@ function openItineraryPreview(ideaId){
 
 function createTripFromIdea(idea, precomputedDays){
   const dest = DESTINATIONS.find(d=>d.id===idea.destId);
-  const days = precomputedDays || distributeIntoDays(idea.places, idea.days);
   const hp = window.__heroParams;
   const start = (hp && hp.start) || toDateInput(new Date(Date.now()+21*86400000));
   const travelers = (hp && hp.travelers) || 2;
-  const total = Math.round((dest.avgDailyBudget[idea.budgetStyle]||dest.avgDailyBudget.moderate) * idea.days * travelers);
+
+  // THE trip is as long as the traveller said it was. A trip idea is a theme, not a duration:
+  // this used to size the whole itinerary from `idea.days` and overwrite the chosen end date,
+  // so picking 24-29 September and tapping a two-day idea produced two days for a six-day trip.
+  // The dates the user picked win; the idea's own length is only a fallback for when no dates
+  // were chosen at all.
+  const end = (hp && hp.end && hp.end >= start) ? hp.end : addDays(start, Math.max(1, idea.days) - 1);
+  const nDays = tripDurationDays(start, end);
+
+  // Spread the idea's places across however many days the trip actually has, rather than
+  // however many the idea assumed.
+  const days = (precomputedDays && precomputedDays.length === nDays)
+    ? precomputedDays
+    : distributeIntoDays(idea.places, nDays);
+
+  const dayDates = tripDayDates(start, nDays);
+  const ideaPerDay = destDailyBudget(dest, idea.budgetStyle);
+  const total = ideaPerDay == null ? null : Math.round(ideaPerDay * nDays * travelers);
   const trip = {
-    id: uid('trip'), destId: dest.id, destName: dest.name+(dest.country?', '+dest.country:''), title: idea.title, start, end: addDays(start, idea.days-1), travelers,
+    id: uid('trip'), destId: dest.id, destName: dest.name+(dest.country?', '+dest.country:''), title: idea.title, start, end, travelers,
     cover: (idea.places[0] && idea.places[0].image) || dest.hero,
-    days: days.map((dayPlaces,i)=>({ date: addDays(start,i), stops: dayPlaces.map(({place,time})=>mkStopFromPlace(place,time)) })),
+    days: dayDates.map((date, i) => ({
+      date,
+      stops: ((days[i] || [])).map(({place, time}) => mkStopFromPlace(place, time)),
+    })),
     budget:{ total, style: idea.budgetStyle, expenses:[] },
     collaborators:[ mkCollaborator('Jie Wei (you)', STATE.settings.email, 'Owner') ],
     activity:[ {id:uid('act'), author:'You', text:`created this trip from the "${idea.title}" trip idea.`, ts:Date.now()} ],
     createdAt: Date.now(),
   };
+  normalizeTripDays(trip);
   STATE.trips.unshift(trip);
   window.__heroParams = null;
   saveState();
@@ -2566,7 +3444,7 @@ function openCustomizeModal(ideaId){
   $('custDuration').value = idea.days;
   $('custBudget').value = idea.budgetStyle.charAt(0).toUpperCase()+idea.budgetStyle.slice(1);
   $('custPace').value = idea.pace;
-  $('custInterests').innerHTML = INTERESTS.map(([key,icon,label,sub])=>`<button class="pref ${idea.interests.includes(key)?'active':''}" data-pref="${key}"><b>${icon} ${label}</b><span>${esc(sub)}</span></button>`).join('');
+  $('custInterests').innerHTML = INTERESTS.map(([key,icon,label,sub])=>`<button class="pref ${idea.interests.includes(key)?'active':''}" data-pref="${esc(key)}"><b>${icon} ${label}</b><span>${esc(sub)}</span></button>`).join('');
   $('custInterests').querySelectorAll('.pref').forEach(b=>b.onclick=()=>b.classList.toggle('active'));
   openModal('modal-customize');
 }
@@ -2636,8 +3514,8 @@ function tripCardHTML(t){
   const pct = clamp(Math.round(planned/(t.budget.total||1)*100),0,140);
   const over = planned>t.budget.total;
   const progress = computeTripProgress(t);
-  return `<div class="tripCard2" data-trip="${t.id}">
-    <div class="tripCoverWrap"><img src="${t.cover||destHeroSrc(dest)}" alt="" data-photo-dest="${esc(dest.id)}" data-photo-q="${esc(destPhotoQuery(dest))}"><span class="badge2">${dest.flag} ${esc(dest.name)}</span></div>
+  return `<div class="tripCard2" data-trip="${esc(t.id)}">
+    <div class="tripCoverWrap"><img src="${safeImageUrl(t.cover) || destHeroSrc(dest)}" alt="" data-photo-dest="${esc(dest.id)}" data-photo-q="${esc(destPhotoQuery(dest))}"><span class="badge2">${dest.flag} ${esc(dest.name)}</span></div>
     <div class="tripCardBody">
       <h3>${esc(t.title)}</h3>
       <div class="tripMetaRow"><span>📅 ${fmtDateShort(t.start)} – ${fmtDateShort(t.end)}</span><span>${t.days.length} days</span></div>
@@ -2648,13 +3526,13 @@ function tripCardHTML(t){
         <div class="small" style="display:flex;justify-content:space-between;margin-bottom:4px"><span>${fmt$(planned)} planned</span><span>${over?'⚠ over budget':fmt$(t.budget.total)+' budget'}</span></div>
         <div class="progress ${over?'over':''}"><div style="width:${Math.min(pct,100)}%"></div></div>
       </div>
-      <div class="avatarStack" style="margin-top:10px">${t.collaborators.map(c=>`<div class="avatar sm" title="${esc(c.name)}">${c.initials}</div>`).join('')}</div>
+      <div class="avatarStack" style="margin-top:10px">${t.collaborators.map(c=>`<div class="avatar sm" title="${esc(c.name)}">${esc(c.initials)}</div>`).join('')}</div>
       <div class="tripFoot">
-        <button class="btn primary" data-open="${t.id}">Open</button>
-        <button class="btn" data-edit="${t.id}">Edit</button>
-        <button class="btn" data-dup="${t.id}">Duplicate</button>
-        <button class="btn" data-share="${t.id}">Share</button>
-        <button class="btn danger" data-del="${t.id}">Delete</button>
+        <button class="btn primary" data-open="${esc(t.id)}">Open</button>
+        <button class="btn" data-edit="${esc(t.id)}">Edit</button>
+        <button class="btn" data-dup="${esc(t.id)}">Duplicate</button>
+        <button class="btn" data-share="${esc(t.id)}">Share</button>
+        <button class="btn danger" data-del="${esc(t.id)}">Delete</button>
       </div>
     </div>
   </div>`;
@@ -2672,7 +3550,12 @@ function wireTripCards(container){
       STATE.trips = STATE.trips.filter(x=>x.id!==t.id);
       saveState();
       renderTripsView();
-      toastUndo(`Deleted "${removed.title}".`, ()=>{ STATE.trips.splice(Math.max(0,index), 0, removed); });
+      toastUndo(`Deleted "${removed.title}".`,
+        ()=>{ STATE.trips.splice(Math.max(0,index), 0, removed); },
+        /* Only once Undo has expired. Without this the trip was removed locally and left
+         * untouched in the account, so the very next sync pulled it back — a deletion that
+         * silently undoes itself is worse than one that fails loudly. */
+        ()=>{ if(typeof cloudDeleteTrip === 'function') cloudDeleteTrip(removed.id); });
     });
   });
   hydratePhotos(container);
@@ -2733,10 +3616,7 @@ function initEditTripModal(){
     const newStart = $('editTripStart').value, newEnd = $('editTripEnd').value;
     if(newStart) t.start = newStart;
     if(newEnd && newEnd >= t.start) t.end = newEnd;
-    const wanted = Math.max(1, daysBetween(t.start, t.end));
-    while(t.days.length < wanted) t.days.push({date: addDays(t.start, t.days.length), stops:[]});
-    while(t.days.length > wanted) t.days.pop();
-    t.days.forEach((d,i)=> d.date = addDays(t.start,i));
+    normalizeTripDays(t);   // one repair, shared by every path that changes trip dates
     saveState();
     closeModal('modal-editTrip');
     toast('Trip updated.');
@@ -2786,7 +3666,7 @@ function renderShareCollabList(t){
 function renderSavedView(collId){
   const tabsEl = $('collectionTabs');
   const activeId = collId || STATE.collections[0].id;
-  tabsEl.innerHTML = STATE.collections.map(c=>`<button class="collTab ${c.id===activeId?'active':''}" data-coll="${c.id}">${c.icon} ${esc(c.name)} <span class="small">(${c.placeIds.length})</span></button>`).join('');
+  tabsEl.innerHTML = STATE.collections.map(c=>`<button class="collTab ${c.id===activeId?'active':''}" data-coll="${esc(c.id)}">${c.icon} ${esc(c.name)} <span class="small">(${c.placeIds.length})</span></button>`).join('');
   tabsEl.querySelectorAll('[data-coll]').forEach(b=>b.onclick=()=>navigate(`#/saved/${b.dataset.coll}`));
   const active = STATE.collections.find(c=>c.id===activeId) || STATE.collections[0];
   const grid = $('savedGrid');
@@ -2797,7 +3677,7 @@ function renderSavedView(collId){
   }).filter(Boolean);
   grid.innerHTML = items.map(p=>{
     if(p.__isDest){
-      return `<div class="placeCard"><div class="placeImgWrap"><img src="${destHeroSrc(p)}" alt="" data-photo-dest="${esc(p.id)}" data-photo-q="${esc(destPhotoQuery(p))}"><span class="placeCatBadge">Destination</span></div><div class="placeBody"><h4>${p.flag} ${esc(p.name)}</h4><p class="placeDesc">${esc(p.tagline)}</p><div class="placeFoot"><button class="btn primary block" data-godest="${p.id}">Explore</button><button class="btn" data-unsavedest="${p.id}">Remove</button></div></div></div>`;
+      return `<div class="placeCard"><div class="placeImgWrap"><img src="${destHeroSrc(p)}" alt="" data-photo-dest="${esc(p.id)}" data-photo-q="${esc(destPhotoQuery(p))}"><span class="placeCatBadge">Destination</span></div><div class="placeBody"><h4>${p.flag} ${esc(p.name)}</h4><p class="placeDesc">${esc(p.tagline)}</p><div class="placeFoot"><button class="btn primary block" data-godest="${esc(p.id)}">Explore</button><button class="btn" data-unsavedest="${esc(p.id)}">Remove</button></div></div></div>`;
     }
     return placeCardHTML(p,{showDest:true});
   }).join('');
@@ -2848,9 +3728,9 @@ function renderSavedMap(collection, places, unmappable){
   frame.src = gmapsCoordEmbedUrl(avgLat.toFixed(5), avgLng.toFixed(5), zoom);
   list.innerHTML = `
     ${unmappable ? `<p class="small" style="margin:0 0 10px">${unmappable} saved ${unmappable===1?'item has':'items have'} no single location to plot (saved destinations), so ${unmappable===1?"it isn't":"they aren't"} shown here.</p>` : ''}
-    ${places.map(p=>`<button class="mapPlaceRow" data-savedfocus="${p.id}">
-      <div class="stopThumb"><img src="${p.image}" alt="" data-photo-q="${esc(photoQuery(p.name, (findDestination(p.destId)||{}).name))}"></div>
-      <div><div>${esc(p.name)}</div><div class="small">${esc(p.area||'')}${p.rating?` · ★ ${p.rating}`:''}</div></div>
+    ${places.map(p=>`<button class="mapPlaceRow" data-savedfocus="${esc(p.id)}">
+      <div class="stopThumb"><img src="${safeImageUrl(p.image)}" alt="" data-photo-q="${esc(photoQuery(p.name, (findDestination(p.destId)||{}).name))}"></div>
+      <div><div>${esc(p.name)}</div><div class="small">${esc(p.area||'')}</div></div>
     </button>`).join('')}`;
   list.querySelectorAll('[data-savedfocus]').forEach(b=>b.onclick=()=>{
     const p = places.find(x=>x.id===b.dataset.savedfocus);
@@ -2954,6 +3834,17 @@ function buildPrintableHTML(trip){
       `).join('')}
       <h2>Budget</h2>
       <div class="printRow">Planned ${fmt$(tripPlannedTotal(trip))} of ${fmt$(trip.budget.total)}</div>
+      ${((trip.budget && trip.budget.expenses) || []).length ? ((trip.budget.expenses).map(e =>
+        `<div class="printRow">${esc(e.label || e.category || 'Expense')}${e.category && e.label ? ' · ' + esc(e.category) : ''} — ${fmt$(e.amount || 0)}</div>`
+      ).join('')) : ''}
+      ${(trip.packing || []).length ? `<h2>Packing</h2>${
+        (trip.packing).map(item => {
+          const label = item && (item.label || item.name || item.text);
+          if(!label) return '';
+          // A printed list is something you tick off on paper, so it carries the box rather
+          // than the app's idea of what is already packed.
+          return `<div class="printRow">☐ ${esc(label)}${item.category ? ' · ' + esc(item.category) : ''}</div>`;
+        }).join('')}` : ''}
       <p class="printFoot">Made with TripFlow</p>
     </div>`;
 }
@@ -3096,7 +3987,7 @@ function splitDayByNow(day, nowMinutes){
 function travelStopRowHTML(s, destName, state){
   return `<div class="travelStop ${state}">
     <div class="travelTime">${fmtTime12(s.time)}</div>
-    <div class="stopThumb"><img src="${s.image}" alt="" data-photo-q="${esc(photoQuery(s.name, destName))}"></div>
+    <div class="stopThumb"><img src="${safeImageUrl(s.image)}" alt="" data-photo-q="${esc(photoQuery(s.name, destName))}"></div>
     <div class="travelInfo">
       <h4>${esc(s.name)}</h4>
       <div class="small">${esc(s.category||'')}${s.area?` · ${esc(s.area)}`:''}${s.duration?` · ${s.duration} min`:''}</div>
@@ -3131,7 +4022,7 @@ function renderTravelView(){
           <h3 style="margin:0">${days===1?'day':'days'} until ${esc(next.title)}</h3>
           <p class="small" style="margin:2px 0 0">${dest.flag} ${esc(dest.name)} · starts ${fmtDateFull(next.start)}</p>
         </div>
-        <button class="btn primary" data-opentrip="${next.id}">Open trip</button>
+        <button class="btn primary" data-opentrip="${esc(next.id)}">Open trip</button>
       </div>
       ${firstDay && firstDay.stops.length ? `<div class="card" style="margin-top:16px">
         <h3>First day, once you land</h3>
@@ -3152,7 +4043,7 @@ function renderTravelView(){
   if(!day){
     body.innerHTML = `<div class="card"><h3>${esc(trip.title)}</h3>
       <p class="small">You're on this trip, but today (${fmtDateFull(today)}) doesn't have a day planned in the itinerary yet.</p>
-      <button class="btn primary" style="margin-top:10px" data-opentrip="${trip.id}">Open itinerary</button></div>`;
+      <button class="btn primary" style="margin-top:10px" data-opentrip="${esc(trip.id)}">Open itinerary</button></div>`;
     body.querySelectorAll('[data-opentrip]').forEach(b=>b.onclick=()=>navigate(`#/trip/${b.dataset.opentrip}/itinerary`));
     return;
   }
@@ -3173,7 +4064,7 @@ function renderTravelView(){
         <h3 style="margin:2px 0 0">${esc(trip.title)}</h3>
         <p class="small" style="margin:2px 0 0">${fmtDateFull(today)} · ${day.stops.length} stop${day.stops.length===1?'':'s'} · ${fmt$(spend)} planned today${transitMins?` · ~${transitMins} min moving${modeSummary?` (${esc(modeSummary)})`:''}`:''}</p>
       </div>
-      <button class="btn" data-opentrip="${trip.id}">Full itinerary</button>
+      <button class="btn" data-opentrip="${esc(trip.id)}">Full itinerary</button>
     </div>
     ${clock ? `<div class="card clockCard" style="margin-top:14px">
       <div class="clockTime">${clock.time12}</div>
@@ -3214,12 +4105,24 @@ function renderPlannerView(tripId, ptab){
   const refreshPlanner = ()=>{ if(plannerState.tripId===trip.id) renderPlannerView(trip.id, location.hash.split('/')[3]||'dashboard'); };
   if(dest.id.startsWith('gen-')) enrichDestinationInBackground(dest, refreshPlanner);
   else supplementDestinationInBackground(dest, refreshPlanner);
+  /* And find the destination's real places again, because this device may never have had them.
+   *
+   * A trip carries its own stops, so a saved itinerary reopens intact on a new phone. What does
+   * not travel with it is the destination's place store — that lives in memory and is rebuilt by
+   * discovery — so More ideas, Add a stop and the map search all came up empty for anyone who
+   * opened a trip they had not generated on that device. The trip looked complete and every way
+   * to add to it was blank. Fire-and-forget: the panel fills in when the answer arrives. */
+  if(typeof discoverPlacesFor === 'function'){
+    try { discoverPlacesFor(dest, ['attraction', 'restaurant']); } catch(e){ /* view still renders */ }
+  }
 
   $('plannerEyebrow').textContent = `${dest.flag} ${dest.name} trip workspace`;
   $('plannerTitle').textContent = trip.title;
   $('plannerSub').textContent = `${fmtDateFull(trip.start)} – ${fmtDateFull(trip.end)} · ${trip.days.length} days · ${trip.travelers} travelers`;
   renderCollabStack(trip);
+  renderTripWarnings(trip);
   renderTripProgress(trip);
+  renderTripSearch(trip);
 
   $$('.ptab').forEach(b=>{ b.classList.toggle('active', b.dataset.ptab===(ptab||'dashboard')); b.onclick=()=>navigate(`#/trip/${trip.id}/${b.dataset.ptab}`); });
   $$('.ptabBody').forEach(b=>b.classList.remove('active'));
@@ -3236,7 +4139,8 @@ function renderPlannerView(tripId, ptab){
   $('mapSearchGo').onclick = ()=>plannerMapSearch(trip);
   $('mapSearchInput').onkeydown = e=>{ if(e.key==='Enter') plannerMapSearch(trip); };
 
-  if(ptab==='budget') renderBudgetTab(trip);
+  if(ptab==='tripmap') renderTripMapTab(trip);
+  else if(ptab==='budget') renderBudgetTab(trip);
   else if(ptab==='collab') renderCollabTab(trip);
   else if(ptab==='unscheduled') renderUnscheduledTab(trip);
   else if(ptab==='packing') renderPackingTab(trip);
@@ -3244,7 +4148,119 @@ function renderPlannerView(tripId, ptab){
   else if(ptab==='itinerary') renderPlannerItinerary(trip);
   else renderDashboardTab(trip);
 }
-function renderCollabStack(trip){ $('collabStack').innerHTML = trip.collaborators.map(c=>`<div class="avatar sm" title="${esc(c.name)}">${c.initials}</div>`).join(''); }
+/** Shows the planner's own warnings on the trip.
+ *
+ *  planTrip has always produced these — a must-see it could not find, a day that runs past
+ *  midnight, a stop that is probably closed when you arrive, and now a day it could not fill —
+ *  and buildPlannedTrip has always stored them on the trip. Nothing ever displayed them. The
+ *  itinerary that knew it had a problem looked exactly like the one that did not, which is the
+ *  version of this bug that matters: the traveller finds out on the day.
+ *
+ *  Dismissible, and the dismissal sticks with the trip: a warning you have read and decided
+ *  about should not follow you around, but it should still be there for anyone else opening it. */
+function renderTripWarnings(trip){
+  const el = $('tripWarnings');
+  if(!el) return;
+  const seen = new Set(trip.dismissedWarnings || []);
+  const list = (trip.warnings || []).filter(w => w && w.text && !seen.has(warningKey(w)));
+  if(!list.length){ el.classList.add('hidden'); el.innerHTML = ''; return; }
+  el.classList.remove('hidden');
+  el.innerHTML = list.map(w => `
+    <div class="tripWarn" data-warn="${esc(warningKey(w))}">
+      <span class="tripWarnIcon">${w.kind === 'emptyDay' ? '📭' : w.kind === 'closed' ? '🕒' : '⚠️'}</span>
+      <span class="tripWarnText">${esc(w.text)}</span>
+      <button class="tripWarnX" type="button" aria-label="Dismiss this warning">✕</button>
+    </div>`).join('');
+  el.querySelectorAll('.tripWarn').forEach(row => {
+    row.querySelector('.tripWarnX').onclick = () => {
+      trip.dismissedWarnings = (trip.dismissedWarnings || []).concat(row.dataset.warn);
+      saveState();
+      renderTripWarnings(trip);
+    };
+  });
+}
+/* Stable across re-plans: the same problem on the same day is the same warning. */
+function warningKey(w){ return `${w.kind}:${w.day != null ? w.day : (w.days ? w.days.join('-') : '')}`; }
+
+function renderCollabStack(trip){ $('collabStack').innerHTML = trip.collaborators.map(c=>`<div class="avatar sm" title="${esc(c.name)}">${esc(c.initials)}</div>`).join(''); }
+
+/* ---------------- More ideas for your trip ----------------
+   Real places in this destination that are not already planned, ranked by what the traveller
+   said they like and by how close they are to the days they have already built.
+
+   Two things this must not do, both of which the rest of the app already learned the hard way:
+   suggest a place that is already on the itinerary, and invent a reason. Every line under a
+   suggestion is derived from the record — a matched interest, a measured distance — or it is
+   not shown at all. */
+function renderMoreIdeasHTML(trip, dest){
+  if(typeof suggestIdeasForTrip !== 'function') return '';
+  const planned = new Set(trip.days.flatMap(d => d.stops.map(s => s.placeId)));
+  const anchors = trip.days.flatMap(d => d.stops)
+                           .filter(s => s.lat != null && s.lng != null)
+                           .map(s => ({lat: s.lat, lng: s.lng}));
+  const prefs = (typeof loadTripPreferences === 'function') ? loadTripPreferences() : null;
+  const ideas = suggestIdeasForTrip({
+    places: PLACES.filter(p => p.destId === dest.id),
+    plannedKeys: [...planned], prefs, anchors, limit: 6,
+  });
+
+  /* Discovery may still be running, and "nothing to suggest" and "still looking" are different
+   * statements. Saying the wrong one is how the app used to claim a city had no restaurants. */
+  if(!ideas.length){
+    /* Ask discovery whether it is still working, rather than guessing from an empty store.
+     *
+     * The guess was "no places yet means still looking", which is wrong in both directions: a
+     * destination with six seed places and discovery running looked finished, and one where
+     * discovery had failed outright looked busy forever. placesStatus knows. */
+    const status = (typeof placesStatus === 'function')
+      ? [placesStatus(dest.id, 'attraction'), placesStatus(dest.id, 'restaurant')] : [];
+    const stillLooking = status.includes('loading') || status.includes('idle')
+      || !PLACES.some(p => p.destId === dest.id);
+    return `<h3 style="margin:26px 0 12px">More ideas for your trip</h3>
+      <div class="card"><div class="empty">${stillLooking
+        ? 'Finding real places in ' + esc(dest.name) + '…'
+        : 'Everything we have found in ' + esc(dest.name) + ' is already on your itinerary.'}</div></div>`;
+  }
+
+  return `<h3 style="margin:26px 0 12px">More ideas for your trip</h3>
+    <div class="placeGrid" id="moreIdeasGrid">
+      ${ideas.map(idea => {
+        const p = idea.place;
+        const bits = [];
+        if(idea.why.length) bits.push(idea.why[0]);
+        if(idea.nearestKm != null && idea.nearestKm < 25){
+          bits.push(idea.nearestKm < 1 ? 'a few minutes from a planned stop'
+                                       : `${idea.nearestKm.toFixed(1)} km from a planned stop`);
+        }
+        return `<div class="placeCard" data-place="${esc(p.id)}">
+          <div class="placeMedia">
+            ${placeImageSrc(p) ? '' : placeImagePlaceholderHTML(p)}
+            <img src="${placeImageSrc(p)}" alt="${esc(p.name)}" loading="lazy" ${placeImageSrc(p) ? '' : 'hidden'}
+                 data-photo-place="${esc(p.id)}" data-photo-q="${esc(photoQuery(p.name, dest.name))}">
+            <span class="placeCatBadge">${esc(p.category || p.cuisine || p.subtype || 'Place')}</span>
+          </div>
+          <div class="placeBody">
+            <h4>${esc(p.name)}</h4>
+            ${bits.length ? `<p class="small">${esc(bits.join(' · '))}</p>` : ''}
+            <button class="btn primary sm" data-ideaadd="${esc(p.id)}">＋ Add to trip</button>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+/** Adds a suggested place where it actually belongs, and says where that was.
+ *  A silent add is indistinguishable from a broken button when the place lands on Day 3. */
+function addIdeaToTrip(trip, place){
+  const prefs = (typeof loadTripPreferences === 'function') ? loadTripPreferences() : null;
+  const spot = (typeof suggestPlacement === 'function') ? suggestPlacement(trip, place, {prefs}) : null;
+  if(!spot){
+    toast(`Every day is already full — add a day first, or remove a stop to make room for ${place.name}.`);
+    return;
+  }
+  addPlaceToTrip(trip, spot.dayIndex, place, spot.time);
+  toast(`${place.name} added to Day ${spot.dayIndex + 1} at ${fmtTime12(spot.time)} — ${spot.reason}.`);
+}
 
 /* ---------------- Trip Dashboard (the trip's home page) ---------------- */
 function renderDashboardTab(trip){
@@ -3298,16 +4314,17 @@ function renderDashboardTab(trip){
             <div class="nsIcon">${s.icon}</div>
             <h4>${esc(s.title)}</h4>
             <p class="small">${esc(s.desc)}</p>
-            <button class="btn primary sm" data-nextstep="${i}">${esc(s.cta)}</button>
+            <button class="btn primary sm" data-nextstep="${esc(i)}">${esc(s.cta)}</button>
           </div>`).join('')}
         </div>`}
+        ${isOver ? '' : renderMoreIdeasHTML(trip, dest)}
         <h3 style="margin:26px 0 12px">Upcoming</h3>
         <div class="card">
           ${upcomingDay && upcomingDay.stops.length ? `
             <div class="small" style="font-weight:700;margin-bottom:10px">Day 1 · ${fmtDateFull(upcomingDay.date)}</div>
             ${upcomingDay.stops.slice(0,5).map(s=>`<div class="upcomingRow">
               <span class="upTime">${fmtTime12(s.time)}</span>
-              <div class="stopThumb"><img src="${s.image}" data-photo-q="${esc(photoQuery(s.name, dest.name))}"></div>
+              <div class="stopThumb"><img src="${safeImageUrl(s.image)}" data-photo-q="${esc(photoQuery(s.name, dest.name))}"></div>
               <span>${esc(s.name)}</span>
             </div>`).join('')}
             <button class="linklike" style="margin-top:10px" data-goitin="1">View full itinerary →</button>
@@ -3330,8 +4347,12 @@ function renderDashboardTab(trip){
         </div>
       </div>
     </div>`;
-  nextSteps.forEach((s,i)=>{ const b = body.querySelector(`[data-nextstep="${i}"]`); if(b) b.onclick = s.go; });
+  nextSteps.forEach((s,i)=>{ const b = body.querySelector(`[data-nextstep="${esc(i)}"]`); if(b) b.onclick = s.go; });
   body.querySelectorAll('[data-goitin]').forEach(b=>b.onclick=()=>navigate(`#/trip/${trip.id}/itinerary`));
+  body.querySelectorAll('[data-ideaadd]').forEach(b=>b.onclick=()=>{
+    const p = placeById(b.dataset.ideaadd);
+    if(p) addIdeaToTrip(trip, p);
+  });
   const recapBtn = body.querySelector('#shareRecapBtn');
   if(recapBtn) recapBtn.onclick = ()=>{
     const text = buildRecapText(trip);
@@ -3346,6 +4367,433 @@ function renderDashboardTab(trip){
     toast('Trip notes saved.');
   };
   hydratePhotos(body);
+}
+
+/* ---------------- The account screen ----------------
+   One modal, three states, because they are three genuinely different questions:
+
+     no project    "where should trips be kept?"   — paste the Supabase details
+     signed out    "who are you?"                  — sign in, sign up, reset
+     signed in     "what is happening with it?"    — sync, sign out, disconnect
+
+   Nothing here is required. The app worked without an account before and still does; this is
+   the answer to "I cleared my browser and lost a trip", not a gate in front of the product. */
+let __accountBusy = false;
+
+function openAccountModal(){ renderAccountModal(); openModal('modal-account'); }
+
+async function renderAccountModal(){
+  const body = $('accountBody'), title = $('accountTitle'), sub = $('accountSub');
+  if(!body) return;
+
+  if(!cloudConfigured()){
+    title.textContent = 'Keep your trips beyond this browser';
+    sub.textContent = 'Optional. Everything already works without this — an account adds a second copy, so a cleared browser or a new phone is no longer a lost trip.';
+    body.innerHTML = `
+      <div class="card" style="margin-bottom:14px">
+        <p class="small" style="margin:0 0 8px"><b>One-time setup, about three minutes.</b></p>
+        <ol class="small" style="margin:0;padding-left:18px;line-height:1.7">
+          <li>Create a free project at <a href="https://supabase.com" target="_blank" rel="noopener">supabase.com</a>.</li>
+          <li>Open <b>SQL Editor → New query</b>, paste the contents of <code>supabase/schema.sql</code> from this repository, and press Run.</li>
+          <li>Open <b>Project Settings → API</b> and copy the two values below.</li>
+        </ol>
+      </div>
+      <div class="field" style="margin-bottom:10px"><label>Project URL</label>
+        <input id="acctUrl" placeholder="https://yourproject.supabase.co" autocomplete="off"></div>
+      <div class="field" style="margin-bottom:10px"><label>Anon public key</label>
+        <input id="acctKey" placeholder="eyJhbGciOi…" autocomplete="off"></div>
+      <p class="small" style="margin:0 0 12px">Both are safe to share: the key identifies the project, it does not grant access. What anyone can read or write is decided by the security policies in the schema you ran. Do not paste the <b>service_role</b> key — that one is a master key.</p>
+      <div class="rowgap"><button class="btn primary" id="acctSaveCfg">Connect</button>
+        <button class="btn" data-close="modal-account">Not now</button></div>
+      <div class="small" id="acctCfgMsg" style="margin-top:10px"></div>`;
+    $('acctSaveCfg').onclick = () => {
+      const res = saveCloudConfig($('acctUrl').value, $('acctKey').value);
+      if(!res.ok){ $('acctCfgMsg').textContent = res.reason; return; }
+      toast('Project connected. Sign in or create an account next.');
+      renderAccountModal();
+      renderAccountMenu();      // the menu still said "Connect an account" after connecting
+    };
+    return;
+  }
+
+  const user = await cloudCurrentUser();
+  if(!user){
+    title.textContent = 'Sign in';
+    sub.textContent = 'Your trips stay on this device either way. Signing in adds a copy you can reach from anywhere.';
+    body.innerHTML = `
+      <div class="field" style="margin-bottom:10px"><label>Email</label>
+        <input id="acctEmail" type="email" autocomplete="username"></div>
+      <div class="field" style="margin-bottom:10px"><label>Password</label>
+        <input id="acctPass" type="password" autocomplete="current-password"></div>
+      <div class="rowgap">
+        <button class="btn primary" id="acctSignIn">Sign in</button>
+        <button class="btn" id="acctSignUp">Create account</button>
+        <button class="linklike" id="acctReset">Forgot password</button>
+      </div>
+      <div class="small" id="acctMsg" style="margin-top:12px"></div>
+      <div class="small" style="margin-top:14px;opacity:.75">Connected to a different project by mistake?
+        <button class="linklike" id="acctForget">Disconnect it</button></div>`;
+
+    const msg = t => { $('acctMsg').textContent = t; };
+    const creds = () => [$('acctEmail').value.trim(), $('acctPass').value];
+    const guard = async (fn) => {
+      if(__accountBusy) return;
+      __accountBusy = true; msg('Working…');
+      try { await fn(); } finally { __accountBusy = false; }
+    };
+    $('acctSignIn').onclick = () => guard(async () => {
+      const r = await cloudSignIn(...creds());
+      if(!r.ok) return msg(r.reason);
+      msg('');
+      await afterSignIn();
+      renderAccountModal();
+    });
+    $('acctSignUp').onclick = () => guard(async () => {
+      const r = await cloudSignUp(...creds());
+      if(!r.ok) return msg(r.reason);
+      if(r.needsConfirmation) return msg('Account created. Check your email for a confirmation link, then sign in.');
+      msg('');
+      await afterSignIn();
+      renderAccountModal();
+    });
+    $('acctReset').onclick = () => guard(async () => {
+      const email = $('acctEmail').value.trim();
+      if(!email) return msg('Enter your email address first.');
+      const r = await cloudResetPassword(email);
+      msg(r.ok ? 'If that address has an account, a reset link is on its way.' : r.reason);
+    });
+    $('acctForget').onclick = () => { forgetCloudConfig(); renderAccountModal(); renderAccountMenu(); };
+    return;
+  }
+
+  title.textContent = 'Signed in';
+  sub.textContent = esc(user.email || '');
+  const state = __syncState;
+  body.innerHTML = `
+    <div class="card" style="margin-bottom:14px">
+      <div class="small"><b>Trips on this device:</b> ${STATE.trips.length}</div>
+      <div class="small" style="margin-top:4px">${state.at ? 'Last synced ' + esc(timeAgo(state.at)) : 'Not synced yet this session.'}</div>
+      ${state.error ? `<div class="small" style="margin-top:6px;color:#c4622d">${esc(state.error)}</div>` : ''}
+    </div>
+    <div class="rowgap">
+      <button class="btn primary" id="acctSync">Sync now</button>
+      <button class="btn" id="acctSignOut">Sign out</button>
+    </div>
+    <div class="small" id="acctMsg2" style="margin-top:12px"></div>`;
+  $('acctSync').onclick = async () => {
+    $('acctMsg2').textContent = 'Syncing…';
+    const r = await syncNow();
+    $('acctMsg2').textContent = r.ok
+      ? `Synced. ${r.pulled} from the cloud, ${r.pushed} sent up.` : r.reason;
+    renderAccountModal();
+  };
+  $('acctSignOut').onclick = async () => {
+    await cloudSignOut();
+    toast('Signed out. Your trips are still on this device.');
+    renderAccountModal(); renderAccountMenu();
+  };
+}
+
+function renderAccountMenu(){
+  const label = $('accountMenuLabel');
+  if(!label) return;
+  if(!cloudConfigured()){ label.textContent = 'Connect an account'; return; }
+  const u = __cloud && __cloud.user;
+  label.textContent = u ? (u.email || 'Account') : 'Sign in';
+}
+
+/* ---------------- sync ----------------
+   Local first, then the cloud, and the traveller is told which copy won when they disagree. */
+let __syncState = { at: 0, error: null, running: false };
+
+async function afterSignIn(){
+  renderAccountMenu();
+  const r = await syncNow();
+  if(r.ok) toast(`Signed in. ${r.pulled} trip${r.pulled===1?'':'s'} from your account.`);
+}
+
+async function syncNow(){
+  if(__syncState.running) return { ok: false, reason: 'A sync is already running.' };
+  __syncState.running = true;
+  try {
+    const pulled = await cloudPullTrips();
+    if(!pulled.ok){ __syncState.error = pulled.reason; return { ok: false, reason: pulled.reason }; }
+
+    const { keep, push, conflicts } = mergeTrips(STATE.trips, pulled.rows);
+    STATE.trips = keep;
+    saveState();                                   // local first, before anything is sent
+
+    const pushed = await cloudPushTrips(push);
+    __syncState.at = Date.now();
+    __syncState.error = pushed.ok ? null : pushed.reason;
+
+    /* When the cloud copy won, say so. A trip quietly changing under somebody because another
+     * device was newer is exactly the sort of thing that makes sync feel untrustworthy, even
+     * when it did the right thing. */
+    if(conflicts.length){
+      const names = conflicts.slice(0, 2).map(c => c.title).filter(Boolean).join(', ');
+      addNotification(`Updated ${conflicts.length} trip${conflicts.length===1?'':'s'} from a newer copy in your account${names ? ': ' + names : ''}.`, '☁️');
+    }
+    refreshCurrentView();
+    return { ok: true, pulled: pulled.rows.filter(r => !r.deleted).length,
+             pushed: pushed.pushed || 0, conflicts: conflicts.length };
+  } finally { __syncState.running = false; }
+}
+
+/* ---------------- Search inside a trip ----------------
+   A planned trip accumulates a lot: sixty stops across ten days, saved places waiting to be
+   scheduled, bookings with confirmation numbers, a packing list, expenses, and notes on the
+   trip and on individual days and stops. There was no way to ask it a question. "Which day is
+   the Louvre on?" and "where did I put the hotel confirmation?" both meant clicking through
+   tabs until you found it.
+
+   Everything is searched, and every hit says where it lives and how to get there. */
+
+/** Case- and accent-insensitive, so "cafe" finds "Café" and "medellin" finds "Medellín" —
+ *  the same folding the destination ranker uses, for the same reason. */
+function tripSearchFold(s){
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
+/** Every match in a trip, grouped by what kind of thing it is.
+ *  Returns [] for a query too short to be meaningful rather than everything: a single letter
+ *  matches most of a trip, which is not an answer to anything. */
+function searchTrip(trip, query){
+  const q = tripSearchFold(query).trim();
+  if(!trip || q.length < 2) return [];
+  const hit = (...fields) => fields.some(f => tripSearchFold(f).includes(q));
+  const out = [];
+
+  (trip.days || []).forEach((day, di) => {
+    (day.stops || []).forEach(stop => {
+      if(hit(stop.name, stop.category, stop.area, stop.note)){
+        out.push({ kind: 'stop', title: stop.name,
+                   where: `Day ${di + 1} · ${fmtTime12(stop.time)}`,
+                   detail: stop.note || stop.category || '',
+                   goto: { tab: 'itinerary', day: di } });
+      }
+    });
+    if(day.note && hit(day.note)){
+      out.push({ kind: 'note', title: `Day ${di + 1} note`, where: fmtDateFull(day.date),
+                 detail: day.note, goto: { tab: 'itinerary', day: di } });
+    }
+  });
+
+  if(trip.notes && hit(trip.notes)){
+    out.push({ kind: 'note', title: 'Trip note', where: 'Dashboard', detail: trip.notes,
+               goto: { tab: 'dashboard' } });
+  }
+
+  // Bookings are the reason this feature exists: a confirmation number is the one thing people
+  // genuinely need to find in a hurry, and it is searched here as text, not just the title.
+  (trip.bookings || []).forEach(b => {
+    if(hit(b.title, b.confirmation, b.provider, b.notes, b.type)){
+      out.push({ kind: 'booking', title: b.title || b.type || 'Booking',
+                 where: b.date ? fmtDateFull(b.date) : 'No date yet',
+                 detail: [b.provider, b.confirmation].filter(Boolean).join(' · '),
+                 goto: { tab: 'bookings' } });
+    }
+  });
+
+  (trip.packing || []).forEach(item => {
+    const label = item && (item.label || item.name || item.text);
+    if(label && hit(label)){
+      out.push({ kind: 'packing', title: label,
+                 where: item.packed ? 'Packed' : 'Still to pack',
+                 detail: item.category || '', goto: { tab: 'packing' } });
+    }
+  });
+
+  ((trip.budget && trip.budget.expenses) || []).forEach(e => {
+    if(hit(e.label, e.category, e.note)){
+      out.push({ kind: 'expense', title: e.label || e.category || 'Expense',
+                 where: typeof fmt$ === 'function' ? fmt$(e.amount || 0) : String(e.amount || 0),
+                 detail: e.category || '', goto: { tab: 'budget' } });
+    }
+  });
+
+  // Saved places not yet on a day: they are part of the trip even though they have no slot.
+  if(typeof unscheduledPlacesForTrip === 'function'){
+    try {
+      unscheduledPlacesForTrip(trip).forEach(p => {
+        if(p && hit(p.name, p.category, p.cuisine)){
+          out.push({ kind: 'saved', title: p.name, where: 'Saved, not scheduled',
+                     detail: p.category || p.cuisine || '', goto: { tab: 'unscheduled' } });
+        }
+      });
+    } catch(e){ /* a malformed saved list must not break search */ }
+  }
+
+  return out;
+}
+
+const TRIP_SEARCH_ICON = { stop:'📍', note:'📝', booking:'🎟️', packing:'🎒', expense:'💰', saved:'♡' };
+
+function renderTripSearch(trip){
+  const box = $('tripSearchInput');
+  if(!box) return;
+  const run = () => {
+    const results = searchTrip(trip, box.value);
+    const panel = $('tripSearchResults');
+    const q = (box.value || '').trim();
+    if(q.length < 2){ panel.classList.add('hidden'); panel.innerHTML = ''; return; }
+    panel.classList.remove('hidden');
+    if(!results.length){
+      panel.innerHTML = `<div class="empty" style="padding:16px">Nothing in this trip matches “${esc(q)}”.</div>`;
+      return;
+    }
+    panel.innerHTML = results.slice(0, 40).map((r, i) => `
+      <button class="listRow" data-tripsearch="${esc(i)}" style="width:100%;text-align:left">
+        <div class="left">
+          <span style="font-size:18px">${TRIP_SEARCH_ICON[r.kind] || '•'}</span>
+          <div>
+            <div>${esc(r.title)}</div>
+            <div class="small">${esc(r.where)}${r.detail ? ' · ' + esc(r.detail) : ''}</div>
+          </div>
+        </div>
+      </button>`).join('') +
+      (results.length > 40 ? `<div class="small" style="padding:8px 12px">${results.length - 40} more matches — narrow the search to see them.</div>` : '');
+    panel.querySelectorAll('[data-tripsearch]').forEach(btn => btn.onclick = () => {
+      const r = results[Number(btn.dataset.tripsearch)];
+      if(!r) return;
+      if(r.goto.day != null) plannerState.day = r.goto.day;
+      panel.classList.add('hidden');
+      box.value = '';
+      navigate(`#/trip/${trip.id}/${r.goto.tab}`);
+    });
+  };
+  box.oninput = debounce(run, 120);
+  box.onkeydown = e => { if(e.key === 'Escape'){ box.value = ''; $('tripSearchResults').classList.add('hidden'); box.blur(); } };
+}
+
+/* ---------------- The whole trip on one map ----------------
+   The itinerary map shows one day, as a Google directions embed. That is the right tool for
+   "how do I walk today" and the wrong one for "what does this trip look like": it plots a
+   single route, stops at ten waypoints, and cannot show ten days at once.
+
+   This is the other view. Every verified stop across every day, coloured by day, numbered in
+   visiting order, joined by a line per day. It answers the question the per-day map cannot —
+   is my week spread sensibly across this city, or have I booked Tuesday on the far side of it? */
+
+/** Distinct, evenly spaced hues, so adjacent days never read as the same colour. Generated
+ *  rather than tabulated because a trip can be any length and a fixed palette of eight would
+ *  silently repeat on day nine. */
+function tripDayColour(i, total){
+  const n = Math.max(1, total);
+  const hue = Math.round((i * 360) / n + (i % 2) * 24) % 360;   // offset alternates to separate neighbours
+  return `hsl(${hue} 72% 46%)`;
+}
+
+/** Every stop worth plotting, flattened across the trip and tagged with its day.
+ *  A stop that fails the destination containment check is NOT plotted and IS counted, because
+ *  silently dropping it is how a map quietly lies about where a trip goes. */
+function tripMapPoints(trip, dest){
+  const points = [], dropped = [];
+  (trip.days || []).forEach((day, di) => {
+    (day.stops || []).forEach((s, si) => {
+      const ok = s.lat != null && s.lng != null &&
+                 (typeof placeWithinDestination !== 'function' || placeWithinDestination(s, dest));
+      if(ok) points.push({ lat: s.lat, lng: s.lng, name: s.name, time: s.time, type: s.type,
+                           day: di, order: si + 1, date: day.date });
+      else dropped.push({ name: s.name, day: di });
+    });
+  });
+  return { points, dropped };
+}
+
+let __tripMap = null, __tripMapLayers = [];
+function renderTripMapTab(trip){
+  const body = $('ptab-tripmap');
+  const dest = destForTrip(trip);
+
+  if(!hasVerifiedGeo(dest)){ body.innerHTML = mapUnverifiedHTML(dest && dest.name); return; }
+  if(navigator.onLine === false){ body.innerHTML = mapUnavailableHTML(); return; }
+  if(typeof L === 'undefined'){
+    // The library is loaded from a CDN and can simply not arrive. Say so plainly rather than
+    // leaving an empty grey box that looks like a broken map.
+    body.innerHTML = `<div class="empty" style="padding:40px;text-align:center">
+      <div style="font-size:26px;margin-bottom:8px">🗺️</div>
+      <div>The map library could not be loaded.</div>
+      <div class="small" style="margin-top:4px">Everything else in this trip still works — the per-day map is on the Itinerary tab.</div></div>`;
+    return;
+  }
+
+  const { points, dropped } = tripMapPoints(trip, dest);
+  const total = trip.days.length;
+
+  body.innerHTML = `
+    <div class="panel mapPanel">
+      <div class="panelHead">
+        <h3>${esc(trip.title)} — every day on one map</h3>
+        <div class="rowgap">
+          <select id="tripMapDayFilter" class="btn sm">
+            <option value="all">All ${total} days</option>
+            ${trip.days.map((d, i) => `<option value="${esc(i)}">Day ${i + 1} · ${fmtDateFull(d.date)}</option>`).join('')}
+          </select>
+          <button class="btn sm" id="tripMapFit"><i class="fa-solid fa-crosshairs"></i> Fit</button>
+        </div>
+      </div>
+      <div class="mapLegend" id="tripMapLegend"></div>
+      <div class="map" id="tripMapCanvas" style="min-height:520px"></div>
+      ${points.length ? '' : '<div class="empty">Nothing with a confirmed location is scheduled yet.</div>'}
+      ${dropped.length ? `<div class="small" style="padding:8px 12px">${dropped.length} stop${dropped.length===1?'':'s'} ${dropped.length===1?'has':'have'} no confirmed location and ${dropped.length===1?'is':'are'} not shown: ${esc(dropped.slice(0,3).map(d=>d.name).join(', '))}${dropped.length>3?'…':''}</div>` : ''}
+    </div>`;
+
+  $('tripMapLegend').innerHTML = trip.days.map((d, i) =>
+    `<span class="legend"><span class="legendDot" style="background:${tripDayColour(i, total)}"></span>Day ${i + 1}</span>`).join('');
+
+  // Leaflet needs the container to exist and have a size before it initialises.
+  requestAnimationFrame(() => {
+    try { buildTripMap(trip, dest, points, total); }
+    catch(e){ body.innerHTML = mapUnavailableHTML(); }
+  });
+}
+
+function buildTripMap(trip, dest, points, total){
+  if(__tripMap){ __tripMap.remove(); __tripMap = null; }
+  __tripMapLayers = [];
+  __tripMap = L.map('tripMapCanvas', { scrollWheelZoom: false }).setView([dest.lat, dest.lng], 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    // OpenStreetMap's tiles are free to use and their terms require this credit.
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  }).addTo(__tripMap);
+
+  const byDay = new Map();
+  points.forEach(p => { if(!byDay.has(p.day)) byDay.set(p.day, []); byDay.get(p.day).push(p); });
+
+  const bounds = [];
+  byDay.forEach((list, dayIdx) => {
+    const colour = tripDayColour(dayIdx, total);
+    const group = L.layerGroup().addTo(__tripMap);
+    const line = list.map(p => [p.lat, p.lng]);
+    if(line.length > 1) L.polyline(line, { color: colour, weight: 3, opacity: 0.65 }).addTo(group);
+    list.forEach(p => {
+      bounds.push([p.lat, p.lng]);
+      L.marker([p.lat, p.lng], {
+        icon: L.divIcon({ className: 'tripPin', iconSize: [24, 24], iconAnchor: [12, 12],
+          html: `<span style="background:${colour}">${p.order}</span>` }),
+      }).addTo(group).bindPopup(
+        `<strong>${esc(p.name)}</strong><br>Day ${p.day + 1} · ${esc(fmtTime12(p.time))}`);
+    });
+    __tripMapLayers.push({ dayIdx, group });
+  });
+
+  if(bounds.length) __tripMap.fitBounds(bounds, { padding: [30, 30] });
+
+  const filter = $('tripMapDayFilter');
+  if(filter) filter.onchange = () => {
+    const v = filter.value;
+    const shown = [];
+    __tripMapLayers.forEach(({ dayIdx, group }) => {
+      const on = (v === 'all') || Number(v) === dayIdx;
+      if(on){ group.addTo(__tripMap); (byDay.get(dayIdx) || []).forEach(p => shown.push([p.lat, p.lng])); }
+      else __tripMap.removeLayer(group);
+    });
+    if(shown.length) __tripMap.fitBounds(shown, { padding: [30, 30] });
+  };
+  const fit = $('tripMapFit');
+  if(fit) fit.onclick = () => { if(bounds.length) __tripMap.fitBounds(bounds, { padding: [30, 30] }); };
 }
 
 /* ---------------- Unscheduled Places bucket ---------------- */
@@ -3504,7 +4952,7 @@ function renderUnscheduledTab(trip){
 
   function drawDayZones(){
     $('dayDropZones').innerHTML = trip.days.map((d,i)=>`
-      <div class="dayDropZone" data-dropday="${i}">
+      <div class="dayDropZone" data-dropday="${esc(i)}">
         <div class="small" style="font-weight:700">Day ${i+1} · ${fmtDateShort(d.date)}</div>
         <div class="small">${d.stops.length} stop${d.stops.length===1?'':'s'}</div>
       </div>`).join('');
@@ -3535,16 +4983,16 @@ function renderUnscheduledTab(trip){
     else arr.sort((a,b)=>(b.rating||0)-(a.rating||0));
 
     $('unschedList').innerHTML = arr.length ? arr.map(p=>`
-      <div class="unschedCard" draggable="true" data-place="${p.id}">
-        <div class="stopThumb"><img src="${p.image}" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
+      <div class="unschedCard" draggable="true" data-place="${esc(p.id)}">
+        <div class="stopThumb"><img src="${safeImageUrl(p.image)}" data-photo-q="${esc(photoQuery(p.name, dest.name))}"></div>
         <div class="unschedInfo">
           <h4>${esc(p.name)}</h4>
-          <p class="small">${esc(p.category||p.cuisine||p.type)}${p.area?' · '+esc(p.area):''}${p.rating?' · ★ '+p.rating:''}</p>
+          <p class="small">${esc(p.category||p.cuisine||p.type)}${p.area?' · '+esc(p.area):''}</p>
         </div>
         <div class="unschedActions">
-          <select class="uDayPick" data-dayfor="${p.id}" aria-label="Add ${esc(p.name)} to day"><option value="">Add to day…</option>${trip.days.map((d,i)=>`<option value="${i}">Day ${i+1}</option>`).join('')}</select>
-          <button class="btn sm" data-viewmap="${p.id}" title="View on map"><i class="fa-solid fa-map-location-dot"></i></button>
-          <button class="btn sm danger" data-unsave="${p.id}" title="Remove from saved"><i class="fa-solid fa-trash"></i></button>
+          <select class="uDayPick" data-dayfor="${esc(p.id)}" aria-label="Add ${esc(p.name)} to day"><option value="">Add to day…</option>${trip.days.map((d,i)=>`<option value="${esc(i)}">Day ${i+1}</option>`).join('')}</select>
+          <button class="btn sm" data-viewmap="${esc(p.id)}" title="View on map"><i class="fa-solid fa-map-location-dot"></i></button>
+          <button class="btn sm danger" data-unsave="${esc(p.id)}" title="Remove from saved"><i class="fa-solid fa-trash"></i></button>
         </div>
       </div>`).join('') : `<div class="empty">No unscheduled places match those filters. <button class="linklike" data-clearfilters="1">Clear filters</button></div>`;
 
@@ -3681,10 +5129,10 @@ function renderPackingTab(trip){
             ${trip.packing.filter(i=>i.category===cat).map(i=>`
               <div class="listRow">
                 <label class="left" style="cursor:pointer;flex:1">
-                  <input type="checkbox" data-pkcheck="${i.id}" ${i.checked?'checked':''}>
+                  <input type="checkbox" data-pkcheck="${esc(i.id)}" ${i.checked?'checked':''}>
                   <span style="${i.checked?'text-decoration:line-through;color:var(--muted)':''}">${esc(i.text)}</span>
                 </label>
-                <button class="btn sm danger" data-pkremove="${i.id}"><i class="fa-solid fa-trash"></i></button>
+                <button class="btn sm danger" data-pkremove="${esc(i.id)}"><i class="fa-solid fa-trash"></i></button>
               </div>`).join('')}
           </div>
         </div>`).join('')}
@@ -3742,7 +5190,7 @@ function openBookingModal(trip, bookingId){
   __bookingEditId = bookingId || null;
   const existing = bookingId ? tripBookings(trip).find(b=>b.id===bookingId) : null;
   $('bookingModalTitle').textContent = existing ? 'Edit booking' : 'Add booking';
-  $('bookingType').innerHTML = BOOKING_TYPES.map(([k,e,label])=>`<option value="${k}">${e} ${esc(label)}</option>`).join('');
+  $('bookingType').innerHTML = BOOKING_TYPES.map(([k,e,label])=>`<option value="${esc(k)}">${e} ${esc(label)}</option>`).join('');
   $('bookingType').value = existing ? existing.type : 'hotel';
   $('bookingTitle').value = existing ? existing.title : '';
   $('bookingConf').value = existing ? (existing.confirmation||'') : '';
@@ -3809,8 +5257,8 @@ function renderBookingsTab(trip){
             ${b.notes?`<p class="small" style="margin:6px 0 0">${esc(b.notes)}</p>`:''}
           </div>
           <div class="bkActions">
-            <button class="btn sm" data-bkedit="${b.id}">Edit</button>
-            <button class="btn sm danger" data-bkdel="${b.id}"><i class="fa-solid fa-trash"></i></button>
+            <button class="btn sm" data-bkedit="${esc(b.id)}">Edit</button>
+            <button class="btn sm danger" data-bkdel="${esc(b.id)}"><i class="fa-solid fa-trash"></i></button>
           </div>
         </div>`;
       }).join('')}</div>`
@@ -3896,7 +5344,7 @@ function renderTripProgress(trip){
       </button>`).join('')}
     </div>`;
   items.forEach(i=>{
-    const btn = el.querySelector(`[data-pkey="${i.key}"]`);
+    const btn = el.querySelector(`[data-pkey="${esc(i.key)}"]`);
     if(btn) btn.onclick = i.go;
   });
 }
@@ -3919,7 +5367,7 @@ function plannerMapSearch(trip){
 
 function renderPlannerItinerary(trip){
   plannerState.day = clamp(plannerState.day, 0, trip.days.length-1);
-  $('dayTabs2').innerHTML = trip.days.map((d,i)=>`<button class="dayTab ${i===plannerState.day?'active':''}" data-day="${i}">Day ${i+1}${trip.days.length>1?` <span class="rmDay" data-rmday="${i}">✕</span>`:''}</button>`).join('');
+  $('dayTabs2').innerHTML = trip.days.map((d,i)=>`<button class="dayTab ${i===plannerState.day?'active':''}" data-day="${esc(i)}">Day ${i+1}${trip.days.length>1?` <span class="rmDay" data-rmday="${esc(i)}">✕</span>`:''}</button>`).join('');
   $('dayTabs2').querySelectorAll('.dayTab').forEach(b=>b.onclick=(e)=>{ if(e.target.closest('[data-rmday]')) return; plannerState.day=Number(b.dataset.day); renderPlannerItinerary(trip); });
   $('dayTabs2').querySelectorAll('[data-rmday]').forEach(b=>b.onclick=(e)=>{
     e.stopPropagation();
@@ -3943,12 +5391,13 @@ function renderPlannerItinerary(trip){
   });
 
   const day = trip.days[plannerState.day];
-  $('dayToolbar').innerHTML = `<label class="small" style="font-weight:700">Date</label><input type="date" id="dayDateInput" value="${day.date}"><span class="small">${day.stops.length} stop${day.stops.length===1?'':'s'} · drag cards to reorder</span><button class="btn sm" id="dayNoteToggle" style="margin-left:auto"><i class="fa-regular fa-note-sticky"></i> Day note${day.note?' •':''}</button>`;
+  $('dayToolbar').innerHTML = `<label class="small" style="font-weight:700">Date</label><input type="date" id="dayDateInput" value="${esc(day.date)}"><span class="small">${day.stops.length} stop${day.stops.length===1?'':'s'} · drag cards to reorder</span><button class="btn sm" id="dayNoteToggle" style="margin-left:auto"><i class="fa-regular fa-note-sticky"></i> Day note${day.note?' •':''}</button>`;
   $('dayDateInput').onchange = (e)=>{ day.date = e.target.value; saveState(); toast('Day date updated.'); };
   $('dayNoteToggle').onclick = ()=>$('dayNoteBox').classList.toggle('hidden');
 
   renderWeatherForDay(trip, day);
   renderDayNote(trip, day);
+  renderLoadWarning(trip, day);
   renderConflictWarning(trip, day);
   renderRouteWarning(trip, day);
   renderTimeline(trip, day);
@@ -4032,7 +5481,7 @@ function renderWeatherForDay(trip, day){
         return `<div class="weatherAdvice">
           <b>⚠️ ${w.rain}% chance of rain, and ${outdoor.length} of today's stops are outdoors.</b>
           ${alts.length ? `<p class="small" style="margin:5px 0 7px">Indoor options in ${esc(dest.name)} you could swap in:</p>
-            <div class="altRow">${alts.map(p=>`<button class="btn sm" data-altadd="${p.id}">+ ${esc(p.name)}</button>`).join('')}</div>`
+            <div class="altRow">${alts.map(p=>`<button class="btn sm" data-altadd="${esc(p.id)}">+ ${esc(p.name)}</button>`).join('')}</div>`
           : `<p class="small" style="margin:5px 0 0">Worth packing a rain layer — there aren't obvious indoor swaps in this destination's places yet.</p>`}
         </div>`;
       })() : ''}`;
@@ -4058,6 +5507,25 @@ function detectTimeConflicts(day){
   }
   return conflicts;
 }
+/** Says when a day has stopped being a holiday. The stats strip has always shown "11 stops ·
+ *  38.4 km" without ever suggesting that is too much, and a traveller reading their own
+ *  itinerary has no way to know what a reasonable day looks like in a city they have not
+ *  visited. Judged against their chosen pace, and every line carries the measured figure. */
+function renderLoadWarning(trip, day){
+  const el = $('loadWarning');
+  if(!el) return;
+  if(typeof assessDayLoad !== 'function'){ el.classList.add('hidden'); el.innerHTML = ''; return; }
+  const prefs = (typeof loadTripPreferences === 'function') ? loadTripPreferences() : null;
+  const load = assessDayLoad(day, prefs);
+  if(load.level === 'ok'){ el.classList.add('hidden'); el.innerHTML = ''; return; }
+  el.classList.remove('hidden');
+  el.innerHTML = `<div><strong>${load.level === 'overloaded' ? 'This day looks overloaded' : 'This day is busy'}</strong>
+    <div class="small">${load.issues.map(i => esc(i.text)).join(' ')}</div></div>
+    <button class="btn sm" id="loadWarnOptimize">Reorder to cut travel</button>`;
+  const btn = $('loadWarnOptimize');
+  if(btn) btn.onclick = ()=>openOptimizeModal(trip, plannerState.day);
+}
+
 function renderConflictWarning(trip, day){
   const el = $('conflictWarning');
   if(!el) return;
@@ -4095,14 +5563,14 @@ function renderDayNote(trip, day){
 function stopHTML(s, i, total, destName){
   const showTransit = i < total-1;
   return `
-  <div class="stop" draggable="true" data-idx="${i}" data-stopid="${s.id}">
+  <div class="stop" draggable="true" data-idx="${esc(i)}" data-stopid="${esc(s.id)}">
     <div class="stopTop">
-      <div class="stopThumb"><img src="${s.image}" alt="" data-photo-q="${esc(photoQuery(s.name, destName))}"><span class="num ${s.type}">${i+1}</span></div>
+      <div class="stopThumb"><img src="${safeImageUrl(s.image)}" alt="" data-photo-q="${esc(photoQuery(s.name, destName))}"><span class="num ${s.type}">${i+1}</span></div>
       <div class="stopBody">
         <h4>${esc(s.name)}</h4>
         <p>${esc(s.category||'')}${s.area?' · '+esc(s.area):''}</p>
         <div class="stopMeta">
-          <input class="stopTimeInput" type="time" value="${s.time}" data-time="${s.id}">
+          <input class="stopTimeInput" type="time" value="${esc(s.time)}" data-time="${esc(s.id)}">
           <span>${s.cost?fmt$(s.cost):'Free'}</span>
           ${s.rating?`<span>★ ${s.rating}</span>`:''}
         </div>
@@ -4112,17 +5580,17 @@ function stopHTML(s, i, total, destName){
           <button class="voteBtn ${s.votes.userVoted==='skip'?'active':''}" data-vote="${s.id}::skip">❌ ${s.votes.skip}</button>
         </div>
         <div class="stopActions">
-          <button class="btn sm" data-note="${s.id}"><i class="fa-regular fa-note-sticky"></i> Note</button>
-          <button class="btn sm" data-comment="${s.id}"><i class="fa-regular fa-comment"></i> Comment${s.comments.length?` (${s.comments.length})`:''}</button>
+          <button class="btn sm" data-note="${esc(s.id)}"><i class="fa-regular fa-note-sticky"></i> Note</button>
+          <button class="btn sm" data-comment="${esc(s.id)}"><i class="fa-regular fa-comment"></i> Comment${s.comments.length?` (${s.comments.length})`:''}</button>
           <a class="btn sm" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.name)}"><i class="fa-solid fa-diamond-turn-right"></i> Directions</a>
-          <button class="btn sm danger" data-rm="${s.id}"><i class="fa-solid fa-trash"></i> Remove</button>
+          <button class="btn sm danger" data-rm="${esc(s.id)}"><i class="fa-solid fa-trash"></i> Remove</button>
         </div>
-        <div class="noteBox ${s.note?'':'hidden'}" data-notebox="${s.id}">
-          <div class="stopNote"><textarea placeholder="Add a note for this stop…">${esc(s.note||'')}</textarea><button class="btn sm primary" data-savenote="${s.id}">Save</button></div>
+        <div class="noteBox ${s.note?'':'hidden'}" data-notebox="${esc(s.id)}">
+          <div class="stopNote"><textarea placeholder="Add a note for this stop…">${esc(s.note||'')}</textarea><button class="btn sm primary" data-savenote="${esc(s.id)}">Save</button></div>
         </div>
-        <div class="commentThread hidden" data-thread="${s.id}">
+        <div class="commentThread hidden" data-thread="${esc(s.id)}">
           ${s.comments.map(c=>`<div class="commentRow"><b>${esc(c.author)}:</b> ${esc(c.text)}</div>`).join('')}
-          <div class="shareRow" style="margin-top:6px"><input placeholder="Add a comment…" data-commentinput="${s.id}"><button class="btn sm primary" data-postcomment="${s.id}">Post</button></div>
+          <div class="shareRow" style="margin-top:6px"><input placeholder="Add a comment…" data-commentinput="${esc(s.id)}"><button class="btn sm primary" data-postcomment="${esc(s.id)}">Post</button></div>
         </div>
       </div>
     </div>
@@ -4133,7 +5601,7 @@ function transitRowHTML(s){
   const modes = ['Walk','Taxi','Transit','Drive'];
   return `<div class="transitRow">
     <i class="fa-solid fa-shoe-prints"></i>
-    <select data-transitmode="${s.id}">${modes.map(m=>`<option ${s.transitToNext.mode===m?'selected':''}>${m}</option>`).join('')}</select>
+    <select data-transitmode="${esc(s.id)}">${modes.map(m=>`<option ${s.transitToNext.mode===m?'selected':''}>${m}</option>`).join('')}</select>
     <span>~${s.transitToNext.mins} min to next stop</span>
   </div>`;
 }
@@ -4162,6 +5630,10 @@ function wireStopEvents(trip, day){
       recomputeDayTimes(day);
       saveState();
       renderTimeline(trip, day); renderPlannerMap(trip, day); renderPlannerStats(trip, day);
+      // Reordering is exactly what creates and clears these, and none of them were being
+      // redrawn: a "you are zigzagging" banner survived the drag that fixed it, and a day
+      // dragged into a clash showed nothing at all.
+      renderLoadWarning(trip, day); renderConflictWarning(trip, day); renderRouteWarning(trip, day);
       toast('Reordered — times updated to match.');
     });
   });
@@ -4176,16 +5648,16 @@ function wireStopEvents(trip, day){
     else{ if(s.votes.userVoted) s.votes[s.votes.userVoted]--; s.votes[kind]++; s.votes.userVoted=kind; }
     saveState(); renderTimeline(trip, day);
   });
-  el.querySelectorAll('[data-note]').forEach(b=>b.onclick=()=>el.querySelector(`[data-notebox="${b.dataset.note}"]`).classList.toggle('hidden'));
+  el.querySelectorAll('[data-note]').forEach(b=>b.onclick=()=>el.querySelector(`[data-notebox="${esc(b.dataset.note)}"]`).classList.toggle('hidden'));
   el.querySelectorAll('[data-savenote]').forEach(b=>b.onclick=()=>{
     const s = day.stops.find(x=>x.id===b.dataset.savenote);
-    s.note = el.querySelector(`[data-notebox="${s.id}"] textarea`).value.trim();
+    s.note = el.querySelector(`[data-notebox="${esc(s.id)}"] textarea`).value.trim();
     saveState(); renderTimeline(trip, day); toast('Note saved.');
   });
-  el.querySelectorAll('[data-comment]').forEach(b=>b.onclick=()=>el.querySelector(`[data-thread="${b.dataset.comment}"]`).classList.toggle('hidden'));
+  el.querySelectorAll('[data-comment]').forEach(b=>b.onclick=()=>el.querySelector(`[data-thread="${esc(b.dataset.comment)}"]`).classList.toggle('hidden'));
   el.querySelectorAll('[data-postcomment]').forEach(b=>b.onclick=()=>{
     const s = day.stops.find(x=>x.id===b.dataset.postcomment);
-    const inp = el.querySelector(`[data-commentinput="${s.id}"]`);
+    const inp = el.querySelector(`[data-commentinput="${esc(s.id)}"]`);
     const text = inp.value.trim();
     if(!text) return;
     s.comments.push({author:'You', text, ts:Date.now()});
@@ -4215,11 +5687,16 @@ function openAddPlaceSearch(trip){
   function render(q){
     let arr = PLACES.filter(p=>p.destId===dest.id && !usedIds.has(p.id));
     if(q) arr = arr.filter(p=>p.name.toLowerCase().includes(q.toLowerCase()));
-    arr = arr.slice().sort((a,b)=>(b.rating||b.guestRating||0)-(a.rating||a.guestRating||0)).slice(0,25);
+    // Nothing carries a rating any more, so order by what is actually known: how complete
+    // the record is, then alphabetically, which is at least predictable to search in.
+    arr = arr.slice().sort((a,b)=>
+      ((typeof placeCompleteness === 'function' ? placeCompleteness(b) : 0) -
+       (typeof placeCompleteness === 'function' ? placeCompleteness(a) : 0))
+      || String(a.name).localeCompare(String(b.name))).slice(0,25);
     $('addToTripBody').innerHTML = `
       <input id="addPlaceSearchInput" placeholder="Search attractions, restaurants, hotels…" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;margin-bottom:12px;font-weight:600;background:var(--surface2);color:var(--ink)" value="${esc(q||'')}">
       <div class="list" style="max-height:360px;overflow:auto">
-        ${arr.length? arr.map(p=>`<div class="listRow"><div class="left"><img src="${p.image}" style="width:38px;height:38px;border-radius:8px;object-fit:cover;flex-shrink:0" data-photo-q="${esc(photoQuery(p.name, dest.name))}"><div><div>${esc(p.name)}</div><div class="small">${catEmoji(p.type)} ${esc(p.category||p.cuisine||'Hotel')} · ★ ${p.rating||p.guestRating}</div></div></div><button class="btn primary sm" data-quickadd="${p.id}">＋ Add</button></div>`).join('') : '<div class="empty">No matching places.</div>'}
+        ${arr.length? arr.map(p=>`<div class="listRow"><div class="left"><img src="${safeImageUrl(p.image)}" style="width:38px;height:38px;border-radius:8px;object-fit:cover;flex-shrink:0" data-photo-q="${esc(photoQuery(p.name, dest.name))}"><div><div>${esc(p.name)}</div><div class="small">${catEmoji(p.type)} ${esc(p.category||p.cuisine||'Hotel')}${p.area?' · '+esc(p.area):''}</div></div></div><button class="btn primary sm" data-quickadd="${esc(p.id)}">＋ Add</button></div>`).join('') : '<div class="empty">No matching places.</div>'}
       </div>`;
     $('addPlaceSearchInput').oninput = debounce(e=>render(e.target.value),150);
     $('addToTripBody').querySelectorAll('[data-quickadd]').forEach(b=>b.onclick=()=>{
@@ -4301,7 +5778,7 @@ function renderPlannerMapInner(trip, day){
     if(plottable.length>GMAPS_MAX_WAYPOINTS) note = `Showing route for the first ${GMAPS_MAX_WAYPOINTS} of ${plottable.length} stops.`;
   }
   $('map2').innerHTML = navigator.onLine===false ? mapUnavailableHTML()
-    : `<iframe id="map2Frame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen src="${src}"></iframe>`;
+    : `<iframe id="map2Frame" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allowfullscreen src="${esc(src)}"></iframe>`;
   window.__plannerMapDest = dest;
   const legends = [['attraction','Attractions','var(--cat-attraction)'],['restaurant','Restaurants','var(--cat-restaurant)'],['hotel','Hotels','var(--cat-hotel)']];
   $('mapLegend2').innerHTML = legends.map(([k,l,c])=>`<span class="legend"><span class="legendDot" style="background:${c}"></span>${l}</span>`).join('') + (note?`<span class="small" style="margin-left:auto">${esc(note)}</span>`:'');
@@ -4322,7 +5799,7 @@ function openOptimizeModal(trip, dayIdx){
   const distBefore = totalDistance(before), distAfter = totalDistance(optimized);
   window.__optimizePending = {trip, dayIdx, optimized};
   $('optimizeBody').innerHTML = `
-    <div class="sectionGrid" style="grid-template-columns:1fr 1fr">
+    <div class="sectionGrid cols2">
       <div class="card"><h3>Before <span class="small">(${distBefore.toFixed(1)} km)</span></h3>${before.map((s,i)=>`<div class="small" style="margin:4px 0">${i+1}. ${esc(s.name)}</div>`).join('')}</div>
       <div class="card"><h3>After <span class="small">(${distAfter.toFixed(1)} km)</span></h3>${optimized.map((s,i)=>`<div class="small" style="margin:4px 0">${i+1}. ${esc(s.name)}</div>`).join('')}</div>
     </div>
@@ -4348,17 +5825,41 @@ function initOptimizeModal(){
 const EXPENSE_CATS = ['Flights','Hotels','Food','Activities','Transportation','Miscellaneous'];
 const CAT_ICONS = {Flights:'✈️',Hotels:'🏨',Food:'🍜',Activities:'🎟️',Transportation:'🚇',Miscellaneous:'🛍️'};
 function renderBudgetTab(trip){
-  $('budgetStyleRow').innerHTML = ['budget','moderate','luxury'].map(s=>`<button class="styleBtn ${trip.budget.style===s?'active':''}" data-style="${s}">${s.charAt(0).toUpperCase()+s.slice(1)}</button>`).join('');
+  $('budgetStyleRow').innerHTML = ['budget','moderate','luxury'].map(s=>`<button class="styleBtn ${trip.budget.style===s?'active':''}" data-style="${esc(s)}">${s.charAt(0).toUpperCase()+s.slice(1)}</button>`).join('');
   $('budgetStyleRow').querySelectorAll('[data-style]').forEach(b=>b.onclick=()=>{
     trip.budget.style = b.dataset.style;
     const dest = destForTrip(trip);
-    trip.budget.total = Math.round(dest.avgDailyBudget[b.dataset.style]*trip.days.length*trip.travelers);
+    const styled = destDailyBudget(dest, b.dataset.style);
+    trip.budget.total = styled == null ? trip.budget.total
+      : Math.round(styled * trip.days.length * trip.travelers);
     saveState();
     toast(`Budget style set to ${b.dataset.style} — suggested total is now ${fmt$(trip.budget.total)}.`);
     renderBudgetTab(trip);
   });
 
   const planned = tripPlannedTotal(trip);
+  const dest2 = destForTrip(trip);
+  const cost = tripCostBreakdown(trip, dest2);
+  /* Say where the target came from and how much of the itinerary is actually priced.
+   *
+   * The two numbers above look like a measurement of this trip and only one of them is. The
+   * target is a per-day estimate multiplied out; the "planned" figure is the handful of stops
+   * that published a price, and it was reading $0 because every unpriced stop counted as free.
+   * A traveller comparing them deserves to know which is which. */
+  const basis = $('budgetBasis');
+  if(basis){
+    const bits = [];
+    if(cost.perDay != null){
+      bits.push(`Target is ${esc(fmt$(cost.perDay))} a day × ${cost.days} ${cost.days===1?'day':'days'} × ${cost.travelers} ${cost.travelers===1?'traveller':'travellers'}` +
+        (cost.estimated ? `, estimated from World Bank price levels for ${esc(dest2.country || 'this country')} — a guide, not a quote.` : '.'));
+    } else {
+      bits.push(`We have no daily cost estimate for ${esc(dest2.country || dest2.name)}, so the target below is yours to set.`);
+    }
+    if(cost.unpriced){
+      bits.push(`${cost.priced} of ${cost.priced + cost.unpriced} stops publish a price; the other ${cost.unpriced} do not, so "costs recorded so far" is a floor, not the trip's cost. Add expenses as you book to make it real.`);
+    }
+    basis.innerHTML = bits.map(b => `<div>${b}</div>`).join('');
+  }
   $('budgetTotal2').textContent = fmt$(trip.budget.total);
   $('budgetPlanned2').textContent = fmt$(planned);
   $('budgetRemaining2').textContent = fmt$(Math.max(0, trip.budget.total-planned));
@@ -4378,7 +5879,7 @@ function renderBudgetTab(trip){
 
   $('expenseList').innerHTML = trip.budget.expenses.length ? trip.budget.expenses.map(e=>`
     <div class="listRow"><div class="left"><span>${CAT_ICONS[e.cat]||'💵'}</span><div><div>${esc(e.desc)}</div><div class="small">${esc(e.cat)}</div></div></div>
-    <div style="display:flex;align-items:center;gap:10px"><strong>${fmt$(e.amount)}</strong><button class="btn sm danger" data-rmexp="${e.id}">Remove</button></div></div>`).join('')
+    <div style="display:flex;align-items:center;gap:10px"><strong>${fmt$(e.amount)}</strong><button class="btn sm danger" data-rmexp="${esc(e.id)}">Remove</button></div></div>`).join('')
     : '<div class="empty">No manual expenses yet — itinerary stops are counted automatically above.</div>';
   $('expenseList').querySelectorAll('[data-rmexp]').forEach(b=>b.onclick=()=>{
     trip.budget.expenses = trip.budget.expenses.filter(e=>e.id!==b.dataset.rmexp);
@@ -4546,7 +6047,7 @@ function renderPollList(trip){
       return `<div class="pollCard">
         <div class="pollHead">
           <h4>${esc(p.question)}</h4>
-          <button class="btn sm danger" data-polldel="${p.id}"><i class="fa-solid fa-trash"></i></button>
+          <button class="btn sm danger" data-polldel="${esc(p.id)}"><i class="fa-solid fa-trash"></i></button>
         </div>
         <div class="small" style="margin-bottom:9px">${total} vote${total===1?'':'s'}${total?'':' yet'}</div>
         ${p.options.map(o=>{
@@ -4723,7 +6224,7 @@ function openApiKeysModal(){
         ${current ? '<span class="keyOn">connected</span>' : '<span class="keyOff">not connected</span>'}
       </div>
       <p class="small" style="margin:2px 0 7px">${esc(p.role)}</p>
-      <input type="password" autocomplete="off" spellcheck="false" data-key="${p.id}"
+      <input type="password" autocomplete="off" spellcheck="false" data-key="${esc(p.id)}"
              placeholder="Paste key — leave blank to remove" value="${esc(current)}">
       <p class="small keyWhere">Free key from <b>${esc(p.where)}</b>${p.hint?` · ${esc(p.hint)}`:''}</p>
     </div>`;
@@ -4906,6 +6407,9 @@ function makeDayRelaxed(day){
    INIT
 ============================================================ */
 function init(){
+  // A load failure happens before any save, so the banner has to be raised here too — otherwise
+  // an unreadable record is silent until the first edit.
+  renderStorageBanner();
   applyTheme();
   initTopbar();
   initHero();
@@ -4921,6 +6425,7 @@ function init(){
   initApiKeysModal();
   initEditBudgetModal();
   initCustomizeModal();
+  initTripPreferences();
   initAI();
   renderNotifications();
   route();
